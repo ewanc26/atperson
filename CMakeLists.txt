@@ -58,7 +58,16 @@ if(ATPERSON_BUILD_NETWORK)
   FetchContent_Declare(
     wolfram
     GIT_REPOSITORY https://github.com/ewanc26/wolfram.git
-    GIT_TAG 9e63f76ab0b4f97f2cb5c62a5d0129b3d9023917)
+    GIT_TAG 9e63f76ab0b4f97f2cb5c62a5d0129b3d9023917
+    # wolfram-src/cpp/CMakeLists.txt uses ${CMAKE_SOURCE_DIR} (the top-level
+    # project) to locate Wolfram's public headers. Under FetchContent that is
+    # atperson, so the generated_owners.hpp codegen step would scan a
+    # non-existent include/wolfram. Rewrite those references to the actual
+    # Wolfram source dir.
+    PATCH_COMMAND
+      ${CMAKE_COMMAND} -DWOLFRAM_SRC_DIR=${FETCHCONTENT_BASE_DIR}/wolfram-src
+      -DWOLFRAM_CPP_CMAKE=${FETCHCONTENT_BASE_DIR}/wolfram-src/cpp/CMakeLists.txt
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/wolfram-cpp-source-dir.cmake)
   FetchContent_MakeAvailable(wolfram)
 
   add_executable(
