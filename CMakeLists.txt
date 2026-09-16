@@ -30,7 +30,12 @@ add_library(
   src/core/context.c
   src/core/bootstrap.c
   src/core/neural.c
-  src/core/ledger/api.c
+  src/core/ledger/lifecycle.c
+  src/core/ledger/commit.c
+  src/core/ledger/append.c
+  src/core/ledger/outcome.c
+  src/core/ledger/query.c
+  src/core/ledger/compact.c
   src/core/ledger/format.c
   src/core/ledger/off.c
   src/core/ledger/index.c
