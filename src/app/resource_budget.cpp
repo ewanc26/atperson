@@ -139,16 +139,34 @@ ResourceBudget derive_resource_budget(const SystemResources &system,
     budget.memory_pressure =
         available_memory <= budget.memory_reserve_bytes || budget.memory_growth_budget_bytes < 16u * MIB;
 
-    budget.disk_reserve_bytes = overrides.disk_reserve_bytes.value_or(
-        automatic_disk_reserve(system.disk_capacity_bytes));
-    if (system.disk_capacity_bytes != 0u &&
-        budget.disk_reserve_bytes > system.disk_capacity_bytes) {
-        throw std::runtime_error("ATPERSON_DISK_RESERVE_BYTES exceeds filesystem capacity");
+    bool have_disk = false;
+    const auto consider_disk = [&](const std::filesystem::path &path, std::uint64_t capacity,
+                                   std::uint64_t available) {
+        const std::uint64_t reserve =
+            overrides.disk_reserve_bytes.value_or(automatic_disk_reserve(capacity));
+        if (capacity != 0u && reserve > capacity) {
+            throw std::runtime_error(
+                "ATPERSON_DISK_RESERVE_BYTES exceeds filesystem capacity for " + path.string());
+        }
+        const std::uint64_t write_budget = subtract_floor(available, reserve) / 2u;
+        if (!have_disk || write_budget < budget.disk_write_budget_bytes) {
+            have_disk = true;
+            budget.limiting_disk_path = path;
+            budget.limiting_disk_capacity_bytes = capacity;
+            budget.limiting_disk_available_bytes = available;
+            budget.disk_reserve_bytes = reserve;
+            budget.disk_write_budget_bytes = write_budget;
+        }
+    };
+
+    if (!system.filesystems.empty()) {
+        for (const auto &filesystem : system.filesystems) {
+            consider_disk(filesystem.path, filesystem.capacity_bytes, filesystem.available_bytes);
+        }
+    } else {
+        consider_disk({}, system.disk_capacity_bytes, system.disk_available_bytes);
     }
-    const std::uint64_t disk_headroom =
-        subtract_floor(system.disk_available_bytes, budget.disk_reserve_bytes);
-    budget.disk_write_budget_bytes = disk_headroom / 2u;
-    budget.disk_pressure = budget.disk_write_budget_bytes < 16u * MIB;
+    budget.disk_pressure = !have_disk || budget.disk_write_budget_bytes < 16u * MIB;
 
     const std::uint64_t node_budget = budget.memory_growth_budget_bytes * 3u / 10u;
     const std::uint64_t edge_budget = budget.memory_growth_budget_bytes - node_budget;
