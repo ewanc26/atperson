@@ -1,6 +1,8 @@
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
 #include "atproto_client.hpp"
+#include "ingestion_state.hpp"
+#include "sync_engine.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -15,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace {
 
@@ -33,111 +36,41 @@ std::string required_env(const char *name) {
     return value;
 }
 
+/* Default data directory: $ATPERSON_HOME, else ~/.ewanc26/atperson. Falls
+ * back to ".atperson" relative to the working directory only when no home
+ * directory can be determined. */
+std::filesystem::path data_dir() {
+    if (const std::string home = env_or("ATPERSON_HOME"); !home.empty()) {
+        return home;
+    }
+    const char *home = std::getenv("HOME");
+    if (home && home[0] != '\0') {
+        return std::filesystem::path(home) / ".ewanc26" / "atperson";
+    }
+    return ".atperson";
+}
+
 std::filesystem::path state_path() {
-    return env_or("ATPERSON_STATE", ".atperson/model.bin");
+    return env_or("ATPERSON_STATE", (data_dir() / "model.bin").string());
 }
 
 std::filesystem::path ledger_path() {
-    return env_or("ATPERSON_LEDGER", ".atperson/ledger.bin");
+    return env_or("ATPERSON_LEDGER", (data_dir() / "ledger.bin").string());
 }
 
-/* Parse an RFC 3339 timestamp ("YYYY-MM-DDTHH:MM:SS[.frac][Z|±HH:MM]") to Unix
- * epoch seconds. Returns nullopt for anything that is not a full, valid
- * instant so callers can fall back to an explicit "unknown" value.
- *
- * Parsed by hand rather than std::chrono::parse, which is not yet implemented
- * by the platform's standard library. The day-of-month conversion uses the
- * days-from-civil algorithm so it stays pure C++ with no time-zone
- * dependencies. */
-std::optional<std::uint64_t> parse_rfc3339_epoch(std::string_view value) {
-    if (value.size() < 19u) {
-        return std::nullopt;
-    }
-    for (std::size_t i = 0u; i < 19u; ++i) {
-        const bool digit = value[i] >= '0' && value[i] <= '9';
-        const bool separator = i == 4u || i == 7u || i == 13u || i == 16u;
-        if (!digit && !(separator && value[i] == '-') && !(i == 10u && value[i] == 'T')) {
-            return std::nullopt;
-        }
-    }
-
-    int year = 0;
-    int month = 0;
-    int day = 0;
-    int hour = 0;
-    int minute = 0;
-    int second = 0;
-    if (std::sscanf(std::string(value.substr(0u, 19u)).c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &year,
-                    &month, &day, &hour, &minute, &second) != 6) {
-        return std::nullopt;
-    }
-    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) {
-        return std::nullopt;
-    }
-
-    std::size_t position = 19u;
-    if (position < value.size() && value[position] == '.') {
-        ++position;
-        while (position < value.size() && value[position] >= '0' && value[position] <= '9') {
-            ++position;
-        }
-    }
-
-    long offset_seconds = 0;
-    if (position < value.size()) {
-        const char zone = value[position];
-        if (zone == 'Z' || zone == 'z') {
-            ++position;
-        } else if (zone == '+' || zone == '-') {
-            if (position + 6u > value.size() || value[position + 3u] != ':') {
-                return std::nullopt;
-            }
-            long hours = 0;
-            long minutes = 0;
-            try {
-                hours = std::stol(std::string(value.substr(position + 1u, 2u)));
-                minutes = std::stol(std::string(value.substr(position + 4u, 2u)));
-            } catch (const std::exception &) {
-                return std::nullopt;
-            }
-            if (hours > 23 || minutes > 59) {
-                return std::nullopt;
-            }
-            offset_seconds = hours * 3600 + minutes * 60;
-            if (zone == '-') {
-                offset_seconds = -offset_seconds;
-            }
-            position += 6u;
-        } else {
-            return std::nullopt;
-        }
-    }
-    if (position != value.size()) {
-        return std::nullopt;
-    }
-
-    const std::int64_t adjusted_month =
-        month > 2 ? static_cast<std::int64_t>(month) : static_cast<std::int64_t>(month + 12);
-    const std::int64_t adjusted_year = year - (month > 2 ? 0 : 1);
-    const std::int64_t era = adjusted_year >= 0 ? adjusted_year / 400 : (adjusted_year - 399) / 400;
-    const std::int64_t year_of_era = adjusted_year - era * 400;
-    const std::int64_t day_of_year =
-        (153 * (adjusted_month > 2 ? adjusted_month - 3 : adjusted_month + 9) + 2) / 5 + day - 1;
-    const std::int64_t day_of_era =
-        year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    const std::int64_t epoch_days = era * 146097 + day_of_era - 719468;
-    const std::int64_t local_seconds = epoch_days * 86400 + static_cast<std::int64_t>(hour) * 3600 +
-                                       static_cast<std::int64_t>(minute) * 60 + second;
-    const std::int64_t epoch = local_seconds - offset_seconds;
-    if (epoch < 0) {
-        return std::nullopt;
-    }
-    return static_cast<std::uint64_t>(epoch);
+std::filesystem::path ingestion_state_path() {
+    return env_or("ATPERSON_INGESTION_STATE",
+                  (data_dir() / "ingestion-state.json").string());
 }
 
 atperson::LanguageGraph load_or_create(const std::filesystem::path &path) {
     if (std::filesystem::exists(path)) {
         return atperson::LanguageGraph::load(path);
+    }
+    /* First run: make sure the data directory exists before anything saves. */
+    if (const auto parent = path.parent_path(); !parent.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(parent, ec);
     }
     return atperson::LanguageGraph();
 }
@@ -163,12 +96,18 @@ void usage(std::ostream &out) {
         << "  atperson candidates <context> [limit]\n"
         << "  atperson familiarity <token>\n"
         << "  atperson recall <query> [limit]\n"
-        << "  atperson sync [limit]\n\n"
+        << "  atperson sync [max-pages]\n"
+        << "  atperson cursor [status|reset]\n\n"
         << "environment:\n"
-        << "  ATPERSON_STATE         model snapshot path "
-           "(default .atperson/model.bin)\n"
-        << "  ATPERSON_LEDGER        observation ledger path "
-           "(default .atperson/ledger.bin)\n"
+        << "  ATPERSON_STATE            model snapshot path "
+           "(default ~/.ewanc26/atperson/model.bin)\n"
+        << "  ATPERSON_LEDGER           observation ledger path "
+           "(default ~/.ewanc26/atperson/ledger.bin)\n"
+        << "  ATPERSON_INGESTION_STATE  ingestion cursor path "
+           "(default ~/.ewanc26/atperson/ingestion-state.json)\n"
+        << "  ATPERSON_HOME             data directory override "
+           "(default ~/.ewanc26/atperson)\n"
+        << "  ATPERSON_SYNC_PAGE_SIZE   items per timeline page (default 50)\n"
         << "  ATPERSON_SERVICE       PDS/service URL "
            "(default https://bsky.social)\n"
         << "  ATPERSON_IDENTIFIER    handle or email for sync\n"
@@ -296,7 +235,7 @@ int main(int argc, char **argv) {
         }
 
         if (command == "sync") {
-            const int limit = argc >= 3 ? parse_limit(argv[2], 50) : 50;
+            const int max_pages = argc >= 3 ? parse_limit(argv[2], 1) : 1;
             atperson::AtprotoClient client(env_or("ATPERSON_SERVICE", "https://bsky.social"),
                                            required_env("ATPERSON_IDENTIFIER"),
                                            required_env("ATPERSON_APP_PASSWORD"));
@@ -307,64 +246,80 @@ int main(int argc, char **argv) {
             }
             atperson::Ledger ledger(ledger_dir);
 
-            const auto observations = client.fetch_timeline(limit);
-            std::size_t learned = 0u;
-            std::size_t remembered = 0u;
-            std::size_t skipped = 0u;
-            std::size_t duplicates = 0u;
-            for (const auto &observation : observations) {
-                const auto source_id = static_cast<std::string>(observation.source_uri);
-                const std::uint64_t digest = atperson::Ledger::digest(observation.text);
-                const std::uint64_t observed_at =
-                    parse_rfc3339_epoch(observation.created_at).value_or(0u);
+            const std::filesystem::path state_file = ingestion_state_path();
+            auto ingestion = atperson::load_ingestion_state(
+                state_file, env_or("ATPERSON_SERVICE", "https://bsky.social"),
+                client.account_did());
 
-                // Record the post durably before training so a restarted
-                // process can never re-train on it: on restart the ledger is
-                // the authority for what has already been committed.
-                std::uint64_t id = 0u;
-                const auto result =
-                    ledger.append(source_id, observation.author_did, observed_at, digest,
-                                  ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_PENDING, &id);
-                if (result == atperson::LedgerResult::ExistsCommitted) {
-                    duplicates++;
-                    continue;
-                }
+            atperson::SyncLimits limits;
+            limits.page_size = std::stoi(env_or("ATPERSON_SYNC_PAGE_SIZE", "50"));
+            limits.max_pages = max_pages;
 
-                const bool trainable = !observation.text.empty();
-                const auto outcome =
-                    trainable ? ATP_LEDGER_OUTCOME_LEARNED : ATP_LEDGER_OUTCOME_SKIPPED;
-                if (trainable) {
-                    if (graph.remember(observation.text, source_id, observation.author_did,
-                                       observed_at, digest, ATPERSON_SCHEMA_VERSION, id)) {
-                        remembered++;
+            const auto fetch_page = [&client, &limits](
+                                        const std::optional<std::string> &cursor) {
+                try {
+                    return client.fetch_timeline_page(cursor, limits.page_size);
+                } catch (const atperson::TimelineHttpError &) {
+                    if (cursor) {
+                        // The service rejected the persisted cursor. It is a
+                        // disposable fetching checkpoint, not learned state:
+                        // reset to the head and let ledger dedup suppress
+                        // anything already committed.
+                        std::cerr << "atperson: saved cursor rejected by the service; "
+                                     "resetting to the timeline head\n";
+                        return client.fetch_timeline_page(std::nullopt, limits.page_size);
                     }
-                    learned++;
-                } else {
-                    skipped++;
+                    throw;
                 }
-                ledger.set_outcome(id, outcome);
+            };
 
-                atp_ledger_entry entry = {};
-                entry.id = id;
-                entry.observed_at = observed_at;
-                entry.content_digest = digest;
-                entry.schema_version = ATPERSON_SCHEMA_VERSION;
-                entry.outcome = outcome;
-                std::memcpy(entry.source_id, source_id.data(), source_id.size());
-                entry.source_id[source_id.size()] = '\0';
-                const std::size_t author_len =
-                    observation.author_did.size() < sizeof(entry.author_did) - 1u
-                        ? observation.author_did.size()
-                        : sizeof(entry.author_did) - 1u;
-                std::memcpy(entry.author_did, observation.author_did.data(), author_len);
-                entry.author_did[author_len] = '\0';
-                graph.record_ledger_entry(entry);
-            }
+            const auto result = atperson::run_sync(graph, ledger, ingestion, fetch_page,
+                                                   limits);
 
             graph.save(path);
-            std::cout << "learned from " << learned << " (remembered " << remembered << ", skipped "
-                      << skipped << ", duplicate " << duplicates << ") public timeline posts\n";
+            ingestion.checkpoint.generation++;
+            atperson::save_ingestion_state(ingestion, state_file);
+            std::cout << "completed " << result.pages_completed << " page(s), "
+                      << result.observations_seen << " observation(s)"
+                      << (result.exhausted ? ", timeline exhausted" : ", catch-up pending")
+                      << "; learned from " << result.learned << " (skipped "
+                      << result.skipped << ", duplicate " << result.duplicates
+                      << ") public timeline posts\n";
             print_stats(graph);
+            return 0;
+        }
+
+        if (command == "cursor") {
+            const std::string sub = argc >= 3 ? argv[2] : "status";
+            if (sub != "status" && sub != "reset") {
+                usage(std::cerr);
+                return 2;
+            }
+            const std::filesystem::path state_file = ingestion_state_path();
+            const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
+            /* Status and reset both bind to the current session so a stale
+             * cursor from another account is neither shown nor reused. */
+            atperson::AtprotoClient client(service, required_env("ATPERSON_IDENTIFIER"),
+                                           required_env("ATPERSON_APP_PASSWORD"));
+
+            auto state = atperson::load_ingestion_state(state_file, service,
+                                                        client.account_did());
+            if (sub == "reset") {
+                atperson::reset_ingestion_state(state);
+                state.checkpoint.generation++;
+                atperson::save_ingestion_state(state, state_file);
+                std::cout << "ingestion cursor reset; next sync starts at the timeline head\n";
+                return 0;
+            }
+
+            std::cout << "source: " << state.source.kind << " " << state.source.service
+                      << " " << state.source.account_did << " " << state.source.endpoint
+                      << '\n'
+                      << "catch-up: "
+                      << (state.catchup.active ? "active" : "inactive") << '\n'
+                      << "checkpoint: generation " << state.checkpoint.generation
+                      << ", pages " << state.checkpoint.pages_completed << ", observations "
+                      << state.checkpoint.observations_seen << '\n';
             return 0;
         }
 

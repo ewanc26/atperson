@@ -40,6 +40,28 @@ target_include_directories(atperson_cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inclu
 target_link_libraries(atperson_cpp PUBLIC atperson_core)
 target_compile_features(atperson_cpp PUBLIC cxx_std_23)
 
+# Runtime ingestion state is JSON; cJSON is the same parser Wolfram uses.
+# Fetch it unconditionally so the runtime layer builds and tests without the
+# network stack too. (cJSON v1.7.18 declares an old cmake_minimum_required;
+# the policy floor keeps it configurable with modern CMake, same workaround
+# Wolfram's own build uses.)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+include(FetchContent)
+FetchContent_Declare(
+  cjson
+  GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git
+  GIT_TAG v1.7.18)
+set(WOLFRAM_CJSON_OVERRIDDEN
+    OFF
+    CACHE INTERNAL "")
+FetchContent_MakeAvailable(cjson)
+# cJSON's own CMakeLists does not declare target include directories; the
+# header lives at the top of its source tree (same as Wolfram's build).
+target_include_directories(atperson_cpp PUBLIC ${cjson_SOURCE_DIR})
+if(NOT WOLFRAM_CJSON_OVERRIDDEN)
+  target_link_libraries(atperson_cpp PUBLIC cjson)
+endif()
+
 if(MSVC)
   target_compile_options(atperson_core PRIVATE /W4)
   target_compile_options(atperson_cpp PRIVATE /W4)
@@ -53,6 +75,11 @@ if(ATPERSON_BUILD_NETWORK)
 
   # Keep Wolfram as a dependency rather than duplicating AT Protocol logic here.
   # Pin the current known-good revision so a clean build is reproducible.
+  # cJSON is already fetched above; tell Wolfram's build to reuse it rather
+  # than declaring a second FetchContent of the same name.
+  set(WOLFRAM_CJSON_OVERRIDDEN
+      ON
+      CACHE INTERNAL "")
   set(WOLFRAM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   set(WOLFRAM_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
   set(WOLFRAM_BUILD_SERVER OFF CACHE BOOL "" FORCE)
@@ -76,7 +103,9 @@ if(ATPERSON_BUILD_NETWORK)
   add_executable(
     atperson
     src/app/main.cpp
-    src/app/atproto_client.cpp)
+    src/app/atproto_client.cpp
+    src/app/ingestion_state.cpp
+    src/app/sync_engine.cpp)
   target_link_libraries(atperson PRIVATE atperson_cpp wolfram-cpp)
   target_compile_features(atperson PRIVATE cxx_std_23)
 
@@ -136,4 +165,15 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson_cpp_test tests/cpp_test.cpp)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)
   add_test(NAME atperson_cpp COMMAND atperson_cpp_test)
+
+  # Ingestion-state format and sync-engine restart semantics; offline
+  # (fixture page fetchers, no live network).
+  add_executable(
+    atperson_sync_test
+    tests/sync_test.cpp
+    src/app/ingestion_state.cpp
+    src/app/sync_engine.cpp)
+  target_link_libraries(atperson_sync_test PRIVATE atperson_cpp)
+  target_include_directories(atperson_sync_test PRIVATE src/app)
+  add_test(NAME atperson_sync COMMAND atperson_sync_test)
 endif()
