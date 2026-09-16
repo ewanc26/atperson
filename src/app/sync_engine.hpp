@@ -3,6 +3,7 @@
 
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
+#include "ingestion_policy.hpp"
 #include "ingestion_state.hpp"
 
 #include <cstdint>
@@ -16,12 +17,15 @@ namespace atperson {
 
 /* One fetched feed item, already reduced to what the learning core needs.
  * Produced by Wolfram-backed AtprotoClient in the network build and by test
- * fixtures offline. */
+ * fixtures offline. `policy_reason` records why the item was skipped or why
+ * it is eligible (eligible/repost/reply); skipped items carry empty text and
+ * are committed to the ledger as SKIPPED, never trained on. */
 struct SyncObservation {
     std::string text;
     std::string source_uri;
     std::string author_did;
     std::string created_at;
+    PolicyReason policy_reason{PolicyReason::Eligible};
 };
 
 /* One page of feed items plus the opaque cursor for the next page.
@@ -41,7 +45,9 @@ struct SyncLimits {
     std::uint64_t max_observations{0}; /* 0 = unbounded */
 };
 
-/* Per-run accounting, printed by the CLI and asserted in tests. */
+/* Per-run accounting, printed by the CLI and asserted in tests. `skipped`
+ * counts policy-skipped items (empty text, self-authored, blocked, …);
+ * `duplicates` counts items the ledger already had. */
 struct SyncResult {
     std::uint64_t pages_completed{};
     std::uint64_t observations_seen{};

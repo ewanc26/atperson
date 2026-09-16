@@ -35,6 +35,7 @@ stages, with later stages intentionally incomplete:
 | Internal state | First pass implemented | Per-token familiarity learned purely from repeated exposure |
 | Action model | First pass implemented | Deterministic, read-only continuation candidates with inspectable score components |
 | Network behaviour | Not enabled | Wolfram-backed ingestion exists; autonomous likes, replies, follows, reposts, and posts do not |
+| Ingestion policy | Implemented | Explicit public-data policy: skip classes with machine-readable reasons, self-observation excluded, skipped items ledgered as `SKIPPED` |
 | Long-running runtime | Future work | `sync` is an explicitly-invoked bounded run with persistent catch-up state rather than a continuously operating agent |
 
 The model begins with **zero words and zero relationships**. Neural parameters
@@ -248,6 +249,26 @@ Already committed `(source id + digest)` pairs are skipped on later runs. Empty
 records remain represented in the ledger but are not trained. Trainable posts
 flow through the episodic-memory path and can be recalled by overlapping known
 tokens.
+
+### Ingestion policy
+
+Every fetched record passes an explicit policy layer before it can become an
+observation. Skipped classes, with their machine-readable reasons:
+
+| Reason | Skipped when |
+| --- | --- |
+| `unsupported-record` | the record is not an `app.bsky.feed.post` |
+| `self-authored` | the post is the authenticated account's own output |
+| `viewer-blocked` / `viewer-blocked-by` / `viewer-muted` | the account blocks or muted the author, or the author blocks the account |
+| `moderation-filtered` | a moderation decision filtered the post |
+| `empty-text` | the post has no text |
+| `non-text-only` | the post is images/video with no text |
+
+Replies and reposts are learned and tagged with their reason. Self-observation
+is an explicit exclusion, not an accident: learning from the account's own
+output would create a feedback loop. Policy-skipped items are still recorded in
+the ledger with outcome `SKIPPED`, so observed-but-not-learned stays
+distinguishable from never-fetched, and timeline replays remain idempotent.
 
 `sync` is still an explicitly-invoked, bounded run at this stage. A
 continuously operating runtime should come only after replay/unlearning

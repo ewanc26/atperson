@@ -119,9 +119,13 @@ bool process_observation(LanguageGraph &graph, Ledger &ledger,
     }
 
     const bool trainable = !observation.text.empty();
-    const auto outcome =
-        trainable ? ATP_LEDGER_OUTCOME_LEARNED : ATP_LEDGER_OUTCOME_SKIPPED;
-    if (trainable) {
+    const bool policy_skipped = observation.policy_reason != PolicyReason::Eligible &&
+                                observation.policy_reason != PolicyReason::Repost &&
+                                observation.policy_reason != PolicyReason::Reply;
+    const auto outcome = trainable && !policy_skipped
+                             ? ATP_LEDGER_OUTCOME_LEARNED
+                             : ATP_LEDGER_OUTCOME_SKIPPED;
+    if (trainable && !policy_skipped) {
         graph.remember(observation.text, observation.source_uri, observation.author_did,
                        observed_at, digest, ATPERSON_SCHEMA_VERSION, id);
     }
@@ -176,7 +180,11 @@ SyncResult run_sync(LanguageGraph &graph, Ledger &ledger, IngestionState &state,
             ++result.observations_seen;
             if (process_observation(graph, ledger, observation)) {
                 const bool trainable = !observation.text.empty();
-                if (trainable) {
+                const bool policy_skipped =
+                    observation.policy_reason != PolicyReason::Eligible &&
+                    observation.policy_reason != PolicyReason::Repost &&
+                    observation.policy_reason != PolicyReason::Reply;
+                if (trainable && !policy_skipped) {
                     result.learned++;
                 } else {
                     result.skipped++;

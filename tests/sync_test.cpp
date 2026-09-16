@@ -581,6 +581,124 @@ void test_observation_budget_checkpoints_mid_traversal() {
     assert(state.catchup.cursor == std::optional<std::string>("c1"));
 }
 
+/* ---------------------------------------------------------------- */
+/* Ingestion policy integration                                      */
+/* ---------------------------------------------------------------- */
+
+/* A policy-skipped item: empty text plus a skip reason, as the network
+ * client produces them. */
+atperson::SyncObservation skipped_obs(const std::string &uri,
+                                      atperson::PolicyReason reason) {
+    return atperson::SyncObservation{
+        .text = "",
+        .source_uri = uri,
+        .author_did = "did:plc:author",
+        .created_at = "2026-09-16T00:00:00Z",
+        .policy_reason = reason,
+    };
+}
+
+void test_policy_skipped_items_are_ledgered_not_trained() {
+    const auto dir = scratch_dir("policy-skip");
+    atperson::LanguageGraph graph;
+    atperson::Ledger ledger(dir / "ledger.bin");
+    auto state = atperson::initial_ingestion_state("https://bsky.social", "did:plc:abc");
+
+    const auto feed = [](const std::optional<std::string> &) -> atperson::SyncPage {
+        return atperson::SyncPage{
+            .items = {
+                obs("at://fixture/learn", "learnable text"),
+                skipped_obs("at://fixture/self", atperson::PolicyReason::SelfAuthored),
+                skipped_obs("at://fixture/blocked", atperson::PolicyReason::ViewerBlocked),
+                skipped_obs("at://fixture/muted", atperson::PolicyReason::ViewerMuted),
+                skipped_obs("at://fixture/empty", atperson::PolicyReason::EmptyText),
+            },
+            .next_cursor = std::nullopt,
+        };
+    };
+
+    atperson::SyncLimits limits;
+    limits.max_pages = 1;
+    const auto result = atperson::run_sync(graph, ledger, state, feed, limits);
+
+    /* Every item was observed and ledgered; only one was learned. */
+    assert(result.observations_seen == 5u);
+    assert(result.learned == 1u);
+    assert(result.skipped == 4u);
+    assert(result.duplicates == 0u);
+    assert(ledger.count() == 5u);
+
+    /* The ledger distinguishes skipped from learned, so "observed but not
+     * learned" stays distinguishable from "never fetched". */
+    const auto entries = ledger.entries();
+    assert(entries.size() == 5u);
+    for (const auto &entry : entries) {
+        const bool learned_uri = std::string_view(entry.source_id) == "at://fixture/learn";
+        assert(entry.outcome == (learned_uri ? ATP_LEDGER_OUTCOME_LEARNED
+                                            : ATP_LEDGER_OUTCOME_SKIPPED));
+    }
+}
+
+void test_policy_skipped_items_deduplicate_across_runs() {
+    const auto dir = scratch_dir("policy-dedup");
+    atperson::LanguageGraph graph;
+    atperson::Ledger ledger(dir / "ledger.bin");
+    auto state = atperson::initial_ingestion_state("https://bsky.social", "did:plc:abc");
+
+    const auto feed = [](const std::optional<std::string> &) -> atperson::SyncPage {
+        return atperson::SyncPage{
+            .items = {skipped_obs("at://fixture/self", atperson::PolicyReason::SelfAuthored)},
+            .next_cursor = std::nullopt,
+        };
+    };
+
+    atperson::SyncLimits limits;
+    limits.max_pages = 1;
+    const auto first = atperson::run_sync(graph, ledger, state, feed, limits);
+    assert(first.skipped == 1u);
+    assert(ledger.count() == 1u);
+
+    /* A replay of the same timeline: the skipped item is a duplicate, not a
+     * fresh skip. Replaying the timeline is idempotent for policy-skipped
+     * items too. */
+    const auto second = atperson::run_sync(graph, ledger, state, feed, limits);
+    assert(second.observations_seen == 1u);
+    assert(second.duplicates == 1u);
+    assert(second.skipped == 0u);
+    assert(ledger.count() == 1u);
+}
+
+void test_reposts_and_replies_are_learned_with_reason() {
+    const auto dir = scratch_dir("policy-eligible-tags");
+    atperson::LanguageGraph graph;
+    atperson::Ledger ledger(dir / "ledger.bin");
+    auto state = atperson::initial_ingestion_state("https://bsky.social", "did:plc:abc");
+
+    atperson::SyncObservation repost = obs("at://fixture/repost", "reposted text");
+    repost.policy_reason = atperson::PolicyReason::Repost;
+    atperson::SyncObservation reply = obs("at://fixture/reply", "reply text");
+    reply.policy_reason = atperson::PolicyReason::Reply;
+
+    const auto feed = [&](const std::optional<std::string> &) -> atperson::SyncPage {
+        return atperson::SyncPage{
+            .items = {repost, reply},
+            .next_cursor = std::nullopt,
+        };
+    };
+
+    atperson::SyncLimits limits;
+    limits.max_pages = 1;
+    const auto result = atperson::run_sync(graph, ledger, state, feed, limits);
+    assert(result.learned == 2u);
+    assert(result.skipped == 0u);
+    assert(ledger.count() == 2u);
+
+    const auto entries = ledger.entries();
+    for (const auto &entry : entries) {
+        assert(entry.outcome == ATP_LEDGER_OUTCOME_LEARNED);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -603,6 +721,10 @@ int main() {
     test_mid_page_processing_failure_does_not_advance_cursor();
     test_state_operations_never_touch_learned_state();
     test_observation_budget_checkpoints_mid_traversal();
+
+    test_policy_skipped_items_are_ledgered_not_trained();
+    test_policy_skipped_items_deduplicate_across_runs();
+    test_reposts_and_replies_are_learned_with_reason();
 
     std::printf("sync tests passed\n");
     return 0;

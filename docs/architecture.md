@@ -115,6 +115,45 @@ The first network path uses `wf_agent_login` and `wf_agent_get_timeline`, then
 extracts public post text and passes each post to the learning core with its AT
 URI as the source identifier.
 
+## Ingestion policy
+
+The ingestion policy (`src/app/ingestion_policy.{hpp,cpp}`) is the single
+reviewable decision point for which fetched records may become observations.
+It consumes already-extracted fields — record type, author DID, text, embed
+type, viewer state, feed reason — and produces a decision: eligible, or
+skipped with a machine-readable reason. Protocol mechanics stay in Wolfram
+and the client; the policy never touches the wire.
+
+Rule order is deliberate:
+
+1. **Record type.** Only `app.bsky.feed.post` records are supported. A feed
+   can carry other record types; they are skipped as `unsupported-record`
+   rather than mis-parsed.
+2. **Self-observation.** The authenticated account's own output is never
+   learned from (`self-authored`). This is an explicit policy decision:
+   learning from self-authored records would create a feedback loop between
+   the entity's output and its experience.
+3. **Moderation and relationship state.** Viewer-blocked, viewer-blocked-by,
+   viewer-muted, and moderation-filtered posts are skipped
+   (`viewer-blocked`, `viewer-blocked-by`, `viewer-muted`,
+   `moderation-filtered`). The account chose not to see this content;
+   atperson respects that choice.
+4. **Text presence.** Empty text is skipped (`empty-text`); image- or
+   video-only posts with no text are skipped as `non-text-only`.
+
+Replies and reposts remain eligible and are tagged (`reply`, `repost`): a
+repost's feed item points at the underlying post, and a reply carries its own
+text. Text is text.
+
+### Ledger semantics for skipped items
+
+A policy-skipped item is not silently dropped. It still flows through the
+ledger as an observation with outcome `SKIPPED`, so "observed but not
+learned" stays distinguishable from "never fetched" — the ledger distinguishes
+skipped from unfetched data. Replaying the timeline is idempotent for
+skipped items too: the `(source id + content digest)` dedup index suppresses
+re-processing, so a replay counts them as duplicates rather than fresh skips.
+
 ## Observation ledger
 
 The ledger is a durable, append-only C23 log of every observation fed to the

@@ -114,6 +114,7 @@ if(ATPERSON_BUILD_NETWORK)
     atperson
     src/app/main.cpp
     src/app/atproto_client.cpp
+    src/app/ingestion_policy.cpp
     src/app/ingestion_state.cpp
     src/app/state_lock.cpp
     src/app/sync_engine.cpp)
@@ -182,11 +183,22 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson_sync_test
     tests/sync_test.cpp
+    src/app/ingestion_policy.cpp
     src/app/ingestion_state.cpp
     src/app/sync_engine.cpp)
   target_link_libraries(atperson_sync_test PRIVATE atperson_cpp)
   target_include_directories(atperson_sync_test PRIVATE src/app)
   add_test(NAME atperson_sync COMMAND atperson_sync_test)
+
+  # Ingestion policy: every skip class produces the documented reason and
+  # eligible classes are tagged (repost/reply). Offline, no network.
+  add_executable(
+    atperson_policy_test
+    tests/policy_test.cpp
+    src/app/ingestion_policy.cpp)
+  target_compile_features(atperson_policy_test PRIVATE cxx_std_23)
+  target_include_directories(atperson_policy_test PRIVATE src/app)
+  add_test(NAME atperson_policy COMMAND atperson_policy_test)
 
   add_executable(
     atperson_lock_test
