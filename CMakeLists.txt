@@ -20,6 +20,7 @@ option(ATPERSON_BUILD_TESTS "Build atperson tests" ON)
 add_library(
   atperson_core
   src/core/graph.c
+  src/core/memory.c
   src/core/action.c
   src/core/bootstrap.c
   src/core/neural.c
