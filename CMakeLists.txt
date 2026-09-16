@@ -19,22 +19,22 @@ option(ATPERSON_BUILD_TESTS "Build atperson tests" ON)
 
 add_library(
   atperson_core
-  src/core/graph.c
-  src/core/graph_index.c
-  src/core/graph_store.c
-  src/core/graph_observe.c
-  src/core/graph_query.c
+  src/core/graph/lifecycle.c
+  src/core/graph/index.c
+  src/core/graph/store.c
+  src/core/graph/observe.c
+  src/core/graph/query.c
   src/core/memory.c
   src/core/action.c
   src/core/decision.c
   src/core/context.c
   src/core/bootstrap.c
   src/core/neural.c
-  src/core/ledger.c
-  src/core/ledger_format.c
-  src/core/ledger_off.c
-  src/core/ledger_index.c
-  src/core/ledger_recover.c
+  src/core/ledger/api.c
+  src/core/ledger/format.c
+  src/core/ledger/off.c
+  src/core/ledger/index.c
+  src/core/ledger/recover.c
   src/core/replay.c
   src/core/tokenize.c
   src/core/portable_io.c
