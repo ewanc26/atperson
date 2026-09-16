@@ -3,8 +3,15 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <vector>
 
 namespace atperson {
+
+struct FilesystemResources {
+    std::filesystem::path path;
+    std::uint64_t capacity_bytes{};
+    std::uint64_t available_bytes{};
+};
 
 /*
  * One point-in-time view of the resources the current process can actually
@@ -19,6 +26,10 @@ struct SystemResources {
     std::uint64_t effective_memory_total_bytes{};
     std::uint64_t effective_memory_available_bytes{};
 
+    /* Every filesystem that can receive durable atperson state. */
+    std::vector<FilesystemResources> filesystems;
+
+    /* Compatibility summary for callers that probe one path. */
     std::uint64_t disk_capacity_bytes{};
     std::uint64_t disk_available_bytes{};
 
@@ -27,11 +38,11 @@ struct SystemResources {
 };
 
 /*
- * Probe the current system. `data_path` selects the filesystem whose capacity
- * matters for snapshots, ledgers and cursor state; a missing path is resolved
- * through the nearest existing parent. The function does no allocation based
- * on the returned values and has no learning side effects.
+ * Probe the current system. Each path selects a filesystem that can receive
+ * durable state; missing paths are resolved through the nearest existing
+ * parent. Duplicate filesystems are harmless and remain deterministic.
  */
+SystemResources probe_system_resources(const std::vector<std::filesystem::path> &data_paths);
 SystemResources probe_system_resources(const std::filesystem::path &data_path);
 
 } // namespace atperson
