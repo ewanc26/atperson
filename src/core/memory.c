@@ -109,30 +109,25 @@ static int atp_recall_match_compare(const void *left, const void *right) {
     return 0;
 }
 
-static atp_status atp_memory_query_nodes(const atp_graph *graph, const char *query,
-                                         uint32_t **out_nodes, size_t *out_count) {
-    /* Shared tokenizer path (issue #8): identical token identity to
-     * observation and recall. */
-    return atp_graph_query_nodes(graph, query, out_nodes, out_count);
-}
-
-atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t at_epoch,
-                                   atp_recall_result *out, size_t capacity,
-                                   size_t *out_count) {
+static atp_status atp_graph_recall_ranked_impl(const atp_graph *graph, atp_graph *mutable_graph,
+                                                const char *query, uint64_t at_epoch,
+                                                size_t episode_scan_limit,
+                                                atp_recall_result *out, size_t capacity,
+                                                size_t *out_count) {
     if (out_count) {
         *out_count = 0u;
     }
     if (!graph || !query || (!out && capacity > 0u)) {
         return ATP_ERR_INVALID_ARGUMENT;
     }
-    if (capacity == 0u || graph->episode_count == 0u) {
+    if (capacity == 0u || episode_scan_limit == 0u || graph->episode_count == 0u) {
         return ATP_OK;
     }
 
     uint32_t *query_nodes = NULL;
     size_t query_count = 0u;
     const atp_status query_status =
-        atp_memory_query_nodes(graph, query, &query_nodes, &query_count);
+        atp_graph_query_nodes(graph, query, &query_nodes, &query_count);
     if (query_status != ATP_OK) {
         return query_status;
     }
@@ -141,18 +136,21 @@ atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t
         return ATP_OK;
     }
 
-    if (graph->episode_count > SIZE_MAX / sizeof(atp_recall_match)) {
+    const size_t scan_count =
+        graph->episode_count < episode_scan_limit ? graph->episode_count : episode_scan_limit;
+    const size_t scan_start = graph->episode_count - scan_count;
+    if (scan_count > SIZE_MAX / sizeof(atp_recall_match)) {
         free(query_nodes);
         return ATP_ERR_OUT_OF_MEMORY;
     }
-    atp_recall_match *matches = malloc(graph->episode_count * sizeof(*matches));
+    atp_recall_match *matches = malloc(scan_count * sizeof(*matches));
     if (!matches) {
         free(query_nodes);
         return ATP_ERR_OUT_OF_MEMORY;
     }
 
     size_t match_count = 0u;
-    for (size_t i = 0u; i < graph->episode_count; ++i) {
+    for (size_t i = scan_start; i < graph->episode_count; ++i) {
         const atp_episode *episode = &graph->episodes[i];
         float exact = 0.0f;
         float association = 0.0f;
@@ -233,10 +231,12 @@ atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t
     }
     free(query_nodes);
 
-    qsort(matches, match_count, sizeof(*matches), atp_recall_match_compare);
+    if (match_count > 1u) {
+        qsort(matches, match_count, sizeof(*matches), atp_recall_match_compare);
+    }
     const size_t written = match_count < capacity ? match_count : capacity;
     for (size_t i = 0u; i < written; ++i) {
-        atp_episode *episode = &graph->episodes[matches[i].episode_index];
+        const atp_episode *episode = &graph->episodes[matches[i].episode_index];
         if (out) {
             out[i] = (atp_recall_result){
                 .episode = *episode,
@@ -250,10 +250,14 @@ atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t
                 .association_token_matches = matches[i].association_token_matches,
             };
         }
-        if (episode->recall_count != UINT64_MAX) {
-            episode->recall_count++;
+
+        if (mutable_graph) {
+            atp_episode *mutable_episode = &mutable_graph->episodes[matches[i].episode_index];
+            if (mutable_episode->recall_count != UINT64_MAX) {
+                mutable_episode->recall_count++;
+            }
+            mutable_episode->last_recall_at = at_epoch;
         }
-        episode->last_recall_at = at_epoch;
     }
     free(matches);
 
@@ -261,4 +265,19 @@ atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t
         *out_count = written;
     }
     return ATP_OK;
+}
+
+atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t at_epoch,
+                                   atp_recall_result *out, size_t capacity,
+                                   size_t *out_count) {
+    return atp_graph_recall_ranked_impl(graph, graph, query, at_epoch, SIZE_MAX, out, capacity,
+                                        out_count);
+}
+
+atp_status atp_graph_recall_ranked_preview(const atp_graph *graph, const char *query,
+                                           uint64_t at_epoch, size_t episode_scan_limit,
+                                           atp_recall_result *out, size_t capacity,
+                                           size_t *out_count) {
+    return atp_graph_recall_ranked_impl(graph, NULL, query, at_epoch, episode_scan_limit, out,
+                                        capacity, out_count);
 }

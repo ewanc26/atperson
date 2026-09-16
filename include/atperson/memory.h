@@ -66,6 +66,25 @@ atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t
                                    atp_recall_result *out, size_t capacity,
                                    size_t *out_count);
 
+/**
+ * Read-only ranked-recall preview for planning/context selection.
+ *
+ * The scoring and ordering are identical to atp_graph_recall_ranked, but no
+ * recall counters or timestamps are updated. `episode_scan_limit` is an
+ * explicit work bound: at most that many of the most recently retained
+ * episodes (the tail of the deterministic episode store) are examined.
+ * A limit of 0 returns no results. `capacity` still limits only copied ranked
+ * results within that scanned window.
+ *
+ * This API exists so merely considering a memory for a plan cannot itself
+ * become learned/usage state. Query tokenisation uses the current shared
+ * schema-versioned tokenizer and never interns unknown tokens.
+ */
+atp_status atp_graph_recall_ranked_preview(const atp_graph *graph, const char *query,
+                                           uint64_t at_epoch, size_t episode_scan_limit,
+                                           atp_recall_result *out, size_t capacity,
+                                           size_t *out_count);
+
 #ifdef __cplusplus
 }
 #endif
