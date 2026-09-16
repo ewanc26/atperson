@@ -22,6 +22,7 @@ add_library(
   src/core/graph.c
   src/core/memory.c
   src/core/action.c
+  src/core/decision.c
   src/core/context.c
   src/core/bootstrap.c
   src/core/neural.c
@@ -165,6 +166,10 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson_action_test tests/action_test.c)
   target_link_libraries(atperson_action_test PRIVATE atperson_core)
   add_test(NAME atperson_action COMMAND atperson_action_test)
+
+  add_executable(atperson_action_decision_test tests/action_decision_test.c)
+  target_link_libraries(atperson_action_decision_test PRIVATE atperson_core)
+  add_test(NAME atperson_action_decision COMMAND atperson_action_decision_test)
 
   add_executable(atperson_context_test tests/context_test.c)
   target_link_libraries(atperson_context_test PRIVATE atperson_core)
