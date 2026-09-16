@@ -1,6 +1,8 @@
 #include "atperson/core.h"
+#include "atperson/memory.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -22,6 +24,16 @@ static void set_fixed(atp_episode *episode, uint64_t ledger_id, uint64_t at, uin
     episode->content_digest = digest;
     episode->schema_version = ATPERSON_SCHEMA_VERSION;
     strncpy(episode->source_id, source, sizeof(episode->source_id) - 1u);
+}
+
+static const atp_recall_result *find_recall_result(const atp_recall_result *results, size_t count,
+                                                   uint64_t ledger_id) {
+    for (size_t i = 0u; i < count; ++i) {
+        if (results[i].episode.ledger_id == ledger_id) {
+            return &results[i];
+        }
+    }
+    return NULL;
 }
 
 static void test_selection_policy(void) {
@@ -233,12 +245,145 @@ static void test_snapshot_roundtrip(void) {
     remove(path);
 }
 
+static void test_ranked_recall_surfaces_semantic_memory_with_components(void) {
+    const char *path = "atperson-ranked-memory-test.bin";
+    atp_graph *graph = graph_with_capacity(8u);
+    bool remembered = false;
+
+    assert(atp_graph_observe_with_memory(graph, "moon silver", "at://semantic/1", "did:plc:a",
+                                         100u, 4001u, ATPERSON_SCHEMA_VERSION, 1u,
+                                         &remembered) == ATP_OK);
+    assert(remembered);
+    assert(atp_graph_observe_with_memory(graph, "silver fire", "at://semantic/2", "did:plc:b",
+                                         200u, 4002u, ATPERSON_SCHEMA_VERSION, 2u,
+                                         &remembered) == ATP_OK);
+    assert(remembered);
+    assert(atp_graph_observe_with_memory(graph, "stone river", "at://semantic/3", "did:plc:c",
+                                         300u, 4003u, ATPERSON_SCHEMA_VERSION, 3u,
+                                         &remembered) == ATP_OK);
+    assert(remembered);
+
+    /* Save before recall so the loaded graph starts from exactly the same
+     * counters and learned association state as the live graph. */
+    assert(atp_graph_save(graph, path) == ATP_OK);
+    atp_status load_status = ATP_OK;
+    atp_graph *loaded = atp_graph_load(path, &load_status);
+    assert(loaded != NULL);
+    assert(load_status == ATP_OK);
+
+    const size_t nodes_before = atp_graph_get_stats(graph).node_count;
+    atp_recall_result live[4] = {0};
+    atp_recall_result restored[4] = {0};
+    size_t live_count = 0u;
+    size_t restored_count = 0u;
+    assert(atp_graph_recall_ranked(graph, "moon", 86400u, live, 4u, &live_count) == ATP_OK);
+    assert(atp_graph_recall_ranked(loaded, "moon", 86400u, restored, 4u,
+                                   &restored_count) == ATP_OK);
+    assert(live_count == 2u);
+    assert(restored_count == live_count);
+
+    for (size_t i = 0u; i < live_count; ++i) {
+        assert(live[i].episode.ledger_id == restored[i].episode.ledger_id);
+        assert(fabsf(live[i].score - restored[i].score) < 0.000001f);
+        assert(fabsf(live[i].exact_score - restored[i].exact_score) < 0.000001f);
+        assert(fabsf(live[i].association_score - restored[i].association_score) < 0.000001f);
+        assert(fabsf(live[i].familiarity_score - restored[i].familiarity_score) < 0.000001f);
+        assert(fabsf(live[i].recency_score - restored[i].recency_score) < 0.000001f);
+        assert(fabsf(live[i].use_score - restored[i].use_score) < 0.000001f);
+    }
+
+    const atp_recall_result *exact = find_recall_result(live, live_count, 1u);
+    const atp_recall_result *semantic = find_recall_result(live, live_count, 2u);
+    assert(exact != NULL);
+    assert(semantic != NULL);
+    assert(exact->exact_score > 0.0f);
+    assert(exact->exact_token_matches == 1u);
+    assert(semantic->exact_score == 0.0f);
+    assert(semantic->association_score > 0.0f);
+    assert(semantic->association_token_matches >= 1u);
+    assert(strcmp(semantic->episode.source_id, "at://semantic/2") == 0);
+    assert(strcmp(semantic->episode.author_did, "did:plc:b") == 0);
+    assert(find_recall_result(live, live_count, 3u) == NULL);
+
+    for (size_t i = 0u; i < live_count; ++i) {
+        const float recomposed =
+            live[i].exact_score * ATPERSON_RECALL_EXACT_WEIGHT +
+            live[i].association_score * ATPERSON_RECALL_ASSOCIATION_WEIGHT +
+            live[i].familiarity_score * ATPERSON_RECALL_FAMILIARITY_WEIGHT +
+            live[i].recency_score * ATPERSON_RECALL_RECENCY_WEIGHT +
+            live[i].use_score * ATPERSON_RECALL_USE_WEIGHT;
+        assert(fabsf(live[i].score - recomposed) < 0.000001f);
+        assert(live[i].familiarity_score >= 0.0f && live[i].familiarity_score <= 1.0f);
+        assert(live[i].recency_score >= 0.0f && live[i].recency_score <= 1.0f);
+        assert(live[i].use_score >= 0.0f && live[i].use_score <= 1.0f);
+    }
+
+    /* Unknown query vocabulary stays unknown and cannot mutate learned state. */
+    atp_recall_result unknown[2] = {0};
+    size_t unknown_count = 99u;
+    assert(atp_graph_recall_ranked(graph, "quux-nope", 90000u, unknown, 2u,
+                                   &unknown_count) == ATP_OK);
+    assert(unknown_count == 0u);
+    assert(atp_graph_get_stats(graph).node_count == nodes_before);
+
+    atp_graph_destroy(loaded);
+    atp_graph_destroy(graph);
+    remove(path);
+}
+
+static void test_ranked_recall_ties_and_use_are_deterministic(void) {
+    atp_graph *graph = graph_with_capacity(8u);
+    bool remembered = false;
+
+    assert(atp_graph_observe_with_memory(graph, "alpha beta", "at://tie/1", "did:plc:a", 100u,
+                                         5001u, ATPERSON_SCHEMA_VERSION, 1u,
+                                         &remembered) == ATP_OK);
+    assert(atp_graph_observe_with_memory(graph, "alpha beta", "at://tie/2", "did:plc:b", 100u,
+                                         5002u, ATPERSON_SCHEMA_VERSION, 2u,
+                                         &remembered) == ATP_OK);
+
+    atp_recall_result first[2] = {0};
+    atp_recall_result second[2] = {0};
+    size_t first_count = 0u;
+    size_t second_count = 0u;
+    assert(atp_graph_recall_ranked(graph, "alpha beta", 200u, first, 2u,
+                                   &first_count) == ATP_OK);
+    assert(first_count == 2u);
+    assert(first[0].episode.ledger_id == 2u);
+    assert(first[1].episode.ledger_id == 1u);
+    assert(first[0].use_score == 0.0f);
+    assert(first[1].use_score == 0.0f);
+
+    assert(atp_graph_recall_ranked(graph, "alpha beta", 200u, second, 2u,
+                                   &second_count) == ATP_OK);
+    assert(second_count == first_count);
+    assert(second[0].episode.ledger_id == first[0].episode.ledger_id);
+    assert(second[1].episode.ledger_id == first[1].episode.ledger_id);
+    assert(second[0].use_score > first[0].use_score);
+    assert(second[1].use_score > first[1].use_score);
+
+    /* A zero-capacity probe is explicitly non-mutating. */
+    size_t zero_count = 99u;
+    atp_episode before = {0};
+    atp_episode after = {0};
+    assert(atp_graph_episode_at(graph, 0u, &before) == ATP_OK);
+    assert(atp_graph_recall_ranked(graph, "alpha", 300u, NULL, 0u, &zero_count) == ATP_OK);
+    assert(zero_count == 0u);
+    assert(atp_graph_episode_at(graph, 0u, &after) == ATP_OK);
+    assert(after.recall_count == before.recall_count);
+    assert(after.last_recall_at == before.last_recall_at);
+
+    atp_graph_destroy(graph);
+}
+
 int main(void) {
     test_selection_policy();
     test_recall_ordering_and_counters();
     test_recall_limit_and_empty();
     test_eviction_prefers_least_recalled();
     test_snapshot_roundtrip();
+    test_ranked_recall_surfaces_semantic_memory_with_components();
+    test_ranked_recall_ties_and_use_are_deterministic();
     printf("memory tests passed\n");
     return 0;
 }
