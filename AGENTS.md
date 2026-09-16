@@ -124,8 +124,15 @@ behaviour in a parallel C++ prompt/context heuristic. Selected memories,
 interaction state and later preference signals should carry provenance and an
 inspectable selection reason/score.
 
-Fluent output is not sufficient reason to act. The action layer must eventually
-be able to abstain and explain why no supported action was selected.
+Keep the raw bounded planner available for inspection. Normal action decisions
+should pass through the guarded C23 decision layer: weak first-step evidence
+may explicitly abstain, while later low evidence, score collapse, repetition or
+cycles may terminate a useful prefix with inspectable threshold evidence. Do
+not make the guarded layer less conservative merely to produce fluent output.
+
+An accepted core plan is evidence for later policy, not permission to publish.
+Do not put AT Protocol permissions, moderation choices or outbound rate policy
+inside C23 termination rules.
 
 ## Network and safety boundary
 
