@@ -70,3 +70,6 @@ Testing/
 # atperson runtime state and local credentials
 .atperson/
 .env
+
+# Letta Code session state
+.letta/
