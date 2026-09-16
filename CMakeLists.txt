@@ -267,6 +267,9 @@ if(ATPERSON_BUILD_TESTS)
   # runs via label; invoke with: ctest -L bench
   add_executable(atperson_bench tests/bench.c)
   target_link_libraries(atperson_bench PRIVATE atperson_core)
+  if(UNIX)
+    target_compile_definitions(atperson_bench PRIVATE _POSIX_C_SOURCE=200809L)
+  endif()
   add_test(
     NAME atperson_bench
     COMMAND atperson_bench bench)
