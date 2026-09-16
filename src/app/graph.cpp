@@ -1,5 +1,7 @@
 #include "atperson/graph.hpp"
 
+#include "atperson/action.h"
+
 #include <stdexcept>
 #include <utility>
 
@@ -86,6 +88,35 @@ std::vector<Association> LanguageGraph::associations(std::string_view token,
             .score = raw[i].score,
             .observations = raw[i].observations,
             .last_source_hash = raw[i].last_source_hash,
+        });
+    }
+    return result;
+}
+
+std::vector<ActionCandidate> LanguageGraph::action_candidates(std::string_view context,
+                                                              std::size_t limit) const {
+    if (limit == 0u) {
+        return {};
+    }
+
+    std::vector<atp_action_candidate> raw(limit);
+    std::size_t count = 0u;
+    const std::string owned_context(context);
+    require(atp_graph_action_candidates(graph_, owned_context.c_str(), raw.data(), raw.size(),
+                                        &count),
+            "query action candidates");
+
+    std::vector<ActionCandidate> result;
+    result.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        result.push_back(ActionCandidate{
+            .token = raw[i].token,
+            .score = raw[i].score,
+            .association_score = raw[i].association_score,
+            .familiarity_score = raw[i].familiarity_score,
+            .support_score = raw[i].support_score,
+            .supporting_observations = raw[i].supporting_observations,
+            .context_matches = raw[i].context_matches,
         });
     }
     return result;
