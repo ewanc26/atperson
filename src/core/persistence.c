@@ -105,6 +105,32 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
              atp_write_u32(file, (uint32_t)entry->outcome) && atp_write_u64(file, entry->id);
     }
 
+    /* Episodic memory: the consolidated, selective view of remembered
+     * observations, each linked to its ledger source. */
+    ok = ok && atp_write_u64(file, (uint64_t)graph->episode_count);
+    for (size_t i = 0; ok && i < graph->episode_count; ++i) {
+        const atp_episode *episode = &graph->episodes[i];
+        const size_t source_len = strlen(episode->source_id);
+        const size_t author_len = strlen(episode->author_did);
+        ok = source_len < ATPERSON_LEDGER_SOURCE_BYTES &&
+             author_len < ATPERSON_LEDGER_AUTHOR_BYTES &&
+             episode->token_count <= ATPERSON_EPISODE_SUMMARY_SIZE &&
+             atp_write_u64(file, episode->ledger_id) && atp_write_u64(file, episode->observed_at) &&
+             atp_write_u64(file, episode->content_digest) &&
+             atp_write_u32(file, episode->schema_version) &&
+             atp_write_u64(file, episode->recall_count) &&
+             atp_write_u64(file, episode->last_recall_at) &&
+             atp_write_u32(file, episode->token_count);
+        for (uint32_t t = 0u; ok && t < episode->token_count; ++t) {
+            ok = atp_write_u32(file, episode->summary[t].node_index) &&
+                 atp_write(file, &episode->summary[t].weight, sizeof(float));
+        }
+        ok = ok && atp_write_u32(file, (uint32_t)source_len) &&
+             atp_write(file, episode->source_id, source_len) &&
+             atp_write_u32(file, (uint32_t)author_len) &&
+             atp_write(file, episode->author_did, author_len);
+    }
+
     if (fflush(file) != 0) {
         ok = false;
     }
@@ -259,6 +285,43 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
         entry.outcome = (atp_ledger_outcome)outcome;
         graph->ledger_entries[graph->ledger_count] = entry;
         graph->ledger_count++;
+    }
+
+    uint64_t episode_count_u64 = 0u;
+    if (!atp_read_u64(file, &episode_count_u64) || episode_count_u64 > SIZE_MAX ||
+        !atp_reserve_episodes(graph, (size_t)episode_count_u64)) {
+        return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
+    }
+    for (size_t i = 0; i < episode_count_u64; ++i) {
+        atp_episode episode = {0};
+        uint32_t source_len = 0u;
+        uint32_t author_len = 0u;
+        if (!atp_read_u64(file, &episode.ledger_id) || !atp_read_u64(file, &episode.observed_at) ||
+            !atp_read_u64(file, &episode.content_digest) ||
+            !atp_read_u32(file, &episode.schema_version) ||
+            !atp_read_u64(file, &episode.recall_count) ||
+            !atp_read_u64(file, &episode.last_recall_at) ||
+            !atp_read_u32(file, &episode.token_count) ||
+            episode.token_count > ATPERSON_EPISODE_SUMMARY_SIZE) {
+            return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
+        }
+        for (uint32_t t = 0u; t < episode.token_count; ++t) {
+            if (!atp_read_u32(file, &episode.summary[t].node_index) ||
+                episode.summary[t].node_index >= graph->node_count ||
+                !atp_read(file, &episode.summary[t].weight, sizeof(float))) {
+                return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
+            }
+        }
+        if (!atp_read_u32(file, &source_len) || source_len == 0u ||
+            source_len >= ATPERSON_LEDGER_SOURCE_BYTES ||
+            !atp_read(file, episode.source_id, source_len) || !atp_read_u32(file, &author_len) ||
+            author_len >= ATPERSON_LEDGER_AUTHOR_BYTES ||
+            !atp_read(file, episode.author_did, author_len)) {
+            return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
+        }
+        episode.source_id[source_len] = '\0';
+        episode.author_did[author_len] = '\0';
+        graph->episodes[graph->episode_count++] = episode;
     }
 
     if (fclose(file) != 0) {

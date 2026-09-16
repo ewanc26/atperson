@@ -22,6 +22,7 @@ runtime.
 - online gradient updates;
 - exposure and training counters;
 - source hashes attached to learned edges;
+- episodic memory;
 - PRNG state;
 - the observation ledger;
 - persistence format.
@@ -131,12 +132,54 @@ is inspectable in one file. The ledger remains authoritative for rebuilds.
 Deleting a learned contribution is still an open problem; the preferred model
 remains rebuild-from-ledger rather than approximate inverse gradient steps.
 
+## Episodic memory
+
+The ledger is the durable, complete record; memory is a curated facet of it.
+An **episode** is a remembered observation, not every observation. Each episode
+stores its ledger id, observed-at time, content digest, schema version, source
+id and author DID, and a compact summary of the most significant tokens.
+
+Selection is purely count-based and inspectable — no hidden thresholds on
+meaning, sentiment, or topic:
+
+- an observation is remembered when it **introduces new vocabulary** (a new
+  node was interned) or contains **at least two distinct tokens**;
+- empty or single-token repeat observations are not remembered.
+
+The summary holds the top eight tokens by in-text count (weights are raw
+counts, ties broken by node index). The weighted association edges remain the
+semantic substrate; episodes are the episodic substrate.
+
+**Recall** tokenises the query without mutating the vocabulary, scores each
+episode by the sum of its summary-token weights that overlap the query, and
+returns matches strongest-first with recency then ledger id breaking ties.
+Recalled episodes get their `recall_count` incremented and `last_recall_at`
+updated, so consolidation is observable and drives eviction.
+
+**Eviction** is deterministic and least-used-first: when memory is at capacity,
+the episode with the lowest recall count is evicted (then oldest, then smallest
+ledger id), and a `episode_evictions` counter is bumped. Everything is
+serialisable, so memory survives restarts byte-for-byte.
+
+The snapshot stores the episodic-memory block (snapshot v3) after the mirrored
+ledger block, so the same file that is authoritative for the graph also carries
+the remembered-view provenance.
+
+### Runtime flow (sync)
+
+Each synced post: `append(source, author, observed_at, digest, schema,
+PENDING)` -> `remember(...)` -> `set_outcome(id, LEARNED)` (or `SKIPPED` for
+empty text), then the entry is mirrored into the graph snapshot (v2) and the
+episode (if selected) is stored in memory (v3). The ledger remains
+authoritative for rebuilds; memory is linked to it by ledger id.
+
 ## Persistence
 
 Snapshots are versioned and contain the complete mutable graph, neural
-parameters, counters, PRNG state, and a mirrored ledger block (snapshot v2).
-Saving is performed through a temporary file and rename so a partially written
-snapshot does not replace the previous state.
+parameters, counters, PRNG state, a mirrored ledger block (snapshot v2), and
+the episodic-memory block (snapshot v3). Saving is performed through a
+temporary file and rename so a partially written snapshot does not replace the
+previous state.
 
 Version 1 was host-oriented and wrote fixed-width integers and IEEE-754 floats
 directly. Snapshots are not yet a long-term public interchange format; ledger
@@ -151,7 +194,11 @@ The intended order is:
 2. **Observation ledger** — durable dedupe, replay, provenance, deletion.
    Core ledger, snapshot mirror, and sync-through-ledger are implemented; the
    snapshot rebuild/replay semantics that consume it are part of stage 3+.
-3. **Memory** — episodic and semantic structures linked to sources.
+3. **Memory** — episodic and semantic structures linked to sources. The first,
+   counter-based pass is implemented: source-linked episodes, token summaries,
+   recall counters, deterministic eviction, snapshot v3, and a CLI `recall`
+   command. Semantic memory is the association graph; richer consolidation is
+   future work.
 4. **Internal state** — slowly learned preferences/values derived from repeated
    experience, not hard-coded personality text.
 5. **Action model** — candidate generation and inspectable scoring.

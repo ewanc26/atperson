@@ -49,6 +49,12 @@ struct atp_graph {
     size_t ledger_count;
     size_t ledger_capacity;
 
+    atp_episode *episodes;
+    size_t episode_count;
+    size_t episode_capacity; /* allocated buffer capacity */
+    size_t episode_max;      /* configured upper bound */
+    uint64_t episode_evictions;
+
     uint64_t observations;
     uint64_t token_observations;
     uint64_t training_steps;
@@ -66,6 +72,7 @@ float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target, floa
 bool atp_reserve_nodes(atp_graph *graph, size_t needed);
 bool atp_reserve_edges(atp_graph *graph, size_t needed);
 bool atp_reserve_ledger_entries(atp_graph *graph, size_t needed);
+bool atp_reserve_episodes(atp_graph *graph, size_t needed);
 int32_t atp_find_node(const atp_graph *graph, const char *token);
 int32_t atp_intern_node(atp_graph *graph, const char *token);
 int32_t atp_find_edge(const atp_graph *graph, uint32_t source, uint32_t target);

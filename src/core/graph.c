@@ -22,6 +22,7 @@ atp_graph_config atp_graph_default_config(void) {
     atp_graph_config config = {
         .seed = UINT64_C(0x4154504552534f4e),
         .learning_rate = 0.025f,
+        .episode_capacity = ATPERSON_EPISODE_DEFAULT_CAPACITY,
     };
     return config;
 }
@@ -34,6 +35,9 @@ atp_graph *atp_graph_create(const atp_graph_config *config) {
     if (!(effective.learning_rate > 0.0f) || !isfinite(effective.learning_rate)) {
         effective.learning_rate = atp_graph_default_config().learning_rate;
     }
+    if (effective.episode_capacity == 0u) {
+        effective.episode_capacity = ATPERSON_EPISODE_DEFAULT_CAPACITY;
+    }
 
     atp_graph *graph = calloc(1u, sizeof(*graph));
     if (!graph) {
@@ -41,6 +45,7 @@ atp_graph *atp_graph_create(const atp_graph_config *config) {
     }
 
     graph->config = effective;
+    graph->episode_max = effective.episode_capacity;
     graph->rng_state = effective.seed;
     atp_network_init(graph);
     return graph;
@@ -57,6 +62,7 @@ void atp_graph_destroy(atp_graph *graph) {
     free(graph->nodes);
     free(graph->edges);
     free(graph->ledger_entries);
+    free(graph->episodes);
     free(graph);
 }
 
@@ -151,6 +157,29 @@ bool atp_reserve_ledger_entries(atp_graph *graph, size_t needed) {
 
     graph->ledger_entries = entries;
     graph->ledger_capacity = capacity;
+    return true;
+}
+
+bool atp_reserve_episodes(atp_graph *graph, size_t needed) {
+    if (needed > graph->episode_max) {
+        return false;
+    }
+    if (needed <= graph->episode_capacity) {
+        return true;
+    }
+    size_t capacity = graph->episode_capacity ? graph->episode_capacity : 16u;
+    while (capacity < needed) {
+        if (capacity > SIZE_MAX / 2u) {
+            return false;
+        }
+        capacity *= 2u;
+    }
+    atp_episode *episodes = realloc(graph->episodes, capacity * sizeof(*episodes));
+    if (!episodes) {
+        return false;
+    }
+    graph->episodes = episodes;
+    graph->episode_capacity = capacity;
     return true;
 }
 
@@ -316,6 +345,362 @@ atp_status atp_graph_observe_text(atp_graph *graph, const char *text, const char
     return ATP_OK;
 }
 
+/* -------- episodic memory -------- */
+
+typedef struct atp_token_count {
+    uint32_t node_index;
+    uint32_t count;
+} atp_token_count;
+
+static atp_status atp_token_counts_bump(atp_token_count **items_out, size_t *count,
+                                        size_t *capacity, uint32_t node_index) {
+    atp_token_count *items = *items_out;
+    for (size_t i = 0u; i < *count; ++i) {
+        if (items[i].node_index == node_index) {
+            items[i].count++;
+            return ATP_OK;
+        }
+    }
+    if (*count == *capacity) {
+        const size_t next = *capacity ? *capacity * 2u : 16u;
+        if (next < *count || next > SIZE_MAX / sizeof(*items)) {
+            return ATP_ERR_OUT_OF_MEMORY;
+        }
+        atp_token_count *grown = realloc(items, next * sizeof(*grown));
+        if (!grown) {
+            return ATP_ERR_OUT_OF_MEMORY;
+        }
+        items = grown;
+        *items_out = items;
+        *capacity = next;
+    }
+    items[*count] = (atp_token_count){.node_index = node_index, .count = 1u};
+    (*count)++;
+    return ATP_OK;
+}
+
+static int atp_token_count_compare(const void *left, const void *right) {
+    const atp_token_count *a = left;
+    const atp_token_count *b = right;
+    if (a->count < b->count) {
+        return 1;
+    }
+    if (a->count > b->count) {
+        return -1;
+    }
+    if (a->node_index < b->node_index) {
+        return -1;
+    }
+    if (a->node_index > b->node_index) {
+        return 1;
+    }
+    return 0;
+}
+
+static atp_episode atp_episode_build(const atp_token_count *sorted, size_t distinct,
+                                     uint64_t ledger_id, const char *source_id,
+                                     const char *author_did, uint64_t observed_at,
+                                     uint64_t content_digest, uint32_t schema_version) {
+    atp_episode episode = {0};
+    episode.ledger_id = ledger_id;
+    episode.observed_at = observed_at;
+    episode.content_digest = content_digest;
+    episode.schema_version = schema_version;
+    strncpy(episode.source_id, source_id ? source_id : "", sizeof(episode.source_id) - 1u);
+    strncpy(episode.author_did, author_did ? author_did : "", sizeof(episode.author_did) - 1u);
+    const size_t kept =
+        distinct < ATPERSON_EPISODE_SUMMARY_SIZE ? distinct : ATPERSON_EPISODE_SUMMARY_SIZE;
+    for (size_t i = 0u; i < kept; ++i) {
+        episode.summary[i] = (atp_episode_token){
+            .node_index = sorted[i].node_index,
+            .weight = (float)sorted[i].count,
+        };
+    }
+    episode.token_count = (uint32_t)kept;
+    return episode;
+}
+
+/* Evict the least-recalled episode; ties go to the oldest, then the smallest
+ * ledger id, so eviction is deterministic and inspectable. */
+static void atp_evict_episode(atp_graph *graph) {
+    size_t victim = 0u;
+    for (size_t i = 1u; i < graph->episode_count; ++i) {
+        const atp_episode *current = &graph->episodes[i];
+        const atp_episode *best = &graph->episodes[victim];
+        if (current->recall_count < best->recall_count ||
+            (current->recall_count == best->recall_count &&
+             current->observed_at < best->observed_at) ||
+            (current->recall_count == best->recall_count &&
+             current->observed_at == best->observed_at && current->ledger_id < best->ledger_id)) {
+            victim = i;
+        }
+    }
+    if (victim + 1u < graph->episode_count) {
+        memmove(&graph->episodes[victim], &graph->episodes[victim + 1u],
+                (graph->episode_count - victim - 1u) * sizeof(graph->episodes[0]));
+    }
+    graph->episode_count--;
+    graph->episode_evictions++;
+}
+
+atp_status atp_graph_observe_with_memory(atp_graph *graph, const char *text, const char *source_id,
+                                         const char *author_did, uint64_t observed_at,
+                                         uint64_t content_digest, uint32_t schema_version,
+                                         uint64_t ledger_id, bool *out_remembered) {
+    if (out_remembered) {
+        *out_remembered = false;
+    }
+    if (!graph || !text) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+
+    const uint64_t source_hash = atp_hash_source(source_id);
+    char token[ATPERSON_TOKEN_BYTES];
+    size_t token_len = 0u;
+    int32_t previous = -1;
+    bool saw_token = false;
+    const size_t nodes_before = graph->node_count;
+
+    atp_token_count *counts = NULL;
+    size_t distinct = 0u;
+    size_t counts_capacity = 0u;
+
+    for (const unsigned char *cursor = (const unsigned char *)text;; ++cursor) {
+        const unsigned char byte = *cursor;
+        const bool token_byte = byte != '\0' && atp_is_token_byte(byte);
+
+        if (token_byte) {
+            if (token_len + 1u < sizeof(token)) {
+                token[token_len++] = (char)atp_normalize_ascii(byte);
+            }
+        }
+
+        if ((!token_byte || byte == '\0') && token_len > 0u) {
+            token[token_len] = '\0';
+            const int32_t current = atp_intern_node(graph, token);
+            if (current < 0) {
+                free(counts);
+                return ATP_ERR_OUT_OF_MEMORY;
+            }
+            graph->token_observations++;
+            saw_token = true;
+            if (previous >= 0) {
+                const atp_status status =
+                    atp_observe_pair(graph, (uint32_t)previous, (uint32_t)current, source_hash);
+                if (status != ATP_OK) {
+                    free(counts);
+                    return status;
+                }
+            }
+            previous = current;
+            token_len = 0u;
+            const atp_status bumped =
+                atp_token_counts_bump(&counts, &distinct, &counts_capacity, (uint32_t)current);
+            if (bumped != ATP_OK) {
+                free(counts);
+                return bumped;
+            }
+        }
+
+        if (byte == '\0') {
+            break;
+        }
+    }
+
+    if (saw_token) {
+        graph->observations++;
+    }
+
+    /* Count-based selection: new vocabulary or at least two distinct tokens.
+     * No hidden thresholds on meaning, sentiment, or topic. */
+    const bool remembered = graph->node_count > nodes_before || distinct >= 2u;
+    if (!remembered) {
+        free(counts);
+        return ATP_OK;
+    }
+    if (out_remembered) {
+        *out_remembered = true;
+    }
+
+    qsort(counts, distinct, sizeof(*counts), atp_token_count_compare);
+    const atp_episode episode =
+        atp_episode_build(counts, distinct, ledger_id, source_id, author_did, observed_at,
+                          content_digest, schema_version);
+    free(counts);
+
+    if (graph->episode_count >= graph->episode_max) {
+        atp_evict_episode(graph);
+    }
+    if (!atp_reserve_episodes(graph, graph->episode_count + 1u)) {
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
+    graph->episodes[graph->episode_count++] = episode;
+    return ATP_OK;
+}
+
+typedef struct atp_recall_match {
+    size_t episode_index;
+    float score;
+    uint64_t observed_at;
+    uint64_t ledger_id;
+} atp_recall_match;
+
+static int atp_recall_match_compare(const void *left, const void *right) {
+    const atp_recall_match *a = left;
+    const atp_recall_match *b = right;
+    if (a->score < b->score) {
+        return 1;
+    }
+    if (a->score > b->score) {
+        return -1;
+    }
+    if (a->observed_at < b->observed_at) {
+        return 1;
+    }
+    if (a->observed_at > b->observed_at) {
+        return -1;
+    }
+    if (a->ledger_id < b->ledger_id) {
+        return 1;
+    }
+    if (a->ledger_id > b->ledger_id) {
+        return -1;
+    }
+    return 0;
+}
+
+atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epoch,
+                            atp_episode *out, size_t capacity, size_t *out_count) {
+    if (out_count) {
+        *out_count = 0u;
+    }
+    if (!graph || !query || (!out && capacity > 0u)) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (capacity == 0u) {
+        return ATP_OK;
+    }
+    if (graph->episode_count == 0u) {
+        return ATP_OK;
+    }
+
+    /* Distinct query node indices; tokens unknown to the vocabulary cannot
+     * match anything and do not mutate the graph. */
+    uint32_t *query_nodes = NULL;
+    size_t query_count = 0u;
+    size_t query_capacity = 0u;
+    char token[ATPERSON_TOKEN_BYTES];
+    size_t token_len = 0u;
+    for (const unsigned char *cursor = (const unsigned char *)query;; ++cursor) {
+        const unsigned char byte = *cursor;
+        const bool token_byte = byte != '\0' && atp_is_token_byte(byte);
+        if (token_byte) {
+            if (token_len + 1u < sizeof(token)) {
+                token[token_len++] = (char)atp_normalize_ascii(byte);
+            }
+        }
+        if ((!token_byte || byte == '\0') && token_len > 0u) {
+            token[token_len] = '\0';
+            token_len = 0u;
+            const int32_t node = atp_find_node(graph, token);
+            if (node >= 0) {
+                bool seen = false;
+                for (size_t i = 0u; i < query_count && !seen; ++i) {
+                    seen = query_nodes[i] == (uint32_t)node;
+                }
+                if (!seen) {
+                    if (query_count == query_capacity) {
+                        const size_t next = query_capacity ? query_capacity * 2u : 8u;
+                        if (next < query_count || next > SIZE_MAX / sizeof(*query_nodes)) {
+                            free(query_nodes);
+                            return ATP_ERR_OUT_OF_MEMORY;
+                        }
+                        uint32_t *grown = realloc(query_nodes, next * sizeof(*grown));
+                        if (!grown) {
+                            free(query_nodes);
+                            return ATP_ERR_OUT_OF_MEMORY;
+                        }
+                        query_nodes = grown;
+                        query_capacity = next;
+                    }
+                    query_nodes[query_count++] = (uint32_t)node;
+                }
+            }
+        }
+        if (byte == '\0') {
+            break;
+        }
+    }
+
+    if (query_count == 0u) {
+        free(query_nodes);
+        return ATP_OK;
+    }
+
+    atp_recall_match *matches = malloc(graph->episode_count * sizeof(*matches));
+    if (!matches) {
+        free(query_nodes);
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
+    size_t match_count = 0u;
+    for (size_t i = 0u; i < graph->episode_count; ++i) {
+        const atp_episode *episode = &graph->episodes[i];
+        float score = 0.0f;
+        for (uint32_t s = 0u; s < episode->token_count; ++s) {
+            const uint32_t node_index = episode->summary[s].node_index;
+            if (node_index >= graph->node_count) {
+                continue;
+            }
+            for (size_t q = 0u; q < query_count; ++q) {
+                if (query_nodes[q] == node_index) {
+                    score += episode->summary[s].weight;
+                    break;
+                }
+            }
+        }
+        if (score > 0.0f) {
+            matches[match_count++] = (atp_recall_match){
+                .episode_index = i,
+                .score = score,
+                .observed_at = episode->observed_at,
+                .ledger_id = episode->ledger_id,
+            };
+        }
+    }
+    free(query_nodes);
+
+    qsort(matches, match_count, sizeof(*matches), atp_recall_match_compare);
+    const size_t written = match_count < capacity ? match_count : capacity;
+    for (size_t i = 0u; i < written; ++i) {
+        atp_episode *episode = &graph->episodes[matches[i].episode_index];
+        if (out) {
+            out[i] = *episode;
+        }
+        episode->recall_count++;
+        episode->last_recall_at = at_epoch;
+    }
+    free(matches);
+    if (out_count) {
+        *out_count = written;
+    }
+    return ATP_OK;
+}
+
+size_t atp_graph_episode_count(const atp_graph *graph) {
+    return graph ? graph->episode_count : 0u;
+}
+
+atp_status atp_graph_episode_at(const atp_graph *graph, size_t index, atp_episode *out_episode) {
+    if (!graph || !out_episode) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (index >= graph->episode_count) {
+        return ATP_ERR_NOT_FOUND;
+    }
+    *out_episode = graph->episodes[index];
+    return ATP_OK;
+}
+
 atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {
     if (!graph) {
         return (atp_graph_stats){0};
@@ -328,6 +713,9 @@ atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {
         .training_steps = graph->training_steps,
         .mean_loss =
             graph->training_steps ? graph->loss_total / (double)graph->training_steps : 0.0,
+        .episode_count = graph->episode_count,
+        .episode_capacity = graph->episode_max,
+        .episode_evictions = graph->episode_evictions,
     };
 }
 

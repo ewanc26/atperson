@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -27,8 +28,7 @@ std::string env_or(const char *name, std::string fallback = {}) {
 std::string required_env(const char *name) {
     const std::string value = env_or(name);
     if (value.empty()) {
-        throw std::runtime_error(std::string("missing required environment variable ") +
-                                 name);
+        throw std::runtime_error(std::string("missing required environment variable ") + name);
     }
     return value;
 }
@@ -67,21 +67,18 @@ std::optional<std::uint64_t> parse_rfc3339_epoch(std::string_view value) {
     int hour = 0;
     int minute = 0;
     int second = 0;
-    if (std::sscanf(std::string(value.substr(0u, 19u)).c_str(),
-                    "%4d-%2d-%2dT%2d:%2d:%2d", &year, &month, &day, &hour,
-                    &minute, &second) != 6) {
+    if (std::sscanf(std::string(value.substr(0u, 19u)).c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &year,
+                    &month, &day, &hour, &minute, &second) != 6) {
         return std::nullopt;
     }
-    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 ||
-        minute > 59 || second > 60) {
+    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) {
         return std::nullopt;
     }
 
     std::size_t position = 19u;
     if (position < value.size() && value[position] == '.') {
         ++position;
-        while (position < value.size() && value[position] >= '0' &&
-               value[position] <= '9') {
+        while (position < value.size() && value[position] >= '0' && value[position] <= '9') {
             ++position;
         }
     }
@@ -92,8 +89,7 @@ std::optional<std::uint64_t> parse_rfc3339_epoch(std::string_view value) {
         if (zone == 'Z' || zone == 'z') {
             ++position;
         } else if (zone == '+' || zone == '-') {
-            if (position + 6u > value.size() ||
-                value[position + 3u] != ':') {
+            if (position + 6u > value.size() || value[position + 3u] != ':') {
                 return std::nullopt;
             }
             long hours = 0;
@@ -120,23 +116,18 @@ std::optional<std::uint64_t> parse_rfc3339_epoch(std::string_view value) {
         return std::nullopt;
     }
 
-    const std::int64_t adjusted_month = month > 2 ? static_cast<std::int64_t>(month)
-                                                  : static_cast<std::int64_t>(month + 12);
+    const std::int64_t adjusted_month =
+        month > 2 ? static_cast<std::int64_t>(month) : static_cast<std::int64_t>(month + 12);
     const std::int64_t adjusted_year = year - (month > 2 ? 0 : 1);
-    const std::int64_t era = adjusted_year >= 0 ? adjusted_year / 400
-                                                : (adjusted_year - 399) / 400;
+    const std::int64_t era = adjusted_year >= 0 ? adjusted_year / 400 : (adjusted_year - 399) / 400;
     const std::int64_t year_of_era = adjusted_year - era * 400;
     const std::int64_t day_of_year =
-        (153 * (adjusted_month > 2 ? adjusted_month - 3 : adjusted_month + 9) +
-         2) /
-            5 +
-        day - 1;
+        (153 * (adjusted_month > 2 ? adjusted_month - 3 : adjusted_month + 9) + 2) / 5 + day - 1;
     const std::int64_t day_of_era =
         year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     const std::int64_t epoch_days = era * 146097 + day_of_era - 719468;
-    const std::int64_t local_seconds =
-        epoch_days * 86400 + static_cast<std::int64_t>(hour) * 3600 +
-        static_cast<std::int64_t>(minute) * 60 + second;
+    const std::int64_t local_seconds = epoch_days * 86400 + static_cast<std::int64_t>(hour) * 3600 +
+                                       static_cast<std::int64_t>(minute) * 60 + second;
     const std::int64_t epoch = local_seconds - offset_seconds;
     if (epoch < 0) {
         return std::nullopt;
@@ -158,8 +149,9 @@ void print_stats(const atperson::LanguageGraph &graph) {
               << "nodes: " << stats.node_count << '\n'
               << "edges: " << stats.edge_count << '\n'
               << "training steps: " << stats.training_steps << '\n'
-              << "mean loss: " << std::fixed << std::setprecision(6)
-              << stats.mean_loss << '\n';
+              << "mean loss: " << std::fixed << std::setprecision(6) << stats.mean_loss << '\n'
+              << "episodes: " << stats.episode_count << " (capacity " << stats.episode_capacity
+              << ", evictions " << stats.episode_evictions << ")\n";
 }
 
 void usage(std::ostream &out) {
@@ -168,6 +160,7 @@ void usage(std::ostream &out) {
         << "  atperson ingest <text> [source-id]\n"
         << "  atperson ingest-file <path> [source-id]\n"
         << "  atperson assoc <token> [limit]\n"
+        << "  atperson recall <query> [limit]\n"
         << "  atperson sync [limit]\n\n"
         << "environment:\n"
         << "  ATPERSON_STATE         model snapshot path "
@@ -214,8 +207,7 @@ int main(int argc, char **argv) {
                 usage(std::cerr);
                 return 2;
             }
-            const std::string source =
-                argc >= 4 ? argv[3] : "local:manual";
+            const std::string source = argc >= 4 ? argv[3] : "local:manual";
             graph.observe(argv[2], source);
             graph.save(path);
             print_stats(graph);
@@ -230,13 +222,11 @@ int main(int argc, char **argv) {
             const std::filesystem::path input_path = argv[2];
             std::ifstream input(input_path, std::ios::binary);
             if (!input) {
-                throw std::runtime_error("could not open " +
-                                         input_path.string());
+                throw std::runtime_error("could not open " + input_path.string());
             }
             const std::string text((std::istreambuf_iterator<char>(input)),
                                    std::istreambuf_iterator<char>());
-            const std::string source =
-                argc >= 4 ? argv[3] : "file:" + input_path.string();
+            const std::string source = argc >= 4 ? argv[3] : "file:" + input_path.string();
             graph.observe(text, source);
             graph.save(path);
             print_stats(graph);
@@ -251,21 +241,39 @@ int main(int argc, char **argv) {
             const int limit = argc >= 4 ? parse_limit(argv[3], 10) : 10;
             for (const auto &association :
                  graph.associations(argv[2], static_cast<std::size_t>(limit))) {
-                std::cout << association.token << '\t' << std::fixed
-                          << std::setprecision(4) << association.score << '\t'
-                          << association.observations << '\t'
-                          << std::hex << association.last_source_hash << std::dec
-                          << '\n';
+                std::cout << association.token << '\t' << std::fixed << std::setprecision(4)
+                          << association.score << '\t' << association.observations << '\t'
+                          << std::hex << association.last_source_hash << std::dec << '\n';
+            }
+            return 0;
+        }
+
+        if (command == "recall") {
+            if (argc < 3) {
+                usage(std::cerr);
+                return 2;
+            }
+            const int limit = argc >= 4 ? parse_limit(argv[3], 10) : 10;
+            const std::uint64_t at_epoch = static_cast<std::uint64_t>(std::time(nullptr));
+            for (const auto &episode :
+                 graph.recall(argv[2], at_epoch, static_cast<std::size_t>(limit))) {
+                std::cout << "ledger " << episode.ledger_id << '\t' << "at " << episode.observed_at
+                          << '\t' << "recall " << episode.recall_count << '\t' << episode.source_id
+                          << '\t';
+                for (std::uint32_t t = 0u; t < episode.token_count; ++t) {
+                    std::cout << '<' << episode.summary[t].node_index << ':' << std::fixed
+                              << std::setprecision(1) << episode.summary[t].weight << "> ";
+                }
+                std::cout << '\n';
             }
             return 0;
         }
 
         if (command == "sync") {
             const int limit = argc >= 3 ? parse_limit(argv[2], 50) : 50;
-            atperson::AtprotoClient client(
-                env_or("ATPERSON_SERVICE", "https://bsky.social"),
-                required_env("ATPERSON_IDENTIFIER"),
-                required_env("ATPERSON_APP_PASSWORD"));
+            atperson::AtprotoClient client(env_or("ATPERSON_SERVICE", "https://bsky.social"),
+                                           required_env("ATPERSON_IDENTIFIER"),
+                                           required_env("ATPERSON_APP_PASSWORD"));
 
             const std::filesystem::path ledger_dir = ledger_path();
             if (const auto parent = ledger_dir.parent_path(); !parent.empty()) {
@@ -275,12 +283,12 @@ int main(int argc, char **argv) {
 
             const auto observations = client.fetch_timeline(limit);
             std::size_t learned = 0u;
+            std::size_t remembered = 0u;
             std::size_t skipped = 0u;
             std::size_t duplicates = 0u;
             for (const auto &observation : observations) {
                 const auto source_id = static_cast<std::string>(observation.source_uri);
-                const std::uint64_t digest =
-                    atperson::Ledger::digest(observation.text);
+                const std::uint64_t digest = atperson::Ledger::digest(observation.text);
                 const std::uint64_t observed_at =
                     parse_rfc3339_epoch(observation.created_at).value_or(0u);
 
@@ -288,19 +296,22 @@ int main(int argc, char **argv) {
                 // process can never re-train on it: on restart the ledger is
                 // the authority for what has already been committed.
                 std::uint64_t id = 0u;
-                const auto result = ledger.append(
-                    source_id, observation.author_did, observed_at, digest,
-                    ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_PENDING, &id);
+                const auto result =
+                    ledger.append(source_id, observation.author_did, observed_at, digest,
+                                  ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_PENDING, &id);
                 if (result == atperson::LedgerResult::ExistsCommitted) {
                     duplicates++;
                     continue;
                 }
 
                 const bool trainable = !observation.text.empty();
-                const auto outcome = trainable ? ATP_LEDGER_OUTCOME_LEARNED
-                                               : ATP_LEDGER_OUTCOME_SKIPPED;
+                const auto outcome =
+                    trainable ? ATP_LEDGER_OUTCOME_LEARNED : ATP_LEDGER_OUTCOME_SKIPPED;
                 if (trainable) {
-                    graph.observe(observation.text, source_id);
+                    if (graph.remember(observation.text, source_id, observation.author_did,
+                                       observed_at, digest, ATPERSON_SCHEMA_VERSION, id)) {
+                        remembered++;
+                    }
                     learned++;
                 } else {
                     skipped++;
@@ -315,20 +326,18 @@ int main(int argc, char **argv) {
                 entry.outcome = outcome;
                 std::memcpy(entry.source_id, source_id.data(), source_id.size());
                 entry.source_id[source_id.size()] = '\0';
-                const std::size_t author_len = observation.author_did.size() <
-                                                       sizeof(entry.author_did) - 1u
-                                                   ? observation.author_did.size()
-                                                   : sizeof(entry.author_did) - 1u;
-                std::memcpy(entry.author_did, observation.author_did.data(),
-                            author_len);
+                const std::size_t author_len =
+                    observation.author_did.size() < sizeof(entry.author_did) - 1u
+                        ? observation.author_did.size()
+                        : sizeof(entry.author_did) - 1u;
+                std::memcpy(entry.author_did, observation.author_did.data(), author_len);
                 entry.author_did[author_len] = '\0';
                 graph.record_ledger_entry(entry);
             }
 
             graph.save(path);
-            std::cout << "learned from " << learned
-                      << " (skipped " << skipped << ", duplicate "
-                      << duplicates << ") public timeline posts\n";
+            std::cout << "learned from " << learned << " (remembered " << remembered << ", skipped "
+                      << skipped << ", duplicate " << duplicates << ") public timeline posts\n";
             print_stats(graph);
             return 0;
         }

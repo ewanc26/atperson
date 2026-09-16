@@ -110,4 +110,43 @@ std::vector<atp_ledger_entry> LanguageGraph::ledger_entries() const {
     return result;
 }
 
+bool LanguageGraph::remember(std::string_view text, std::string_view source_id,
+                             std::string_view author_did, std::uint64_t observed_at,
+                             std::uint64_t content_digest, std::uint32_t schema_version,
+                             std::uint64_t ledger_id) {
+    const std::string owned_text(text);
+    const std::string owned_source(source_id);
+    const std::string owned_author(author_did);
+    bool remembered = false;
+    require(atp_graph_observe_with_memory(graph_, owned_text.c_str(), owned_source.c_str(),
+                                          owned_author.c_str(), observed_at, content_digest,
+                                          schema_version, ledger_id, &remembered),
+            "remember observation");
+    return remembered;
+}
+
+std::vector<atp_episode> LanguageGraph::recall(std::string_view query, std::uint64_t at_epoch,
+                                               std::size_t limit) {
+    if (limit == 0u) {
+        return {};
+    }
+
+    std::vector<atp_episode> result(limit);
+    std::size_t count = 0u;
+    const std::string owned_query(query);
+    require(atp_graph_recall(graph_, owned_query.c_str(), at_epoch, result.data(), result.size(),
+                             &count),
+            "recall episodes");
+    result.resize(count);
+    return result;
+}
+
+std::vector<atp_episode> LanguageGraph::episodes() const {
+    std::vector<atp_episode> result(atp_graph_episode_count(graph_));
+    for (std::size_t i = 0; i < result.size(); ++i) {
+        require(atp_graph_episode_at(graph_, i, &result[i]), "read episode");
+    }
+    return result;
+}
+
 } // namespace atperson

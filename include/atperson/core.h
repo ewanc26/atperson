@@ -1,6 +1,7 @@
 #ifndef ATPERSON_CORE_H
 #define ATPERSON_CORE_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -12,13 +13,14 @@ extern "C" {
 #define ATPERSON_TOKEN_BYTES 96u
 
 /*
- * Snapshot format version. Version 2 adds the mirrored observation ledger
- * block to the original version 1 layout. Snapshot files remain host-oriented
- * (fixed-width integers with host byte order), following the documented plan
- * that a future portable format defines byte order before snapshots become a
- * long-term interchange format.
+ * Snapshot format version. Version 2 added the mirrored observation ledger
+ * block; version 3 adds the episodic-memory block (a selective, consolidated
+ * view of remembered observations with recall counters). Snapshot files remain
+ * host-oriented (fixed-width integers with host byte order), following the
+ * documented plan that a future portable format defines byte order before
+ * snapshots become a long-term interchange format.
  */
-#define ATPERSON_SNAPSHOT_VERSION 2u
+#define ATPERSON_SNAPSHOT_VERSION 3u
 
 /*
  * Observation ledger format version. The ledger keeps each observation in an
@@ -38,6 +40,18 @@ extern "C" {
 #define ATPERSON_LEDGER_SOURCE_BYTES 256u
 #define ATPERSON_LEDGER_AUTHOR_BYTES 256u
 
+/*
+ * Episodic memory.
+ *
+ * An episode is a remembered observation. The ledger keeps every observation
+ * durably; memory keeps a selective, consolidated view: the observation's
+ * source (linked to the ledger entry it came from), and a compact summary of
+ * the most significant tokens present. Recall is a use-based counter, not a
+ * latent hidden state, so every memory change is inspectable and serialisable.
+ */
+#define ATPERSON_EPISODE_SUMMARY_SIZE 8u
+#define ATPERSON_EPISODE_DEFAULT_CAPACITY 4096u
+
 typedef enum atp_status {
     ATP_OK = 0,
     ATP_ERR_INVALID_ARGUMENT = 1,
@@ -53,6 +67,8 @@ typedef struct atp_ledger atp_ledger;
 typedef struct atp_graph_config {
     uint64_t seed;
     float learning_rate;
+    /* Episode capacity (0 selects ATPERSON_EPISODE_DEFAULT_CAPACITY). */
+    size_t episode_capacity;
 } atp_graph_config;
 
 typedef struct atp_graph_stats {
@@ -62,6 +78,9 @@ typedef struct atp_graph_stats {
     uint64_t token_observations;
     uint64_t training_steps;
     double mean_loss;
+    size_t episode_count;
+    size_t episode_capacity;
+    uint64_t episode_evictions;
 } atp_graph_stats;
 
 typedef struct atp_association {
@@ -237,6 +256,69 @@ size_t atp_graph_ledger_count(const atp_graph *graph);
 /** Copy the i-th mirrored entry (0-based, in append order). */
 atp_status atp_graph_ledger_entry(const atp_graph *graph, size_t index,
                                   atp_ledger_entry *out_entry);
+
+/*
+ * Episodic memory.
+ *
+ * Memory is a curated facet of the ledger: episodes are remembered (not every
+ * observation), each stores the source link and a consolidated top-token
+ * summary, and recall counters make consolidation visible. The weighted
+ * association edges in the graph are the semantic substrate; episodes are the
+ * episodic substrate.
+ */
+
+/** One summary token in an episode: the graph's node index and its weight. */
+typedef struct atp_episode_token {
+    uint32_t node_index;
+    float weight;
+} atp_episode_token;
+
+/**
+ * A remembered observation. `ledger_id` links the episode to its source entry
+ * in the observation ledger; `recall_count`/`last_recall_at` are the usage
+ * counters that drive eviction.
+ */
+typedef struct atp_episode {
+    uint64_t ledger_id;
+    uint64_t observed_at;
+    uint64_t content_digest;
+    uint32_t schema_version;
+    uint64_t recall_count;
+    uint64_t last_recall_at;
+    uint32_t token_count;
+    atp_episode_token summary[ATPERSON_EPISODE_SUMMARY_SIZE];
+    char source_id[ATPERSON_LEDGER_SOURCE_BYTES];
+    char author_did[ATPERSON_LEDGER_AUTHOR_BYTES];
+} atp_episode;
+
+/**
+ * Learn from one textual observation and decide whether to remember it as an
+ * episode (a single tokenisation pass).
+ *
+ * Selection is purely counter-based and inspectable: the episode is remembered
+ * when the observation introduced new vocabulary or contained at least two
+ * distinct tokens. `*out_remembered` is written after training. When the
+ * memory is full, the least-recalled episode (then oldest) is evicted.
+ */
+atp_status atp_graph_observe_with_memory(atp_graph *graph, const char *text, const char *source_id,
+                                         const char *author_did, uint64_t observed_at,
+                                         uint64_t content_digest, uint32_t schema_version,
+                                         uint64_t ledger_id, bool *out_remembered);
+
+/**
+ * Recall the episodes whose summary tokens overlap the query, strongest
+ * overlap first (ties broken by recency, then ledger id). Recalled episodes
+ * get their `recall_count` incremented and `last_recall_at` set to `at_epoch`;
+ * query tokens are matched without mutating the vocabulary.
+ */
+atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epoch,
+                            atp_episode *out, size_t capacity, size_t *out_count);
+
+/** Number of episodes currently in memory. */
+size_t atp_graph_episode_count(const atp_graph *graph);
+
+/** Copy the i-th remembered episode (0-based, in insertion order). */
+atp_status atp_graph_episode_at(const atp_graph *graph, size_t index, atp_episode *out_episode);
 
 #ifdef __cplusplus
 }
