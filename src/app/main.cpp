@@ -1,6 +1,7 @@
 #include "atperson/bootstrap.h"
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
+#include "action_inspection.hpp"
 #include "atproto_client.hpp"
 #include "ingestion_state.hpp"
 #include "resource_runtime.hpp"
@@ -99,6 +100,9 @@ void usage(std::ostream &out) {
         << "  atperson ingest-file <path> [source-id]\n"
         << "  atperson assoc <token> [limit]\n"
         << "  atperson candidates <context> [limit]\n"
+        << "  atperson plans <context> [max-tokens] [beam-width]\n"
+        << "  atperson decide <context> [max-tokens] [beam-width]\n"
+        << "  atperson context <text> [source-id] [author-did]\n"
         << "  atperson familiarity <token>\n"
         << "  atperson recall <query> [limit]\n"
         << "  atperson sync [max-pages]\n"
@@ -292,6 +296,17 @@ int main(int argc, char **argv) {
         if (command == "stats") {
             print_stats(graph);
             return 0;
+        }
+
+        if (atperson::is_action_inspection_command(command)) {
+            std::vector<std::string_view> arguments;
+            arguments.reserve(argc > 2 ? static_cast<std::size_t>(argc - 2) : 0u);
+            for (int i = 2; i < argc; ++i) {
+                arguments.emplace_back(argv[i]);
+            }
+            return atperson::run_action_inspection_command(
+                std::cout, graph, command, arguments,
+                static_cast<std::uint64_t>(std::time(nullptr)));
         }
 
         if (command == "ingest") {
