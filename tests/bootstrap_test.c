@@ -79,7 +79,12 @@ static void test_env_template_lists_credentials(void) {
     assert(strstr(contents, "ATPERSON_APP_PASSWORD=") != NULL);
     assert(strstr(contents, "ATPERSON_SERVICE=") != NULL);
     assert(strstr(contents, "ATPERSON_HOME=") != NULL);
+    assert(strstr(contents, "ATPERSON_MEMORY_BUDGET_BYTES=") != NULL);
+    assert(strstr(contents, "ATPERSON_DISK_RESERVE_BYTES=") != NULL);
+    assert(strstr(contents, "ATPERSON_NODE_CAPACITY=") != NULL);
+    assert(strstr(contents, "ATPERSON_EDGE_CAPACITY=") != NULL);
     assert(strstr(contents, "ATPERSON_SYNC_PAGE_SIZE=") != NULL);
+    assert(strstr(contents, "ATPERSON_SYNC_MAX_OBSERVATIONS=") != NULL);
 }
 
 static void test_env_permissions_are_owner_only(void) {
