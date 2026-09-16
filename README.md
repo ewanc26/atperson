@@ -132,8 +132,11 @@ includes the final score plus the evidence used to construct it:
 
 Queries are deterministic and read-only. Unknown context does not seed new
 vocabulary, and querying the action model does not train or mutate the graph.
-This is intended to become the evidence surface consumed by later sequence
-planning and network policy rather than being replaced by opaque prompt logic.
+The C++ wrapper and `atperson candidates` command expose the same evidence
+without recomputing it outside the core; see
+[`docs/action-inspection.md`](docs/action-inspection.md). This is intended to
+become the evidence surface consumed by later sequence planning and network
+policy rather than being replaced by opaque prompt logic.
 
 ## Persistence and memory
 
@@ -176,8 +179,10 @@ for the ledger durability APIs rather than relying on GNU language extensions.
 The Wolfram dependency is currently pinned to commit
 `9e63f76ab0b4f97f2cb5c62a5d0129b3d9023917`.
 
-GitHub Actions exercises both the core-only build and the full Wolfram-backed
-network build, including the C and C++ test suites.
+GitHub Actions exercises Linux GCC, Linux Clang, macOS Apple Clang, an
+ASan+UBSan core build, and the full Wolfram-backed network build. See
+[`docs/ci-matrix.md`](docs/ci-matrix.md) for the supported CI matrix and what
+each job verifies.
 
 ## Runtime
 
@@ -190,6 +195,7 @@ State defaults to `.atperson/model.bin`; the observation ledger defaults to
 ./build/atperson ingest "hello world" local:first-observation
 ./build/atperson ingest-file ./notes.txt
 ./build/atperson assoc hello
+./build/atperson candidates "hello world" 10
 ./build/atperson familiarity hello
 ./build/atperson recall "hello world" 5
 ```
