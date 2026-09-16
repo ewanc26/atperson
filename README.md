@@ -37,6 +37,7 @@ stages, with later stages intentionally incomplete:
 | Network behaviour | Not enabled | Wolfram-backed ingestion exists; autonomous likes, replies, follows, reposts, and posts do not |
 | Ingestion policy | Implemented | Explicit public-data policy: skip classes with machine-readable reasons, self-observation excluded, skipped items ledgered as `SKIPPED` |
 | Deterministic replay | Implemented | `atp_replay_ledger` + `atperson rebuild`: rebuild learned state from the ledger alone, explicit outcome semantics, atomic snapshot replacement, byte-identical rebuilds |
+| Withdrawal/unlearning | Implemented | `ATP_LEDGER_OUTCOME_WITHDRAWN` + `atperson withdraw <id|source|author>`: append-only idempotent exclusion, rebuild produces the state that would have existed without the withdrawn source |
 | Long-running runtime | Future work | `sync` is an explicitly-invoked bounded run with persistent catch-up state rather than a continuously operating agent |
 
 The model begins with **zero words and zero relationships**. Neural parameters
@@ -153,9 +154,10 @@ version, and outcome. Its in-memory deduplication index is rebuilt from the log
 when opened.
 
 Episodic memories remain linked to ledger IDs so remembered material retains a
-route back to its source evidence. Source deletion and exact unlearning/replay
-semantics are not yet solved; those are required before autonomous output is a
-responsible next step.
+route back to its source evidence. Source deletion and unlearning are solved
+by withdrawal plus rebuild: withdrawn observations are durably excluded from
+the next rebuild, so learned state is what the entity would have been without
+them.
 
 ## Build
 
@@ -264,6 +266,23 @@ byte-identical snapshots. A payload-less `LEARNED` entry (v1-migrated
 ledger) or an unimplemented schema version fails the rebuild rather than
 silently producing a graph that never saw those bytes.
 
+### Withdrawal
+
+Durably exclude observations from future learned state:
+
+```sh
+./build/atperson withdraw id 42
+./build/atperson withdraw source at://did:plc:example/app.bsky.feed.post/abc
+./build/atperson withdraw author did:plc:example
+```
+
+Withdrawal is an append-only, idempotent ledger patch — log history is never
+rewritten, and the patch sequence on disk is the audit trail. It never
+mutates the live graph: run `atperson rebuild` to apply it, which excludes
+withdrawn observations from graph, neural training, familiarity, memory,
+counters, and the snapshot mirror. An edited record (same URI, new content)
+appends a fresh entry, so withdrawing old content doesn't block the edit.
+
 `sync` records each fetched post in the durable ledger before learning from it.
 Already committed `(source id + digest)` pairs are skipped on later runs. Empty
 records remain represented in the ledger but are not trained. Trainable posts
@@ -314,10 +333,8 @@ may commit after the reader started.
 - pretend source deletion and learned-contribution removal are solved.
 
 The next meaningful work is not simply "let it post". The action model needs
-higher-level sequence planning and explicit network policy, while the ledger
-needs replay/unlearning semantics capable of removing or rebuilding learned
-contributions when source material disappears. Autonomous output should sit on
-top of those observable mechanisms, not bypass them.
+higher-level sequence planning and explicit network policy. Autonomous output
+should sit on top of those observable mechanisms, not bypass them.
 
 ## Licence
 

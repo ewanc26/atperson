@@ -246,8 +246,9 @@ empty text), then mirror the entry into the graph snapshot (v2) so recent
 provenance is inspectable in one file. The retained text makes the ledger
 replayable; the ledger remains authoritative for rebuilds.
 
-Deleting a learned contribution is still an open problem; the preferred model
-remains rebuild-from-ledger rather than approximate inverse gradient steps.
+Deleting a learned contribution is solved by withdrawal plus rebuild (see
+"Source withdrawal and unlearning" below): the model is
+rebuild-from-ledger, never approximate inverse gradient steps.
 
 ### Deterministic rebuild
 
@@ -266,6 +267,7 @@ Outcome semantics are explicit:
 | `SKIPPED` | Mirrored only — observed but deliberately not learned, as the original run decided |
 | `PENDING` | Excluded — retryable reservation, not committed experience |
 | `FAILED` | Excluded — examined but untrainable, retryable |
+| `WITHDRAWN` | Excluded — durably removed; the rebuilt state never saw it |
 
 A LEARNED entry without a retained payload (a v1-migrated ledger) cannot be
 replayed — the training input is gone — and fails the whole rebuild with
@@ -279,6 +281,45 @@ replays the ledger into a fresh graph, and saves the result atomically
 failure at any point — unreplayable entry, digest mismatch — leaves the
 previous snapshot untouched; the rebuilt snapshot replaces it only on
 success. Two rebuilds of the same ledger produce byte-identical snapshots.
+
+## Source withdrawal and unlearning
+
+Learned contributions are not permanent. `ATP_LEDGER_OUTCOME_WITHDRAWN` is
+a fifth ledger outcome applied through the existing append-only patch
+records: withdrawal never rewrites log history, is idempotent (withdrawing
+an already-withdrawn entry is a no-op), and the patch sequence on disk is
+the audit trail.
+
+Three scopes:
+
+- `atp_ledger_withdraw(id)` — one observation;
+- `atp_ledger_withdraw_source(source_id)` — every entry from one source
+  URI (a deleted AT record);
+- `atp_ledger_withdraw_author(author_did)` — every entry by one account.
+
+Edited records need no special machinery: the dedup index keys on
+`(source id + content digest)`, so the same URI with new content appends a
+fresh entry. Withdrawing the old content excludes it while the edit trains
+normally.
+
+Withdrawal never mutates the live graph. The graph has no inverse-observe,
+and approximate subtraction from neural parameters would not restore the
+state that would have existed without the source — the architecture
+explicitly rejects that. Instead, withdrawal patches the ledger, and the
+next rebuild produces the corrected state atomically: withdrawn entries
+are excluded from graph, neural training, familiarity, memory, counters,
+and the snapshot mirror, so the rebuilt state is what the entity would
+have been without them. Already-evicted episodic memories need no special
+handling — eviction is deterministic from replay order, so a rebuilt graph
+never contains episodes from withdrawn observations. The live snapshot
+keeps stale state until the next rebuild; the ledger is the authority, the
+snapshot is a cache.
+
+A withdrawn entry is committed history: it blocks re-append (the
+observation stays deduplicated) and cannot regress to `PENDING`. The CLI
+surfaces this as `atperson withdraw <id|source|author> <target>`, which
+prints a reminder to run `atperson rebuild` to apply the withdrawal to
+learned state.
 
 ## Episodic memory
 

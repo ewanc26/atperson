@@ -76,6 +76,20 @@ void Ledger::set_outcome(std::uint64_t id, atp_ledger_outcome outcome) {
     require(atp_ledger_set_outcome(ledger_, id, outcome), "set ledger outcome");
 }
 
+void Ledger::withdraw(std::uint64_t id) {
+    require(atp_ledger_withdraw(ledger_, id), "withdraw ledger entry");
+}
+
+std::size_t Ledger::withdraw_source(std::string_view source_id) {
+    const std::string owned_source(source_id);
+    return atp_ledger_withdraw_source(ledger_, owned_source.c_str());
+}
+
+std::size_t Ledger::withdraw_author(std::string_view author_did) {
+    const std::string owned_author(author_did);
+    return atp_ledger_withdraw_author(ledger_, owned_author.c_str());
+}
+
 LedgerResult Ledger::lookup(std::string_view source_id, std::uint64_t content_digest,
                             atp_ledger_entry *out_entry) const {
     const std::string owned_source(source_id);

@@ -198,6 +198,13 @@ if(ATPERSON_BUILD_TESTS)
     COMMAND atperson_replay_test rebuild-safety
             ${CMAKE_CURRENT_BINARY_DIR}/replay-safety)
 
+  # Source withdrawal/unlearning semantics; pure core, no network.
+  add_executable(atperson_withdraw_test tests/withdraw_test.c)
+  target_link_libraries(atperson_withdraw_test PRIVATE atperson_core)
+  add_test(
+    NAME atperson_withdraw
+    COMMAND atperson_withdraw_test withdraw ${CMAKE_CURRENT_BINARY_DIR}/withdraw)
+
   add_executable(atperson_cpp_test tests/cpp_test.cpp)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)
   add_test(NAME atperson_cpp COMMAND atperson_cpp_test)

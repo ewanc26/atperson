@@ -116,13 +116,18 @@ typedef struct atp_association {
  * Processing state of one ledger entry. PENDING entries were durably reserved
  * but not yet trained on (a crash between reservation and completion); FAILED
  * entries were examined but could not be trained and are retryable; LEARNED
- * and SKIPPED entries are committed and are never re-trained.
+ * and SKIPPED entries are committed and are never re-trained. WITHDRAWN
+ * entries are durably excluded by an operator or by source deletion: they
+ * are never trained on, never mirrored, and excluded from rebuilds — the
+ * rebuilt state is what the entity would have been without them. Withdrawal
+ * is append-only (a patch record) and idempotent.
  */
 typedef enum atp_ledger_outcome {
     ATP_LEDGER_OUTCOME_PENDING = 0,
     ATP_LEDGER_OUTCOME_LEARNED = 1,
     ATP_LEDGER_OUTCOME_SKIPPED = 2,
-    ATP_LEDGER_OUTCOME_FAILED = 3
+    ATP_LEDGER_OUTCOME_FAILED = 3,
+    ATP_LEDGER_OUTCOME_WITHDRAWN = 4
 } atp_ledger_outcome;
 
 /*
@@ -257,6 +262,32 @@ atp_ledger_result atp_ledger_append(atp_ledger *ledger, const char *source_id,
  */
 atp_status atp_ledger_set_outcome(atp_ledger *ledger, uint64_t id, atp_ledger_outcome outcome);
 
+/**
+ * Durably withdraw one entry: an append-only patch record sets its outcome
+ * to WITHDRAWN. Idempotent — withdrawing an already-withdrawn entry is a
+ * no-op. Withdrawal never rewrites log history; the patch sequence on disk
+ * is the audit trail. The live graph is not modified: withdrawn
+ * contributions leave learned state at the next rebuild, which excludes
+ * them entirely.
+ */
+atp_status atp_ledger_withdraw(atp_ledger *ledger, uint64_t id);
+
+/**
+ * Withdraw every entry whose source id matches `source_id` (e.g. one AT
+ * URI). Returns the number of entries withdrawn; entries already WITHDRAWN
+ * are not counted. An edited record (same URI, new content) appends a fresh
+ * entry under the dedup index, so withdrawing the old content does not
+ * block the new content from being observed.
+ */
+size_t atp_ledger_withdraw_source(atp_ledger *ledger, const char *source_id);
+
+/**
+ * Withdraw every entry whose author DID matches `author_did` — exclude an
+ * account's contributions entirely. Returns the number of entries
+ * withdrawn; already-withdrawn entries are not counted.
+ */
+size_t atp_ledger_withdraw_author(atp_ledger *ledger, const char *author_did);
+
 /** Dedup query on the unique (source id + digest) index. */
 atp_ledger_result atp_ledger_lookup(const atp_ledger *ledger, const char *source_id,
                                     uint64_t content_digest, atp_ledger_entry *out_entry);
@@ -295,6 +326,9 @@ atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void 
  * - SKIPPED   -> mirrored only, never trained on.
  * - PENDING / FAILED -> excluded entirely: retryable reservations, not
  *   committed experience.
+ * - WITHDRAWN -> excluded entirely: durably removed by an operator or by
+ *   source deletion. The rebuilt state is what the entity would have been
+ *   without them.
  *
  * A LEARNED entry without a retained payload (v1-migrated ledger) fails the
  * rebuild with ATP_ERR_FORMAT — the training input is gone, and a graph that
@@ -312,6 +346,8 @@ typedef struct atp_replay_report {
     size_t excluded_pending;
     /** FAILED entries excluded. */
     size_t excluded_failed;
+    /** WITHDRAWN entries excluded. */
+    size_t excluded_withdrawn;
     /** Ledger id of the entry that failed (0 when none did). */
     uint64_t failed_at_id;
 } atp_replay_report;

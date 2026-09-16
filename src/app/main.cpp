@@ -100,6 +100,7 @@ void usage(std::ostream &out) {
         << "  atperson recall <query> [limit]\n"
         << "  atperson sync [max-pages]\n"
         << "  atperson rebuild\n"
+        << "  atperson withdraw <id|source|author> <target>\n"
         << "  atperson cursor [status|reset]\n\n"
         << "environment:\n"
         << "  ATPERSON_STATE            model snapshot path "
@@ -334,9 +335,48 @@ int main(int argc, char **argv) {
             rebuilt.save(path);
             std::cout << "replayed " << report.replayed << " observation(s) from the ledger"
                       << " (mirrored " << report.mirrored << " skipped, excluded "
-                      << report.excluded_pending << " pending and " << report.excluded_failed
-                      << " failed)\n";
+                      << report.excluded_pending << " pending, " << report.excluded_failed
+                      << " failed, " << report.excluded_withdrawn << " withdrawn)\n";
             print_stats(rebuilt);
+            return 0;
+        }
+
+        if (command == "withdraw") {
+            /* Durably exclude observations from future state: by ledger id,
+             * by source URI (a deleted AT record), or by author DID (an
+             * excluded account). Withdrawal is append-only and idempotent;
+             * it patches the ledger and never touches the live graph. Run
+             * `atperson rebuild` to apply it to learned state. */
+            if (argc < 4) {
+                usage(std::cerr);
+                return 2;
+            }
+            const std::string scope = argv[2];
+            const std::string target = argv[3];
+            const atperson::StateLock writer_lock(data_dir());
+            const std::filesystem::path ledger_file = ledger_path();
+            if (!std::filesystem::exists(ledger_file)) {
+                throw std::runtime_error("no ledger at " + ledger_file.string() +
+                                         "; nothing to withdraw from");
+            }
+            atperson::Ledger ledger(ledger_file);
+            if (scope == "id") {
+                const std::uint64_t id = std::strtoull(target.c_str(), nullptr, 10);
+                ledger.withdraw(id);
+                std::cout << "withdrew observation " << id << "\n";
+            } else if (scope == "source") {
+                const std::size_t withdrawn = ledger.withdraw_source(target);
+                std::cout << "withdrew " << withdrawn << " observation(s) from " << target
+                          << "\n";
+            } else if (scope == "author") {
+                const std::size_t withdrawn = ledger.withdraw_author(target);
+                std::cout << "withdrew " << withdrawn << " observation(s) by " << target
+                          << "\n";
+            } else {
+                usage(std::cerr);
+                return 2;
+            }
+            std::cout << "run `atperson rebuild` to apply the withdrawal to learned state\n";
             return 0;
         }
 

@@ -233,11 +233,12 @@ uint64_t atp_ledger_digest(const void *data, size_t length) {
 }
 
 static bool atp_ledger_outcome_valid(uint8_t value) {
-    return value <= (uint8_t)ATP_LEDGER_OUTCOME_FAILED;
+    return value <= (uint8_t)ATP_LEDGER_OUTCOME_WITHDRAWN;
 }
 
 static bool atp_ledger_is_committed(atp_ledger_outcome outcome) {
-    return outcome == ATP_LEDGER_OUTCOME_LEARNED || outcome == ATP_LEDGER_OUTCOME_SKIPPED;
+    return outcome == ATP_LEDGER_OUTCOME_LEARNED || outcome == ATP_LEDGER_OUTCOME_SKIPPED ||
+           outcome == ATP_LEDGER_OUTCOME_WITHDRAWN;
 }
 
 static uint64_t atp_ledger_derive_key(const char *source, size_t source_len, uint64_t digest) {
@@ -1369,6 +1370,42 @@ atp_status atp_ledger_set_outcome(atp_ledger *ledger, uint64_t id, atp_ledger_ou
 
     entry->outcome = outcome;
     return ATP_OK;
+}
+
+atp_status atp_ledger_withdraw(atp_ledger *ledger, uint64_t id) {
+    return atp_ledger_set_outcome(ledger, id, ATP_LEDGER_OUTCOME_WITHDRAWN);
+}
+
+size_t atp_ledger_withdraw_source(atp_ledger *ledger, const char *source_id) {
+    if (!ledger || !source_id) {
+        return 0u;
+    }
+    size_t withdrawn = 0u;
+    for (size_t i = 0u; i < (size_t)ledger->count; ++i) {
+        atp_ledger_entry *entry = &ledger->entries[i];
+        if (entry->outcome != ATP_LEDGER_OUTCOME_WITHDRAWN &&
+            strcmp(entry->source_id, source_id) == 0 &&
+            atp_ledger_set_outcome(ledger, entry->id, ATP_LEDGER_OUTCOME_WITHDRAWN) == ATP_OK) {
+            withdrawn++;
+        }
+    }
+    return withdrawn;
+}
+
+size_t atp_ledger_withdraw_author(atp_ledger *ledger, const char *author_did) {
+    if (!ledger || !author_did) {
+        return 0u;
+    }
+    size_t withdrawn = 0u;
+    for (size_t i = 0u; i < (size_t)ledger->count; ++i) {
+        atp_ledger_entry *entry = &ledger->entries[i];
+        if (entry->outcome != ATP_LEDGER_OUTCOME_WITHDRAWN &&
+            strcmp(entry->author_did, author_did) == 0 &&
+            atp_ledger_set_outcome(ledger, entry->id, ATP_LEDGER_OUTCOME_WITHDRAWN) == ATP_OK) {
+            withdrawn++;
+        }
+    }
+    return withdrawn;
 }
 
 atp_ledger_result atp_ledger_lookup(const atp_ledger *ledger, const char *source_id,

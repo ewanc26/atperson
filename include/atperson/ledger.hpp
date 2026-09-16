@@ -49,6 +49,25 @@ class Ledger {
     /** Append a durable outcome patch for an existing entry. Throws on error. */
     void set_outcome(std::uint64_t id, atp_ledger_outcome outcome);
 
+    /**
+     * Durably withdraw one entry (append-only, idempotent). Throws on error.
+     * Learned state reflects the withdrawal at the next rebuild.
+     */
+    void withdraw(std::uint64_t id);
+
+    /**
+     * Withdraw every entry from `source_id` (e.g. one deleted AT URI).
+     * Returns how many entries were withdrawn; already-withdrawn entries
+     * are not counted. Throws on error.
+     */
+    std::size_t withdraw_source(std::string_view source_id);
+
+    /**
+     * Withdraw every entry authored by `author_did` — exclude an account
+     * entirely. Returns how many entries were withdrawn. Throws on error.
+     */
+    std::size_t withdraw_author(std::string_view author_did);
+
     /** Dedup query on the unique (source id + digest) index. */
     [[nodiscard]] LedgerResult lookup(std::string_view source_id, std::uint64_t content_digest,
                                       atp_ledger_entry *out_entry) const;

@@ -21,6 +21,9 @@
  *   learned from, exactly as the original run decided.
  * - PENDING / FAILED: excluded entirely. These are retryable reservations,
  *   not committed experience; a rebuild must not train on them.
+ * - WITHDRAWN: excluded entirely. Durably removed by an operator or by
+ *   source deletion; the rebuilt state is what the entity would have been
+ *   without them.
  *
  * A LEARNED entry without a retained payload (a v1-migrated ledger) cannot
  * be replayed — the training input is gone — and fails the whole rebuild
@@ -151,6 +154,14 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
             /* Examined but untrainable; retryable, never learned. */
             if (report) {
                 report->excluded_failed++;
+            }
+            break;
+        case ATP_LEDGER_OUTCOME_WITHDRAWN:
+            /* Durably excluded by an operator or source deletion: the
+             * rebuilt state is what the entity would have been without
+             * this observation. Never trained, never mirrored. */
+            if (report) {
+                report->excluded_withdrawn++;
             }
             break;
         default:
