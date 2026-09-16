@@ -2,7 +2,6 @@
 
 #include "internal.h"
 
-#include <ctype.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,13 +20,13 @@ typedef struct atp_recall_match {
     uint64_t ledger_id;
 } atp_recall_match;
 
-static bool atp_memory_is_token_byte(unsigned char byte) {
-    return byte >= 0x80u || isalnum(byte) || byte == '\'' || byte == '-' || byte == '_';
-}
-
-static unsigned char atp_memory_normalize_ascii(unsigned char byte) {
-    return byte < 0x80u ? (unsigned char)tolower(byte) : byte;
-}
+typedef struct atp_memory_query_walk {
+    const atp_graph *graph;
+    uint32_t *nodes;
+    size_t count;
+    size_t capacity;
+    atp_status status;
+} atp_memory_query_walk;
 
 static float atp_memory_clamp01(float value) {
     if (!(value > 0.0f)) {
@@ -118,74 +117,73 @@ static int atp_recall_match_compare(const void *left, const void *right) {
     return 0;
 }
 
+static bool atp_memory_query_emit(void *userdata, const char *token) {
+    atp_memory_query_walk *walk = userdata;
+    const int32_t found = atp_find_node(walk->graph, token);
+    if (found < 0) {
+        return true;
+    }
+
+    for (size_t i = 0u; i < walk->count; ++i) {
+        if (walk->nodes[i] == (uint32_t)found) {
+            return true;
+        }
+    }
+
+    if (walk->count == walk->capacity) {
+        const size_t next = walk->capacity ? walk->capacity * 2u : 8u;
+        if (next < walk->count || next > SIZE_MAX / sizeof(*walk->nodes)) {
+            walk->status = ATP_ERR_OUT_OF_MEMORY;
+            return false;
+        }
+        uint32_t *grown = realloc(walk->nodes, next * sizeof(*grown));
+        if (!grown) {
+            walk->status = ATP_ERR_OUT_OF_MEMORY;
+            return false;
+        }
+        walk->nodes = grown;
+        walk->capacity = next;
+    }
+
+    walk->nodes[walk->count++] = (uint32_t)found;
+    return true;
+}
+
 static atp_status atp_memory_query_nodes(const atp_graph *graph, const char *query,
                                          uint32_t **out_nodes, size_t *out_count) {
     *out_nodes = NULL;
     *out_count = 0u;
 
-    uint32_t *nodes = NULL;
-    size_t count = 0u;
-    size_t capacity = 0u;
-    char token[ATPERSON_TOKEN_BYTES];
-    size_t token_len = 0u;
-
-    for (const unsigned char *cursor = (const unsigned char *)query;; ++cursor) {
-        const unsigned char byte = *cursor;
-        const bool token_byte = byte != '\0' && atp_memory_is_token_byte(byte);
-        if (token_byte && token_len + 1u < sizeof(token)) {
-            token[token_len++] = (char)atp_memory_normalize_ascii(byte);
-        }
-        if ((!token_byte || byte == '\0') && token_len > 0u) {
-            token[token_len] = '\0';
-            token_len = 0u;
-            const int32_t found = atp_find_node(graph, token);
-            if (found >= 0) {
-                bool seen = false;
-                for (size_t i = 0u; i < count; ++i) {
-                    if (nodes[i] == (uint32_t)found) {
-                        seen = true;
-                        break;
-                    }
-                }
-                if (!seen) {
-                    if (count == capacity) {
-                        const size_t next = capacity ? capacity * 2u : 8u;
-                        if (next < count || next > SIZE_MAX / sizeof(*nodes)) {
-                            free(nodes);
-                            return ATP_ERR_OUT_OF_MEMORY;
-                        }
-                        uint32_t *grown = realloc(nodes, next * sizeof(*grown));
-                        if (!grown) {
-                            free(nodes);
-                            return ATP_ERR_OUT_OF_MEMORY;
-                        }
-                        nodes = grown;
-                        capacity = next;
-                    }
-                    nodes[count++] = (uint32_t)found;
-                }
-            }
-        }
-        if (byte == '\0') {
-            break;
-        }
+    atp_memory_query_walk walk = {
+        .graph = graph,
+        .nodes = NULL,
+        .count = 0u,
+        .capacity = 0u,
+        .status = ATP_OK,
+    };
+    atp_tokenize(query, ATPERSON_SCHEMA_VERSION, atp_memory_query_emit, &walk);
+    if (walk.status != ATP_OK) {
+        free(walk.nodes);
+        return walk.status;
     }
 
-    *out_nodes = nodes;
-    *out_count = count;
+    *out_nodes = walk.nodes;
+    *out_count = walk.count;
     return ATP_OK;
 }
 
-atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t at_epoch,
-                                   atp_recall_result *out, size_t capacity,
-                                   size_t *out_count) {
+static atp_status atp_graph_recall_ranked_impl(const atp_graph *graph, atp_graph *mutable_graph,
+                                                const char *query, uint64_t at_epoch,
+                                                size_t episode_scan_limit,
+                                                atp_recall_result *out, size_t capacity,
+                                                size_t *out_count) {
     if (out_count) {
         *out_count = 0u;
     }
     if (!graph || !query || (!out && capacity > 0u)) {
         return ATP_ERR_INVALID_ARGUMENT;
     }
-    if (capacity == 0u || graph->episode_count == 0u) {
+    if (capacity == 0u || episode_scan_limit == 0u || graph->episode_count == 0u) {
         return ATP_OK;
     }
 
@@ -201,18 +199,21 @@ atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t
         return ATP_OK;
     }
 
-    if (graph->episode_count > SIZE_MAX / sizeof(atp_recall_match)) {
+    const size_t scan_count =
+        graph->episode_count < episode_scan_limit ? graph->episode_count : episode_scan_limit;
+    const size_t scan_start = graph->episode_count - scan_count;
+    if (scan_count > SIZE_MAX / sizeof(atp_recall_match)) {
         free(query_nodes);
         return ATP_ERR_OUT_OF_MEMORY;
     }
-    atp_recall_match *matches = malloc(graph->episode_count * sizeof(*matches));
+    atp_recall_match *matches = malloc(scan_count * sizeof(*matches));
     if (!matches) {
         free(query_nodes);
         return ATP_ERR_OUT_OF_MEMORY;
     }
 
     size_t match_count = 0u;
-    for (size_t i = 0u; i < graph->episode_count; ++i) {
+    for (size_t i = scan_start; i < graph->episode_count; ++i) {
         const atp_episode *episode = &graph->episodes[i];
         float exact = 0.0f;
         float association = 0.0f;
@@ -293,10 +294,12 @@ atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t
     }
     free(query_nodes);
 
-    qsort(matches, match_count, sizeof(*matches), atp_recall_match_compare);
+    if (match_count > 1u) {
+        qsort(matches, match_count, sizeof(*matches), atp_recall_match_compare);
+    }
     const size_t written = match_count < capacity ? match_count : capacity;
     for (size_t i = 0u; i < written; ++i) {
-        atp_episode *episode = &graph->episodes[matches[i].episode_index];
+        const atp_episode *episode = &graph->episodes[matches[i].episode_index];
         if (out) {
             out[i] = (atp_recall_result){
                 .episode = *episode,
@@ -310,10 +313,14 @@ atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t
                 .association_token_matches = matches[i].association_token_matches,
             };
         }
-        if (episode->recall_count != UINT64_MAX) {
-            episode->recall_count++;
+
+        if (mutable_graph) {
+            atp_episode *mutable_episode = &mutable_graph->episodes[matches[i].episode_index];
+            if (mutable_episode->recall_count != UINT64_MAX) {
+                mutable_episode->recall_count++;
+            }
+            mutable_episode->last_recall_at = at_epoch;
         }
-        episode->last_recall_at = at_epoch;
     }
     free(matches);
 
@@ -321,4 +328,19 @@ atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t
         *out_count = written;
     }
     return ATP_OK;
+}
+
+atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t at_epoch,
+                                   atp_recall_result *out, size_t capacity,
+                                   size_t *out_count) {
+    return atp_graph_recall_ranked_impl(graph, graph, query, at_epoch, SIZE_MAX, out, capacity,
+                                        out_count);
+}
+
+atp_status atp_graph_recall_ranked_preview(const atp_graph *graph, const char *query,
+                                           uint64_t at_epoch, size_t episode_scan_limit,
+                                           atp_recall_result *out, size_t capacity,
+                                           size_t *out_count) {
+    return atp_graph_recall_ranked_impl(graph, NULL, query, at_epoch, episode_scan_limit, out,
+                                        capacity, out_count);
 }
