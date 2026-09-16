@@ -10,12 +10,23 @@
  * Timing is reported, never asserted, so CI variance cannot flake.
  */
 
+/* clock_gettime is POSIX. glibc hides it under strict C23 (which defines
+ * __STRICT_ANSI__), so request the POSIX API explicitly on non-Windows
+ * targets; macOS exposes it by default. */
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "atperson/core.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 static const char *BENCH_SNAPSHOT = "atperson-bench-snapshot.bin";
 
