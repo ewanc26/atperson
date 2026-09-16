@@ -21,6 +21,7 @@ add_library(
   atperson_core
   src/core/graph.c
   src/core/action.c
+  src/core/bootstrap.c
   src/core/neural.c
   src/core/ledger.c
   src/core/persistence.c)
@@ -114,6 +115,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/main.cpp
     src/app/atproto_client.cpp
     src/app/ingestion_state.cpp
+    src/app/state_lock.cpp
     src/app/sync_engine.cpp)
   target_link_libraries(atperson PRIVATE atperson_cpp wolfram-cpp)
   target_compile_features(atperson PRIVATE cxx_std_23)
@@ -185,4 +187,16 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson_sync_test PRIVATE atperson_cpp)
   target_include_directories(atperson_sync_test PRIVATE src/app)
   add_test(NAME atperson_sync COMMAND atperson_sync_test)
+
+  add_executable(
+    atperson_lock_test
+    tests/lock_test.cpp
+    src/app/state_lock.cpp)
+  target_compile_features(atperson_lock_test PRIVATE cxx_std_23)
+  target_include_directories(atperson_lock_test PRIVATE src/app)
+  add_test(NAME atperson_lock COMMAND atperson_lock_test)
+
+  add_executable(atperson_bootstrap_test tests/bootstrap_test.c)
+  target_link_libraries(atperson_bootstrap_test PRIVATE atperson_core)
+  add_test(NAME atperson_bootstrap COMMAND atperson_bootstrap_test)
 endif()

@@ -1,7 +1,9 @@
+#include "atperson/bootstrap.h"
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
 #include "atproto_client.hpp"
 #include "ingestion_state.hpp"
+#include "state_lock.hpp"
 #include "sync_engine.hpp"
 
 #include <cstdio>
@@ -111,7 +113,9 @@ void usage(std::ostream &out) {
         << "  ATPERSON_SERVICE       PDS/service URL "
            "(default https://bsky.social)\n"
         << "  ATPERSON_IDENTIFIER    handle or email for sync\n"
-        << "  ATPERSON_APP_PASSWORD  app password for sync\n";
+        << "  ATPERSON_APP_PASSWORD  app password for sync\n\n"
+        << "mutating commands take an exclusive lock on the data directory;\n"
+        << "read-only commands run without it and see state as of their read\n";
 }
 
 int parse_limit(const char *value, int fallback) {
@@ -134,6 +138,19 @@ int main(int argc, char **argv) {
             return 2;
         }
 
+        /* First-run bootstrap (C23 core): create the data directory and a
+         * .env template when either is missing. Idempotent; never touches
+         * existing files. */
+        char home_buffer[4096];
+        if (atp_default_home_directory(home_buffer, sizeof(home_buffer), nullptr) !=
+            nullptr) {
+            char notice[ATP_BOOTSTRAP_NOTICE_BYTES];
+            if (atp_bootstrap_home(home_buffer, notice, sizeof(notice)) == ATP_OK &&
+                notice[0] != '\0') {
+                std::cerr << "atperson: " << notice << '\n';
+            }
+        }
+
         const std::string_view command = argv[1];
         const auto path = state_path();
         auto graph = load_or_create(path);
@@ -148,6 +165,7 @@ int main(int argc, char **argv) {
                 usage(std::cerr);
                 return 2;
             }
+            const atperson::StateLock writer_lock(data_dir());
             const std::string source = argc >= 4 ? argv[3] : "local:manual";
             graph.observe(argv[2], source);
             graph.save(path);
@@ -165,6 +183,7 @@ int main(int argc, char **argv) {
             if (!input) {
                 throw std::runtime_error("could not open " + input_path.string());
             }
+            const atperson::StateLock writer_lock(data_dir());
             const std::string text((std::istreambuf_iterator<char>(input)),
                                    std::istreambuf_iterator<char>());
             const std::string source = argc >= 4 ? argv[3] : "file:" + input_path.string();
@@ -235,6 +254,7 @@ int main(int argc, char **argv) {
         }
 
         if (command == "sync") {
+            const atperson::StateLock writer_lock(data_dir());
             const int max_pages = argc >= 3 ? parse_limit(argv[2], 1) : 1;
             atperson::AtprotoClient client(env_or("ATPERSON_SERVICE", "https://bsky.social"),
                                            required_env("ATPERSON_IDENTIFIER"),
@@ -305,6 +325,7 @@ int main(int argc, char **argv) {
             auto state = atperson::load_ingestion_state(state_file, service,
                                                         client.account_did());
             if (sub == "reset") {
+                const atperson::StateLock writer_lock(data_dir());
                 atperson::reset_ingestion_state(state);
                 state.checkpoint.generation++;
                 atperson::save_ingestion_state(state, state_file);
