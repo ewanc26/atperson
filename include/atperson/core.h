@@ -28,8 +28,22 @@ extern "C" {
  * append-only record log plus a durable commit marker (the fsync'd offset)
  * that is rewritten through a temporary file and rename so a crash can never
  * observe a partially updated commit marker.
+ *
+ * v2 retains the canonical observation bytes inline in each entry record so
+ * the ledger is replayable: a committed learnable entry can return the exact
+ * bytes originally supplied to the learning core. v1 logs are migrated on
+ * open (validated, transformed record-by-record to a temp file, fsync'd,
+ * renamed); v1 entries carry no payload, which is reported honestly rather
+ * than faked.
  */
-#define ATPERSON_LEDGER_VERSION 1u
+#define ATPERSON_LEDGER_VERSION 2u
+
+/*
+ * Largest payload retained per ledger entry. Bounded so recovery parsing of
+ * corrupted data stays bounded; larger observations are rejected at append
+ * time rather than truncated silently.
+ */
+#define ATPERSON_LEDGER_PAYLOAD_LIMIT 65536u
 
 /*
  * Learning schema version attached to each ledger entry. Bump this when the
@@ -218,6 +232,12 @@ uint64_t atp_ledger_digest(const void *data, size_t length);
  *                               SKIPPED); `out_id` is the existing id and
  *                               nothing new is appended.
  *
+ * `payload`/`payload_len` retain the canonical observation bytes inline in
+ * the entry record (v2). Payloads larger than
+ * ATPERSON_LEDGER_PAYLOAD_LIMIT are rejected. An empty payload (NULL/0) is
+ * representable: it is the honest shape for observations with no text and
+ * for v1-migrated entries whose bytes were never retained.
+ *
  * Real failures (I/O, invalid arguments) set `status` to a non-OK value.
  * `author_did` may be NULL or empty. `observed_at` is Unix epoch seconds,
  * 0 when unknown. Appending is durable before this function returns.
@@ -225,8 +245,8 @@ uint64_t atp_ledger_digest(const void *data, size_t length);
 atp_ledger_result atp_ledger_append(atp_ledger *ledger, const char *source_id,
                                     const char *author_did, uint64_t observed_at,
                                     uint64_t content_digest, uint32_t schema_version,
-                                    atp_ledger_outcome outcome, uint64_t *out_id,
-                                    atp_status *status);
+                                    atp_ledger_outcome outcome, const void *payload,
+                                    size_t payload_len, uint64_t *out_id, atp_status *status);
 
 /**
  * Change the outcome of an existing entry via an appended patch record.
@@ -246,6 +266,20 @@ uint64_t atp_ledger_count(const atp_ledger *ledger);
 
 /** Copy the i-th committed entry (0-based, in append order). */
 atp_status atp_ledger_entry_at(const atp_ledger *ledger, size_t index, atp_ledger_entry *out_entry);
+
+/**
+ * Copy the retained payload of entry `id` into `out` (at most `capacity`
+ * bytes) and set `*out_len` to the payload length.
+ *
+ * The payload is re-verified against the entry's content digest on read:
+ * corruption or a mismatching payload is reported as ATP_ERR_FORMAT rather
+ * than returned as data. Entries with no retained payload (v1-migrated, or
+ * appended empty) set `*out_len` to 0 and return ATP_OK.
+ *
+ * `out` may be NULL to query the required length alone.
+ */
+atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void *out,
+                                     size_t capacity, size_t *out_len);
 
 /*
  * Graph-side ledger mirror.

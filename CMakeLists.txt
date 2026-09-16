@@ -173,6 +173,18 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson_ledger_crash_safety
     COMMAND atperson_ledger_test crash-safety
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-crash)
+  add_test(
+    NAME atperson_ledger_payloads
+    COMMAND atperson_ledger_test payloads
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-payloads)
+  add_test(
+    NAME atperson_ledger_payload_corruption
+    COMMAND atperson_ledger_test payload-corruption
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-payload-corruption)
+  add_test(
+    NAME atperson_ledger_migration
+    COMMAND atperson_ledger_test migration
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-migration)
 
   add_executable(atperson_cpp_test tests/cpp_test.cpp)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)

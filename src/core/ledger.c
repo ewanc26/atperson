@@ -12,9 +12,17 @@
  *                | source_len u32 LE | source | author_len u32 LE | author
  *                | observed_at u64 LE | digest u64 LE
  *                | schema_version u32 LE | outcome u8
+ *                | payload_len u32 LE | payload            (v2)
  *   patch rec  : len u32 LE | crc u32 LE | type=2 | id u64 LE | outcome u8
  *   off header : magic(8) | version u32 LE | count u64 LE | offset u64 LE
  *                -> 28 bytes
+ *
+ * v2 appends `payload_len` plus the canonical observation bytes to each entry
+ * record, so a committed learnable entry can return the exact bytes
+ * originally supplied to the learning core. `payload_len` 0 is the honest
+ * shape for text-less observations and for entries migrated from v1, whose
+ * bytes were never retained. The payload is covered by the record CRC and
+ * re-verified against the entry's content digest on read.
  *
  * Multi-octet integers are little-endian, which is a deliberate format
  * decision (snapshot v1 remains host-oriented). A future format bump may
@@ -25,6 +33,14 @@
  * file, fsync'd, and renamed into place. A crash at any point leaves the
  * previous committed prefix intact; recovery truncates a torn tail beyond the
  * committed offset and heals a missing marker from the valid log prefix.
+ *
+ * v1 logs are migrated on open: the v1 committed prefix is validated
+ * record-by-record, transformed to v2 shape (payload_len 0), streamed to a
+ * temporary file, fsync'd, and renamed over the original. A crash at any
+ * point leaves either the intact v1 log or the complete v2 log; the old
+ * marker is discarded and rewritten from the migrated prefix. Patch history
+ * flattens to final entry outcomes — the migration records the state, not
+ * the history, which is documented behaviour.
  *
  * The unique index on (source id + digest) is rebuilt in memory on open and
  * maintained on append; the log is the authority for it, so the constraint
@@ -63,7 +79,7 @@
 #define ATP_LEDGER_FILE_MAGIC_4 'D'
 #define ATP_LEDGER_FILE_MAGIC_5 'G'
 #define ATP_LEDGER_FILE_MAGIC_6 '0'
-#define ATP_LEDGER_FILE_MAGIC_7 '1'
+#define ATP_LEDGER_FILE_MAGIC_7 '2'
 
 #define ATP_LEDGER_OFF_MAGIC_0 'A'
 #define ATP_LEDGER_OFF_MAGIC_1 'T'
@@ -72,15 +88,24 @@
 #define ATP_LEDGER_OFF_MAGIC_4 'O'
 #define ATP_LEDGER_OFF_MAGIC_5 'F'
 #define ATP_LEDGER_OFF_MAGIC_6 '0'
-#define ATP_LEDGER_OFF_MAGIC_7 '1'
+#define ATP_LEDGER_OFF_MAGIC_7 '2'
+
+/* v1 magics, recognised only by the migration path. */
+#define ATP_LEDGER_V1_FILE_MAGIC_7 '1'
+#define ATP_LEDGER_V1_OFF_MAGIC_7 '1'
+#define ATP_LEDGER_V1_VERSION 1u
 
 #define ATP_LEDGER_RECORD_ENTRY 1u
 #define ATP_LEDGER_RECORD_PATCH 2u
 
 #define ATP_LEDGER_HEADER_SIZE 12u
 #define ATP_LEDGER_OFF_HEADER_SIZE 28u
+/* Record payloads (the serialized entry/patch body, not the observation
+ * payload) stay small; entry bodies may additionally carry an observation
+ * payload up to ATPERSON_LEDGER_PAYLOAD_LIMIT. */
 #define ATP_LEDGER_PAYLOAD_MAX 1024u
-#define ATP_LEDGER_RECORD_MAX (9u + ATP_LEDGER_PAYLOAD_MAX)
+#define ATP_LEDGER_BODY_MAX (ATP_LEDGER_PAYLOAD_MAX + ATPERSON_LEDGER_PAYLOAD_LIMIT)
+#define ATP_LEDGER_RECORD_MAX (9u + ATP_LEDGER_BODY_MAX)
 
 #define ATP_LEDGER_SLOT_EMPTY UINT64_MAX
 
@@ -98,6 +123,8 @@ struct atp_ledger {
     FILE *log;
 
     atp_ledger_entry *entries; /* indexed by id-1 */
+    unsigned char **payloads;  /* parallel to entries; NULL slot = no payload */
+    size_t *payload_lens;      /* parallel to entries */
     size_t count;
     size_t capacity;
 
@@ -242,7 +269,22 @@ static bool atp_ledger_reserve_entries(atp_ledger *ledger, size_t needed) {
     if (!entries) {
         return false;
     }
+    unsigned char **payloads = realloc(ledger->payloads, capacity * sizeof(*payloads));
+    if (!payloads) {
+        return false;
+    }
+    size_t *payload_lens = realloc(ledger->payload_lens, capacity * sizeof(*payload_lens));
+    if (!payload_lens) {
+        return false;
+    }
+    /* New slots start payload-less; append/recovery fill them in. */
+    for (size_t i = ledger->capacity; i < capacity; ++i) {
+        payloads[i] = NULL;
+        payload_lens[i] = 0u;
+    }
     ledger->entries = entries;
+    ledger->payloads = payloads;
+    ledger->payload_lens = payload_lens;
     ledger->capacity = capacity;
     return true;
 }
@@ -372,7 +414,8 @@ static bool atp_read_off(atp_ledger *ledger, uint64_t *out_count, uint64_t *out_
     return true;
 }
 
-static size_t atp_serialize_entry(unsigned char *out, const atp_ledger_entry *entry) {
+static size_t atp_serialize_entry(unsigned char *out, const atp_ledger_entry *entry,
+                                  const unsigned char *payload, size_t payload_len) {
     const size_t source_len = strlen(entry->source_id);
     const size_t author_len = strlen(entry->author_did);
     size_t pos = 0u;
@@ -393,11 +436,18 @@ static size_t atp_serialize_entry(unsigned char *out, const atp_ledger_entry *en
     atp_store_u32_le(out + pos, entry->schema_version);
     pos += 4u;
     out[pos++] = (unsigned char)entry->outcome;
+    atp_store_u32_le(out + pos, (uint32_t)payload_len);
+    pos += 4u;
+    if (payload_len > 0u) {
+        memcpy(out + pos, payload, payload_len);
+        pos += payload_len;
+    }
     return pos;
 }
 
-static bool atp_parse_entry(const unsigned char *payload, size_t length, atp_ledger_entry *out) {
-    if (length < 38u) {
+static bool atp_parse_entry(const unsigned char *payload, size_t length, atp_ledger_entry *out,
+                            const unsigned char **out_payload, size_t *out_payload_len) {
+    if (length < 42u) {
         return false;
     }
     size_t pos = 0u;
@@ -452,6 +502,18 @@ static bool atp_parse_entry(const unsigned char *payload, size_t length, atp_led
         return false;
     }
     out->outcome = (atp_ledger_outcome)outcome;
+    pos += 1u;
+
+    if (pos + 4u > length) {
+        return false;
+    }
+    const uint32_t payload_len = atp_load_u32_le(payload + pos);
+    pos += 4u;
+    if (payload_len > ATPERSON_LEDGER_PAYLOAD_LIMIT || pos + (size_t)payload_len != length) {
+        return false;
+    }
+    *out_payload = payload + pos;
+    *out_payload_len = payload_len;
     return true;
 }
 
@@ -527,7 +589,15 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
     }
 
     uint64_t position = ATP_LEDGER_HEADER_SIZE;
-    unsigned char buffer[ATP_LEDGER_RECORD_MAX];
+    /* Entry records may carry a payload up to ATPERSON_LEDGER_PAYLOAD_LIMIT
+     * on top of the entry fields, so records are read through a heap buffer
+     * sized for the worst case. The 9-byte header is read first and the
+     * length is bounds-checked before the rest is read, so parsing stays
+     * bounded even on corrupted data. */
+    unsigned char *buffer = malloc(ATP_LEDGER_RECORD_MAX);
+    if (!buffer) {
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
     while (position < fence) {
         const size_t remaining = (size_t)(fence - position);
         if (remaining < 9u) {
@@ -536,6 +606,7 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
                 fence = position;
                 break;
             }
+            free(buffer);
             return ATP_ERR_FORMAT;
         }
         if (!atp_read_file(ledger->log, &buffer[0], 4u) ||
@@ -544,16 +615,18 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
                 fence = position;
                 break;
             }
+            free(buffer);
             return ATP_ERR_FORMAT;
         }
         const uint32_t payload_len = atp_load_u32_le(&buffer[0]);
         const uint32_t crc = atp_load_u32_le(&buffer[4]);
-        if (payload_len == 0u || payload_len > ATP_LEDGER_PAYLOAD_MAX ||
+        if (payload_len == 0u || payload_len > ATP_LEDGER_BODY_MAX ||
             9u + (size_t)payload_len > remaining) {
             if (self_heal) {
                 fence = position;
                 break;
             }
+            free(buffer);
             return ATP_ERR_FORMAT;
         }
         if (!atp_read_file(ledger->log, &buffer[8], 1u) ||
@@ -562,6 +635,7 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
                 fence = position;
                 break;
             }
+            free(buffer);
             return ATP_ERR_FORMAT;
         }
         if (atp_ledger_checksum(&buffer[9], payload_len) != crc) {
@@ -569,6 +643,7 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
                 fence = position;
                 break;
             }
+            free(buffer);
             return ATP_ERR_FORMAT;
         }
 
@@ -578,11 +653,15 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
 
         if (type == ATP_LEDGER_RECORD_ENTRY) {
             atp_ledger_entry entry;
-            if (!atp_parse_entry(payload, payload_size, &entry)) {
+            const unsigned char *entry_payload = NULL;
+            size_t entry_payload_len = 0u;
+            if (!atp_parse_entry(payload, payload_size, &entry, &entry_payload,
+                                 &entry_payload_len)) {
                 if (self_heal) {
                     fence = position;
                     break;
                 }
+                free(buffer);
                 return ATP_ERR_FORMAT;
             }
             if (entry.id != (uint64_t)ledger->count + 1u ||
@@ -591,7 +670,18 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
                     fence = position;
                     break;
                 }
+                free(buffer);
                 return ATP_ERR_FORMAT;
+            }
+            if (entry_payload_len > 0u) {
+                unsigned char *owned = malloc(entry_payload_len);
+                if (!owned) {
+                    free(buffer);
+                    return ATP_ERR_OUT_OF_MEMORY;
+                }
+                memcpy(owned, entry_payload, entry_payload_len);
+                ledger->payloads[ledger->count] = owned;
+                ledger->payload_lens[ledger->count] = entry_payload_len;
             }
             ledger->entries[ledger->count] = entry;
             ledger->count++;
@@ -603,6 +693,7 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
                     fence = position;
                     break;
                 }
+                free(buffer);
                 return ATP_ERR_FORMAT;
             }
             if (patch_id == 0u || patch_id > (uint64_t)ledger->count ||
@@ -611,6 +702,7 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
                     fence = position;
                     break;
                 }
+                free(buffer);
                 return ATP_ERR_FORMAT;
             }
             atp_ledger_entry *entry = &ledger->entries[patch_id - 1u];
@@ -620,6 +712,7 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
                     fence = position;
                     break;
                 }
+                free(buffer);
                 return ATP_ERR_FORMAT;
             }
             entry->outcome = (atp_ledger_outcome)patch_outcome;
@@ -628,10 +721,12 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
                 fence = position;
                 break;
             }
+            free(buffer);
             return ATP_ERR_FORMAT;
         }
         position += 9u + (size_t)payload_len;
     }
+    free(buffer);
 
     if (!self_heal && (uint64_t)ledger->count != off_count) {
         return ATP_ERR_FORMAT;
@@ -655,6 +750,272 @@ static atp_status atp_ledger_recover(atp_ledger *ledger) {
     return ATP_OK;
 }
 
+/*
+ * v1 -> v2 migration.
+ *
+ * The v1 entry body is the v2 entry body minus the trailing payload_len +
+ * payload. Migration reads the v1 committed prefix (fenced by the v1 marker
+ * when present, self-healed from the longest valid prefix when not),
+ * validates every record, flattens patches onto their entries, and streams
+ * the transformed v2 records to a temp file: fsync, rename, then discard the
+ * old marker so recovery rewrites it from the migrated log.
+ *
+ * A crash before the rename leaves the intact v1 log; after it, the v2 log
+ * is complete. v1 entries are migrated payload-less — their observation
+ * bytes were never retained, and atp_ledger_entry_payload reports that
+ * honestly instead of faking content.
+ */
+static bool atp_parse_entry_v1(const unsigned char *payload, size_t length,
+                               atp_ledger_entry *out) {
+    if (length < 38u) {
+        return false;
+    }
+    size_t pos = 0u;
+    memset(out, 0, sizeof(*out));
+    out->id = atp_load_u64_le(payload + pos);
+    pos += 8u;
+
+    const uint32_t source_len = atp_load_u32_le(payload + pos);
+    pos += 4u;
+    if (source_len == 0u || source_len >= ATPERSON_LEDGER_SOURCE_BYTES ||
+        pos + (size_t)source_len > length) {
+        return false;
+    }
+    memcpy(out->source_id, payload + pos, source_len);
+    pos += source_len;
+    out->source_id[source_len] = '\0';
+
+    if (pos + 4u > length) {
+        return false;
+    }
+    const uint32_t author_len = atp_load_u32_le(payload + pos);
+    pos += 4u;
+    if (author_len >= ATPERSON_LEDGER_AUTHOR_BYTES || pos + (size_t)author_len > length) {
+        return false;
+    }
+    if (author_len > 0u) {
+        memcpy(out->author_did, payload + pos, author_len);
+        pos += author_len;
+        out->author_did[author_len] = '\0';
+    }
+
+    if (pos + 8u > length) {
+        return false;
+    }
+    out->observed_at = atp_load_u64_le(payload + pos);
+    pos += 8u;
+    if (pos + 8u > length) {
+        return false;
+    }
+    out->content_digest = atp_load_u64_le(payload + pos);
+    pos += 8u;
+    if (pos + 4u > length) {
+        return false;
+    }
+    out->schema_version = atp_load_u32_le(payload + pos);
+    pos += 4u;
+    if (pos + 1u > length) {
+        return false;
+    }
+    const uint8_t outcome = payload[pos];
+    if (!atp_ledger_outcome_valid(outcome)) {
+        return false;
+    }
+    out->outcome = (atp_ledger_outcome)outcome;
+    pos += 1u;
+    return pos == length;
+}
+
+static atp_status atp_ledger_migrate_v1(atp_ledger *ledger) {
+    FILE *log = fopen(ledger->log_path, "rb");
+    if (!log) {
+        return ATP_ERR_IO;
+    }
+
+    /* v1 marker fences the committed prefix; without it the longest valid
+     * prefix is used (same self-heal policy as v2 recovery). */
+    uint64_t fence = 0u;
+    bool have_off = false;
+    FILE *off = fopen(ledger->off_path, "rb");
+    if (off) {
+        unsigned char off_header[ATP_LEDGER_OFF_HEADER_SIZE];
+        const bool ok = fread(off_header, 1u, sizeof(off_header), off) ==
+                            sizeof(off_header) &&
+                        off_header[0] == ATP_LEDGER_OFF_MAGIC_0 &&
+                        off_header[1] == ATP_LEDGER_OFF_MAGIC_1 &&
+                        off_header[2] == ATP_LEDGER_OFF_MAGIC_2 &&
+                        off_header[3] == ATP_LEDGER_OFF_MAGIC_3 &&
+                        off_header[4] == ATP_LEDGER_OFF_MAGIC_4 &&
+                        off_header[5] == ATP_LEDGER_OFF_MAGIC_5 &&
+                        off_header[6] == ATP_LEDGER_OFF_MAGIC_6 &&
+                        off_header[7] == ATP_LEDGER_V1_OFF_MAGIC_7 &&
+                        atp_load_u32_le(&off_header[8]) == ATP_LEDGER_V1_VERSION;
+        fclose(off);
+        if (ok) {
+            fence = atp_load_u64_le(&off_header[20]);
+            have_off = true;
+        }
+    }
+
+    if (fseek(log, 0, SEEK_END) != 0) {
+        fclose(log);
+        return ATP_ERR_IO;
+    }
+    const long end_position = ftell(log);
+    if (end_position < 0) {
+        fclose(log);
+        return ATP_ERR_IO;
+    }
+    const uint64_t file_size = (uint64_t)end_position;
+    if (!have_off) {
+        fence = file_size;
+    } else if (fence < ATP_LEDGER_HEADER_SIZE || fence > file_size) {
+        /* The marker points beyond the log: bytes were lost after the marker
+         * was made durable. Refuse, exactly like v2 recovery. */
+        fclose(log);
+        return ATP_ERR_FORMAT;
+    }
+    if (fseek(log, (long)ATP_LEDGER_HEADER_SIZE, SEEK_SET) != 0) {
+        fclose(log);
+        return ATP_ERR_IO;
+    }
+
+    FILE *tmp = fopen(ledger->log_tmp_path, "wb");
+    if (!tmp) {
+        fclose(log);
+        return ATP_ERR_IO;
+    }
+    unsigned char v2_header[ATP_LEDGER_HEADER_SIZE];
+    v2_header[0] = ATP_LEDGER_FILE_MAGIC_0;
+    v2_header[1] = ATP_LEDGER_FILE_MAGIC_1;
+    v2_header[2] = ATP_LEDGER_FILE_MAGIC_2;
+    v2_header[3] = ATP_LEDGER_FILE_MAGIC_3;
+    v2_header[4] = ATP_LEDGER_FILE_MAGIC_4;
+    v2_header[5] = ATP_LEDGER_FILE_MAGIC_5;
+    v2_header[6] = ATP_LEDGER_FILE_MAGIC_6;
+    v2_header[7] = ATP_LEDGER_FILE_MAGIC_7;
+    atp_store_u32_le(&v2_header[8], ATPERSON_LEDGER_VERSION);
+    if (fwrite(v2_header, 1u, sizeof(v2_header), tmp) != sizeof(v2_header)) {
+        fclose(tmp);
+        fclose(log);
+        remove(ledger->log_tmp_path);
+        return ATP_ERR_IO;
+    }
+
+    /* Records are validated and transformed in one streaming pass. Entries
+     * are held in memory so patches can be flattened onto them; the buffer
+     * is bounded by the v1 record cap (v1 had no payloads). */
+    unsigned char buffer[9u + ATP_LEDGER_PAYLOAD_MAX];
+    atp_ledger_entry *entries = NULL;
+    size_t count = 0u;
+    size_t capacity = 0u;
+
+    uint64_t position = ATP_LEDGER_HEADER_SIZE;
+    bool torn = false;
+    while (position < fence) {
+        const size_t remaining = (size_t)(fence - position);
+        if (remaining < 9u ||
+            !atp_read_file(log, &buffer[0], 4u) ||
+            !atp_read_file(log, &buffer[4], 4u)) {
+            torn = true;
+            break;
+        }
+        const uint32_t payload_len = atp_load_u32_le(&buffer[0]);
+        const uint32_t crc = atp_load_u32_le(&buffer[4]);
+        if (payload_len == 0u || payload_len > ATP_LEDGER_PAYLOAD_MAX ||
+            9u + (size_t)payload_len > remaining ||
+            !atp_read_file(log, &buffer[8], 1u) ||
+            !atp_read_file(log, &buffer[9], payload_len) ||
+            atp_ledger_checksum(&buffer[9], payload_len) != crc) {
+            torn = true;
+            break;
+        }
+
+        const uint8_t type = buffer[8];
+        if (type == ATP_LEDGER_RECORD_ENTRY) {
+            atp_ledger_entry entry;
+            if (!atp_parse_entry_v1(&buffer[9], payload_len, &entry) ||
+                entry.id != (uint64_t)count + 1u) {
+                torn = true;
+                break;
+            }
+            if (count == capacity) {
+                const size_t next = capacity ? capacity * 2u : 16u;
+                atp_ledger_entry *grown = realloc(entries, next * sizeof(*grown));
+                if (!grown) {
+                    free(entries);
+                    fclose(tmp);
+                    fclose(log);
+                    remove(ledger->log_tmp_path);
+                    return ATP_ERR_OUT_OF_MEMORY;
+                }
+                entries = grown;
+                capacity = next;
+            }
+            entries[count] = entry;
+            count++;
+        } else if (type == ATP_LEDGER_RECORD_PATCH) {
+            uint64_t patch_id = 0u;
+            uint8_t patch_outcome = 0u;
+            if (!atp_parse_patch(&buffer[9], payload_len, &patch_id, &patch_outcome) ||
+                patch_id == 0u || patch_id > (uint64_t)count ||
+                !atp_ledger_outcome_valid(patch_outcome)) {
+                torn = true;
+                break;
+            }
+            atp_ledger_entry *entry = &entries[patch_id - 1u];
+            if (atp_ledger_is_committed(entry->outcome) &&
+                (atp_ledger_outcome)patch_outcome == ATP_LEDGER_OUTCOME_PENDING) {
+                torn = true;
+                break;
+            }
+            entry->outcome = (atp_ledger_outcome)patch_outcome;
+        } else {
+            torn = true;
+            break;
+        }
+        position += 9u + (size_t)payload_len;
+    }
+
+    atp_status result = ATP_OK;
+    if (have_off && torn) {
+        /* A fenced prefix that fails validation is corruption, not a torn
+         * tail: refuse rather than migrate a partial history. */
+        result = ATP_ERR_FORMAT;
+    } else {
+        /* Stream the flattened entries as v2 records (payload_len 0). */
+        for (size_t i = 0u; i < count && result == ATP_OK; ++i) {
+            unsigned char body[ATP_LEDGER_PAYLOAD_MAX];
+            const size_t body_len = atp_serialize_entry(body, &entries[i], NULL, 0u);
+            unsigned char record[ATP_LEDGER_RECORD_MAX];
+            const size_t record_len = atp_build_record(record, ATP_LEDGER_RECORD_ENTRY, body,
+                                                        body_len);
+            if (fwrite(record, 1u, record_len, tmp) != record_len) {
+                result = ATP_ERR_IO;
+            }
+        }
+        if (result == ATP_OK && (!atp_fsync(tmp) || fclose(tmp) != 0)) {
+            result = ATP_ERR_IO;
+        } else if (result == ATP_OK) {
+            /* The temp file is complete and durable: swap it in, then drop
+             * the stale v1 marker so recovery rewrites it from the migrated
+             * log. A crash before the rename keeps the v1 log intact; after
+             * it, the v2 log is complete. */
+            if (rename(ledger->log_tmp_path, ledger->log_path) != 0) {
+                result = ATP_ERR_IO;
+            } else {
+                remove(ledger->off_path);
+            }
+        }
+        if (result != ATP_OK) {
+            remove(ledger->log_tmp_path);
+        }
+    }
+    free(entries);
+    fclose(log);
+    return result;
+}
+
 static void atp_ledger_release(atp_ledger *ledger) {
     if (!ledger) {
         return;
@@ -662,11 +1023,18 @@ static void atp_ledger_release(atp_ledger *ledger) {
     if (ledger->log) {
         fclose(ledger->log);
     }
+    if (ledger->payloads) {
+        for (size_t i = 0u; i < ledger->count; ++i) {
+            free(ledger->payloads[i]);
+        }
+    }
     free(ledger->log_path);
     free(ledger->log_tmp_path);
     free(ledger->off_path);
     free(ledger->off_tmp_path);
     free(ledger->entries);
+    free(ledger->payloads);
+    free(ledger->payload_lens);
     free(ledger->index);
     free(ledger);
 }
@@ -756,8 +1124,59 @@ atp_ledger *atp_ledger_open(const char *path, atp_status *status) {
     }
 
     unsigned char header[ATP_LEDGER_HEADER_SIZE];
-    if (fread(header, 1u, sizeof(header), log) != sizeof(header) ||
-        header[0] != ATP_LEDGER_FILE_MAGIC_0 || header[1] != ATP_LEDGER_FILE_MAGIC_1 ||
+    if (fread(header, 1u, sizeof(header), log) != sizeof(header)) {
+        fclose(log);
+        atp_ledger_release(ledger);
+        if (status) {
+            *status = ATP_ERR_FORMAT;
+        }
+        return NULL;
+    }
+
+    const bool is_v1 = header[0] == ATP_LEDGER_FILE_MAGIC_0 &&
+                       header[1] == ATP_LEDGER_FILE_MAGIC_1 &&
+                       header[2] == ATP_LEDGER_FILE_MAGIC_2 &&
+                       header[3] == ATP_LEDGER_FILE_MAGIC_3 &&
+                       header[4] == ATP_LEDGER_FILE_MAGIC_4 &&
+                       header[5] == ATP_LEDGER_FILE_MAGIC_5 &&
+                       header[6] == ATP_LEDGER_FILE_MAGIC_6 &&
+                       header[7] == ATP_LEDGER_V1_FILE_MAGIC_7 &&
+                       atp_load_u32_le(&header[8]) == ATP_LEDGER_V1_VERSION;
+    if (is_v1) {
+        /* v1 log: migrate to v2 before recovery. The migration validates the
+         * v1 committed prefix, transforms each record to v2 shape
+         * (payload_len 0), streams to a temp file, fsyncs, and renames —
+         * a crash leaves either the intact v1 log or the complete v2 log.
+         * The old marker is discarded; recovery rewrites it from the
+         * migrated prefix. */
+        fclose(log);
+        const atp_status migrated = atp_ledger_migrate_v1(ledger);
+        if (migrated != ATP_OK) {
+            atp_ledger_release(ledger);
+            if (status) {
+                *status = migrated;
+            }
+            return NULL;
+        }
+        log = fopen(ledger->log_path, "rb+");
+        if (!log) {
+            atp_ledger_release(ledger);
+            if (status) {
+                *status = ATP_ERR_IO;
+            }
+            return NULL;
+        }
+        if (fread(header, 1u, sizeof(header), log) != sizeof(header)) {
+            fclose(log);
+            atp_ledger_release(ledger);
+            if (status) {
+                *status = ATP_ERR_FORMAT;
+            }
+            return NULL;
+        }
+    }
+
+    if (header[0] != ATP_LEDGER_FILE_MAGIC_0 || header[1] != ATP_LEDGER_FILE_MAGIC_1 ||
         header[2] != ATP_LEDGER_FILE_MAGIC_2 || header[3] != ATP_LEDGER_FILE_MAGIC_3 ||
         header[4] != ATP_LEDGER_FILE_MAGIC_4 || header[5] != ATP_LEDGER_FILE_MAGIC_5 ||
         header[6] != ATP_LEDGER_FILE_MAGIC_6 || header[7] != ATP_LEDGER_FILE_MAGIC_7 ||
@@ -796,8 +1215,8 @@ void atp_ledger_destroy(atp_ledger *ledger) {
 atp_ledger_result atp_ledger_append(atp_ledger *ledger, const char *source_id,
                                     const char *author_did, uint64_t observed_at,
                                     uint64_t content_digest, uint32_t schema_version,
-                                    atp_ledger_outcome outcome, uint64_t *out_id,
-                                    atp_status *status) {
+                                    atp_ledger_outcome outcome, const void *payload,
+                                    size_t payload_len, uint64_t *out_id, atp_status *status) {
     if (status) {
         *status = ATP_OK;
     }
@@ -819,6 +1238,13 @@ atp_ledger_result atp_ledger_append(atp_ledger *ledger, const char *source_id,
     }
     const size_t author_len = author_did ? strlen(author_did) : 0u;
     if (author_len >= ATPERSON_LEDGER_AUTHOR_BYTES) {
+        if (status) {
+            *status = ATP_ERR_INVALID_ARGUMENT;
+        }
+        return ATP_LEDGER_NOT_FOUND;
+    }
+    if (payload_len > ATPERSON_LEDGER_PAYLOAD_LIMIT ||
+        (!payload && payload_len > 0u)) {
         if (status) {
             *status = ATP_ERR_INVALID_ARGUMENT;
         }
@@ -853,15 +1279,32 @@ atp_ledger_result atp_ledger_append(atp_ledger *ledger, const char *source_id,
     memcpy(entry.source_id, source_id, source_len + 1u);
     memcpy(entry.author_did, author_did ? author_did : "", author_len + 1u);
 
-    unsigned char payload[ATP_LEDGER_PAYLOAD_MAX];
-    const size_t payload_len = atp_serialize_entry(payload, &entry);
-    unsigned char record[ATP_LEDGER_RECORD_MAX];
+    unsigned char *body = malloc(ATP_LEDGER_PAYLOAD_MAX + payload_len);
+    if (!body) {
+        if (status) {
+            *status = ATP_ERR_OUT_OF_MEMORY;
+        }
+        return ATP_LEDGER_NOT_FOUND;
+    }
+    const size_t body_len =
+        atp_serialize_entry(body, &entry, (const unsigned char *)payload, payload_len);
+    unsigned char *record = malloc(9u + body_len);
+    if (!record) {
+        free(body);
+        if (status) {
+            *status = ATP_ERR_OUT_OF_MEMORY;
+        }
+        return ATP_LEDGER_NOT_FOUND;
+    }
     const size_t record_len =
-        atp_build_record(record, ATP_LEDGER_RECORD_ENTRY, payload, payload_len);
+        atp_build_record(record, ATP_LEDGER_RECORD_ENTRY, body, body_len);
+
     /* Increment the count before the durable commit so the offset marker
      * records the post-append count; recover() trusts that fence. */
     ledger->count++;
     const atp_status committed = atp_ledger_commit_record(ledger, record, record_len);
+    free(record);
+    free(body);
     if (committed != ATP_OK) {
         ledger->count--;
         if (status) {
@@ -871,6 +1314,20 @@ atp_ledger_result atp_ledger_append(atp_ledger *ledger, const char *source_id,
     }
 
     ledger->entries[ledger->count - 1u] = entry;
+    if (payload_len > 0u) {
+        unsigned char *owned = malloc(payload_len);
+        if (!owned) {
+            /* The entry is durably committed; the in-memory payload mirror
+             * is gone but the log retains it. Mark the slot payload-less in
+             * memory only — a restart re-reads it from the log. */
+            ledger->payloads[ledger->count - 1u] = NULL;
+            ledger->payload_lens[ledger->count - 1u] = 0u;
+        } else {
+            memcpy(owned, payload, payload_len);
+            ledger->payloads[ledger->count - 1u] = owned;
+            ledger->payload_lens[ledger->count - 1u] = payload_len;
+        }
+    }
     atp_ledger_index_insert(ledger, atp_ledger_derive_key(source_id, source_len, content_digest),
                             ledger->count - 1u);
 
@@ -947,5 +1404,39 @@ atp_status atp_ledger_entry_at(const atp_ledger *ledger, size_t index,
         return ATP_ERR_NOT_FOUND;
     }
     *out_entry = ledger->entries[index];
+    return ATP_OK;
+}
+
+atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void *out,
+                                     size_t capacity, size_t *out_len) {
+    if (out_len) {
+        *out_len = 0u;
+    }
+    if (!ledger || !out_len) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (id == 0u || id > (uint64_t)ledger->count) {
+        return ATP_ERR_NOT_FOUND;
+    }
+    const size_t index = (size_t)(id - 1u);
+    const unsigned char *payload = ledger->payloads[index];
+    const size_t payload_len = ledger->payload_lens[index];
+    if (!payload || payload_len == 0u) {
+        /* No retained payload: v1-migrated entry or an empty observation.
+         * Honest absence, not an error. */
+        return ATP_OK;
+    }
+    /* Re-verify against the entry's content digest: corruption or a
+     * mismatching payload is a format error, never returned as data. */
+    if (atp_ledger_digest(payload, payload_len) != ledger->entries[index].content_digest) {
+        return ATP_ERR_FORMAT;
+    }
+    if (out) {
+        if (capacity < payload_len) {
+            return ATP_ERR_INVALID_ARGUMENT;
+        }
+        memcpy(out, payload, payload_len);
+    }
+    *out_len = payload_len;
     return ATP_OK;
 }

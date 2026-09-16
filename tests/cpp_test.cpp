@@ -66,13 +66,16 @@ int main() {
     const auto digest = atperson::Ledger::digest(text);
     std::uint64_t id = 0u;
     assert(ledger.append("at://cpp/1", "did:plc:cpp", 100u, digest, ATPERSON_SCHEMA_VERSION,
-                         ATP_LEDGER_OUTCOME_PENDING, &id) == atperson::LedgerResult::New);
+                         ATP_LEDGER_OUTCOME_PENDING, text, &id) == atperson::LedgerResult::New);
     assert(id == 1u);
     ledger.set_outcome(id, ATP_LEDGER_OUTCOME_LEARNED);
 
     assert(ledger.append("at://cpp/1", "did:plc:cpp", 100u, digest, ATPERSON_SCHEMA_VERSION,
-                         ATP_LEDGER_OUTCOME_PENDING,
+                         ATP_LEDGER_OUTCOME_PENDING, text,
                          &id) == atperson::LedgerResult::ExistsCommitted);
+
+    /* The retained payload round-trips byte-for-byte. */
+    assert(ledger.payload(id) == text);
 
     atp_ledger_entry entry = {};
     assert(ledger.lookup("at://cpp/1", digest, &entry) == atperson::LedgerResult::ExistsCommitted);

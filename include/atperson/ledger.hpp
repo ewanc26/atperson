@@ -37,12 +37,14 @@ class Ledger {
 
     /**
      * Record an observation under the unique (source id + digest) key.
-     * Appending is durable before this returns. Real errors throw.
+     * `payload` retains the canonical observation bytes inline in the entry
+     * record so the ledger is replayable. Appending is durable before this
+     * returns. Real errors throw.
      */
     [[nodiscard]] LedgerResult append(std::string_view source_id, std::string_view author_did,
                                       std::uint64_t observed_at, std::uint64_t content_digest,
                                       std::uint32_t schema_version, atp_ledger_outcome outcome,
-                                      std::uint64_t *out_id);
+                                      std::string_view payload, std::uint64_t *out_id);
 
     /** Append a durable outcome patch for an existing entry. Throws on error. */
     void set_outcome(std::uint64_t id, atp_ledger_outcome outcome);
@@ -53,6 +55,14 @@ class Ledger {
 
     [[nodiscard]] std::uint64_t count() const noexcept;
     [[nodiscard]] std::vector<atp_ledger_entry> entries() const;
+
+    /**
+     * The retained payload of entry `id`, byte-for-byte as appended. Empty
+     * for payload-less entries (v1-migrated or empty observations). Throws
+     * on corruption: the payload is re-verified against the entry's content
+     * digest on read.
+     */
+    [[nodiscard]] std::string payload(std::uint64_t id) const;
 
   private:
     atp_ledger *ledger_{};

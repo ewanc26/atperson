@@ -164,23 +164,57 @@ learning core. It records, per observation:
 - observed-at time;
 - content digest;
 - model/schema version;
-- processing outcome.
+- processing outcome;
+- the canonical observation bytes (inline payload, format v2).
 
 The log is the authority for what the entity has seen. A committed observation
 (`LEARNED` or `SKIPPED`) is never trained on again across process restarts;
 outcome changes append a small patch record rather than rewriting log bytes.
+Because the canonical bytes are retained inline, the ledger is replayable: a
+rebuild can recover the exact content that produced the current graph, not
+just the fact that it was observed.
 
 ### Files and layout
 
-- `path` is the record log: `"ATPLDG01"` then a little-endian version u32.
+- `path` is the record log: `"ATPLDG02"` then a little-endian version u32
+  (v2; v1 logs with the `"ATPLDG01"` magic migrate on open, see below).
 - Each record is `len u32 | crc u32 (FNV-1a 32) | type u8 | payload`, where
   type 1 is an observation entry and type 2 is an outcome patch.
-- `<path>.off` is the durable commit marker: `"ATPLOF01"`, version, committed
+- An entry body is `id u64 | source_len u32 | source | author_len u32 |
+  author | observed_at u64 | digest u64 | schema u32 | outcome u8 |
+  payload_len u32 | payload`. `payload_len` 0 marks a payload-less entry.
+- Payloads are length-prefixed bytes, never NUL-terminated; binary content
+  round-trips exactly. Retention is capped at `ATPERSON_LEDGER_PAYLOAD_LIMIT`
+  (64 KiB); larger observations are rejected before any durable write.
+- `<path>.off` is the durable commit marker: `"ATPLOF02"`, version, committed
   count, and the byte offset of the committed prefix (28 bytes total).
 
 Multi-octet integers are little-endian, a deliberate format decision: snapshot
 v1 stays host-oriented, and the two files may migrate independently in a future
 version bump.
+
+### Payload reads
+
+`atp_ledger_entry_payload(ledger, id, out, capacity, out_len)` returns the
+retained bytes exactly as appended. A payload-less entry (v1-migrated, or an
+empty observation) reports honest absence: `ATP_OK` with length 0, never a
+fake empty string presented as data. Every read re-verifies the payload
+against the entry's content digest; a mismatch is `ATP_ERR_FORMAT`, so
+corrupted bytes are never returned as content. A null `out` with capacity 0
+queries the length without copying.
+
+### v1 migration
+
+Opening a v1 log migrates it before recovery. The migration validates the v1
+committed prefix, flattens outcome patches onto their entries, streams the
+transformed v2 records to a temp file, fsyncs, and renames atomically. A crash
+before the rename leaves the intact v1 log; after it, the v2 log is complete.
+The stale v1 marker is discarded and rewritten from the migrated log.
+
+Patch history flattens to final outcomes — intermediate PENDING/FAILED states
+are not preserved across migration. v1 entries migrate payload-less: their
+observation bytes were never retained, and payload reads report that honestly
+rather than faking content.
 
 ### Crash safety
 
@@ -207,9 +241,10 @@ retryable, so a crash mid-observe never silently drops an observation.
 ### Runtime flow and snapshot mirror
 
 Each synced post: `append(source, author, observed_at, digest, schema,
-PENDING)` -> observe -> `set_outcome(id, LEARNED)` (or `SKIPPED` for empty
-text), then mirror the entry into the graph snapshot (v2) so recent provenance
-is inspectable in one file. The ledger remains authoritative for rebuilds.
+PENDING, text)` -> observe -> `set_outcome(id, LEARNED)` (or `SKIPPED` for
+empty text), then mirror the entry into the graph snapshot (v2) so recent
+provenance is inspectable in one file. The retained text makes the ledger
+replayable; the ledger remains authoritative for rebuilds.
 
 Deleting a learned contribution is still an open problem; the preferred model
 remains rebuild-from-ledger rather than approximate inverse gradient steps.
@@ -250,10 +285,11 @@ the remembered-view provenance.
 ### Runtime flow (sync)
 
 Each synced post: `append(source, author, observed_at, digest, schema,
-PENDING)` -> `remember(...)` -> `set_outcome(id, LEARNED)` (or `SKIPPED` for
-empty text), then the entry is mirrored into the graph snapshot (v2) and the
-episode (if selected) is stored in memory (v3). The ledger remains
-authoritative for rebuilds; memory is linked to it by ledger id.
+PENDING, text)` -> `remember(...)` -> `set_outcome(id, LEARNED)` (or `SKIPPED`
+for empty text), then the entry is mirrored into the graph snapshot (v2) and
+the episode (if selected) is stored in memory (v3). The retained text makes
+the ledger replayable; the ledger remains authoritative for rebuilds, and
+memory is linked to it by ledger id.
 
 ### Ingestion cursor
 

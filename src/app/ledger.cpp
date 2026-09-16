@@ -60,13 +60,14 @@ std::uint64_t Ledger::digest(std::string_view content) {
 LedgerResult Ledger::append(std::string_view source_id, std::string_view author_did,
                             std::uint64_t observed_at, std::uint64_t content_digest,
                             std::uint32_t schema_version, atp_ledger_outcome outcome,
-                            std::uint64_t *out_id) {
+                            std::string_view payload, std::uint64_t *out_id) {
     const std::string owned_source(source_id);
     const std::string owned_author(author_did);
     atp_status status = ATP_OK;
     atp_ledger_result result =
         atp_ledger_append(ledger_, owned_source.c_str(), owned_author.c_str(), observed_at,
-                          content_digest, schema_version, outcome, out_id, &status);
+                          content_digest, schema_version, outcome, payload.data(),
+                          payload.size(), out_id, &status);
     require(status, "append ledger entry");
     return to_result(result);
 }
@@ -90,6 +91,18 @@ std::vector<atp_ledger_entry> Ledger::entries() const {
     for (std::size_t i = 0; i < result.size(); ++i) {
         require(atp_ledger_entry_at(ledger_, i, &result[i]), "read ledger entry");
     }
+    return result;
+}
+
+std::string Ledger::payload(std::uint64_t id) const {
+    std::size_t length = 0u;
+    require(atp_ledger_entry_payload(ledger_, id, nullptr, 0u, &length), "query ledger payload");
+    if (length == 0u) {
+        return {};
+    }
+    std::string result(length, '\0');
+    require(atp_ledger_entry_payload(ledger_, id, result.data(), result.size(), &length),
+            "read ledger payload");
     return result;
 }
 
