@@ -37,7 +37,7 @@ Equal scores use a fixed source priority: immediate input, episodic memory, rece
 
 The preview API uses exactly the same scoring and ordering as ranked recall but does not increment `recall_count` or write `last_recall_at`. It also has an explicit episode-scan bound and examines the most recently retained tail of episodic memory when the configured bound is smaller than the retained memory set.
 
-Recall queries now use the shared schema-versioned tokenizer from `src/core/tokenize.c`. This also closes the remaining issue #8 inconsistency where `memory.c` still had the legacy byte scanner after observation/action lookup had moved to the Unicode contract.
+Recall queries use the shared schema-versioned query/tokenization helper, so observation, action scoring, lookup, semantic recall and planner-context selection all share one token identity contract.
 
 ## Bounds
 

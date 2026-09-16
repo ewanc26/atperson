@@ -564,7 +564,7 @@ static int atp_recall_match_compare(const void *left, const void *right) {
 
 /* Recall query walk: collects distinct known node indices. */
 typedef struct atp_query_walk {
-    atp_graph *graph;
+    const atp_graph *graph;
     uint32_t *nodes;
     size_t count;
     size_t capacity;
@@ -600,6 +600,35 @@ static bool atp_query_emit(void *userdata, const char *token) {
     return true;
 }
 
+/* Shared query helper: tokenize a query under the current schema and
+ * collect the distinct vocabulary node indices it references. Unknown
+ * tokens are ignored; the graph is not mutated. Used by recall and by
+ * the semantic memory query path so both share one tokenizer. */
+atp_status atp_graph_query_nodes(const atp_graph *graph, const char *query, uint32_t **out_nodes,
+                                 size_t *out_count) {
+    if (out_nodes) {
+        *out_nodes = NULL;
+    }
+    if (out_count) {
+        *out_count = 0u;
+    }
+    if (!graph || !query || !out_nodes || !out_count) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+
+    atp_query_walk walk = {
+        .graph = graph,
+    };
+    atp_tokenize(query, ATPERSON_SCHEMA_VERSION, atp_query_emit, &walk);
+    if (walk.status != ATP_OK) {
+        free(walk.nodes);
+        return walk.status;
+    }
+    *out_nodes = walk.nodes;
+    *out_count = walk.count;
+    return ATP_OK;
+}
+
 atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epoch,
                             atp_episode *out, size_t capacity, size_t *out_count) {
     if (out_count) {
@@ -617,15 +646,11 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
 
     /* Distinct query node indices; tokens unknown to the vocabulary cannot
      * match anything and do not mutate the graph. */
-    atp_query_walk walk = {
-        .graph = graph,
-    };
-    atp_tokenize(query, ATPERSON_SCHEMA_VERSION, atp_query_emit, &walk);
-    uint32_t *query_nodes = walk.nodes;
-    size_t query_count = walk.count;
-    if (walk.status != ATP_OK) {
-        free(query_nodes);
-        return walk.status;
+    uint32_t *query_nodes = NULL;
+    size_t query_count = 0u;
+    const atp_status queried = atp_graph_query_nodes(graph, query, &query_nodes, &query_count);
+    if (queried != ATP_OK) {
+        return queried;
     }
 
     if (query_count == 0u) {

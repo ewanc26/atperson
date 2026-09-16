@@ -20,14 +20,6 @@ typedef struct atp_recall_match {
     uint64_t ledger_id;
 } atp_recall_match;
 
-typedef struct atp_memory_query_walk {
-    const atp_graph *graph;
-    uint32_t *nodes;
-    size_t count;
-    size_t capacity;
-    atp_status status;
-} atp_memory_query_walk;
-
 static float atp_memory_clamp01(float value) {
     if (!(value > 0.0f)) {
         return 0.0f;
@@ -117,61 +109,6 @@ static int atp_recall_match_compare(const void *left, const void *right) {
     return 0;
 }
 
-static bool atp_memory_query_emit(void *userdata, const char *token) {
-    atp_memory_query_walk *walk = userdata;
-    const int32_t found = atp_find_node(walk->graph, token);
-    if (found < 0) {
-        return true;
-    }
-
-    for (size_t i = 0u; i < walk->count; ++i) {
-        if (walk->nodes[i] == (uint32_t)found) {
-            return true;
-        }
-    }
-
-    if (walk->count == walk->capacity) {
-        const size_t next = walk->capacity ? walk->capacity * 2u : 8u;
-        if (next < walk->count || next > SIZE_MAX / sizeof(*walk->nodes)) {
-            walk->status = ATP_ERR_OUT_OF_MEMORY;
-            return false;
-        }
-        uint32_t *grown = realloc(walk->nodes, next * sizeof(*grown));
-        if (!grown) {
-            walk->status = ATP_ERR_OUT_OF_MEMORY;
-            return false;
-        }
-        walk->nodes = grown;
-        walk->capacity = next;
-    }
-
-    walk->nodes[walk->count++] = (uint32_t)found;
-    return true;
-}
-
-static atp_status atp_memory_query_nodes(const atp_graph *graph, const char *query,
-                                         uint32_t **out_nodes, size_t *out_count) {
-    *out_nodes = NULL;
-    *out_count = 0u;
-
-    atp_memory_query_walk walk = {
-        .graph = graph,
-        .nodes = NULL,
-        .count = 0u,
-        .capacity = 0u,
-        .status = ATP_OK,
-    };
-    atp_tokenize(query, ATPERSON_SCHEMA_VERSION, atp_memory_query_emit, &walk);
-    if (walk.status != ATP_OK) {
-        free(walk.nodes);
-        return walk.status;
-    }
-
-    *out_nodes = walk.nodes;
-    *out_count = walk.count;
-    return ATP_OK;
-}
-
 static atp_status atp_graph_recall_ranked_impl(const atp_graph *graph, atp_graph *mutable_graph,
                                                 const char *query, uint64_t at_epoch,
                                                 size_t episode_scan_limit,
@@ -190,7 +127,7 @@ static atp_status atp_graph_recall_ranked_impl(const atp_graph *graph, atp_graph
     uint32_t *query_nodes = NULL;
     size_t query_count = 0u;
     const atp_status query_status =
-        atp_memory_query_nodes(graph, query, &query_nodes, &query_count);
+        atp_graph_query_nodes(graph, query, &query_nodes, &query_count);
     if (query_status != ATP_OK) {
         return query_status;
     }
