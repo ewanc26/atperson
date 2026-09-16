@@ -17,11 +17,14 @@ extern "C" {
  * block; version 3 adds the episodic-memory block (a selective, consolidated
  * view of remembered observations with recall counters); version 4 adds the
  * per-token familiarity block (an exponentially weighted exposure score).
- * Snapshot files remain host-oriented (fixed-width integers with host byte
- * order), following the documented plan that a future portable format defines
- * byte order before snapshots become a long-term interchange format.
+ * Version 5 is the portable format: little-endian integers, IEEE 754 float
+ * bit patterns, framed sections (tag u32le | length u64le | payload) with
+ * bounds-checked lengths and skippable unknown tags, and a trailing FNV-1a
+ * digest. v4 snapshots load portably (every v4 writer in practice ran on a
+ * little-endian host) and migrate to v5 on the next save; v1-v3 are refused.
+ * Version 5 also persists the episode eviction counter, which v4 omitted.
  */
-#define ATPERSON_SNAPSHOT_VERSION 4u
+#define ATPERSON_SNAPSHOT_VERSION 5u
 
 /*
  * Observation ledger format version. The ledger keeps each observation in an

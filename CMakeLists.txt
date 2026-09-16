@@ -25,6 +25,7 @@ add_library(
   src/core/neural.c
   src/core/ledger.c
   src/core/replay.c
+  src/core/portable_io.c
   src/core/persistence.c)
 target_include_directories(
   atperson_core
@@ -204,6 +205,12 @@ if(ATPERSON_BUILD_TESTS)
   add_test(
     NAME atperson_withdraw
     COMMAND atperson_withdraw_test withdraw ${CMAKE_CURRENT_BINARY_DIR}/withdraw)
+
+  add_executable(atperson_snapshot_test tests/snapshot_test.c)
+  target_link_libraries(atperson_snapshot_test PRIVATE atperson_core)
+  add_test(
+    NAME atperson_snapshot
+    COMMAND atperson_snapshot_test)
 
   add_executable(atperson_cpp_test tests/cpp_test.cpp)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)

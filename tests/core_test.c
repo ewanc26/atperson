@@ -77,7 +77,7 @@ int main(void) {
     assert(restored_mirror[1].id == mirror[1].id);
     assert(strcmp(restored_mirror[1].source_id, mirror[1].source_id) == 0);
     assert(restored_mirror[1].outcome == mirror[1].outcome);
-    assert(ATPERSON_SNAPSHOT_VERSION == 4u);
+    assert(ATPERSON_SNAPSHOT_VERSION == 5u);
 
     atp_graph_destroy(graph);
     remove(snapshot);

@@ -189,9 +189,9 @@ just the fact that it was observed.
 - `<path>.off` is the durable commit marker: `"ATPLOF02"`, version, committed
   count, and the byte offset of the committed prefix (28 bytes total).
 
-Multi-octet integers are little-endian, a deliberate format decision: snapshot
-v1 stays host-oriented, and the two files may migrate independently in a future
-version bump.
+Multi-octet integers are little-endian in both files. The ledger was
+little-endian from the start; snapshot v5 made the same choice when it became
+a portable format (v1-v4 were host-oriented).
 
 ### Payload reads
 
@@ -417,7 +417,8 @@ state derived from repetition — there is no value, polarity, sentiment, or
 topic judgment attached, so it cannot encode a hidden opinion. It is updated
 in the same C23 intern path as every observation, is queryable read-only via
 `atp_graph_familiarity` (and the CLI `familiarity <token>`), and is persisted
-as the snapshot v4 familiarity block. This score can inform recall and action
+as the per-node familiarity field in the snapshot nodes section (introduced
+in snapshot v4). This score can inform recall and action
 scoring as a purely behavioural signal.
 
 ## Action model
@@ -457,14 +458,18 @@ than replace them with hidden prompt logic.
 
 Snapshots are versioned and contain the complete mutable graph, neural
 parameters, counters, PRNG state, a mirrored ledger block (snapshot v2), the
-episodic-memory block (snapshot v3), and the per-token familiarity block
-(snapshot v4). Saving is performed through a temporary file and rename so a
-partially written snapshot does not replace the previous state.
+episodic-memory block (snapshot v3), the per-token familiarity block
+(snapshot v4), and the episode eviction counter (snapshot v5). Saving is
+performed through a temporary file and rename so a partially written snapshot
+does not replace the previous state.
 
-Version 1 was host-oriented and wrote fixed-width integers and IEEE-754 floats
-directly. Snapshots are not yet a long-term public interchange format; ledger
-format version 1 is already byte-order explicit (little-endian) so it can be
-migrated independently when needed.
+Snapshot v5 is the portable format: little-endian integers, IEEE 754 float
+bit patterns, framed sections (`tag u32le | length u64le | payload`) with
+bounds-checked lengths and skippable unknown tags, and a trailing FNV-1a
+digest over the whole file for bitrot detection. Versions 1-4 were
+host-oriented; v4 snapshots load portably (every v4 writer in practice ran
+on a little-endian host) and migrate to v5 on the next save, while v1-v3
+are refused with `ATP_ERR_FORMAT` rather than silently reinterpreted.
 
 ## Growth path
 

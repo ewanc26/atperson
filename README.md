@@ -143,9 +143,15 @@ policy rather than being replaced by opaque prompt logic.
 
 ## Persistence and memory
 
-The current snapshot format is **v4**. Snapshots persist the mutable language
-graph and neural state together with the mirrored observation ledger, episodic
-memory, familiarity values, counters, and PRNG state.
+The current snapshot format is **v5**: a portable binary format. Integers are
+little-endian and floats are IEEE 754 bit patterns regardless of host
+architecture. The body is a sequence of framed sections (tag, length,
+payload) with lengths bounds-checked against the remaining file size and
+unknown tags skipped, followed by a trailing FNV-1a digest over the whole
+file. Snapshots persist the mutable language graph and neural state together
+with the mirrored observation ledger, episodic memory, familiarity values,
+counters, and PRNG state. v4 snapshots load portably and migrate to v5 on the
+next save; v1-v3 are refused.
 
 The observation ledger is separate from the snapshot and is the authority for
 which external observations have been committed. It records source identity,
