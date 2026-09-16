@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 
 namespace atperson {
@@ -28,6 +29,10 @@ struct ResourceOverrides {
 struct ResourceBudget {
     std::uint64_t memory_reserve_bytes{};
     std::uint64_t memory_growth_budget_bytes{};
+
+    std::filesystem::path limiting_disk_path;
+    std::uint64_t limiting_disk_capacity_bytes{};
+    std::uint64_t limiting_disk_available_bytes{};
     std::uint64_t disk_reserve_bytes{};
     std::uint64_t disk_write_budget_bytes{};
 
