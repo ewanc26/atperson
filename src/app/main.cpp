@@ -160,6 +160,7 @@ void usage(std::ostream &out) {
         << "  atperson ingest <text> [source-id]\n"
         << "  atperson ingest-file <path> [source-id]\n"
         << "  atperson assoc <token> [limit]\n"
+        << "  atperson candidates <context> [limit]\n"
         << "  atperson familiarity <token>\n"
         << "  atperson recall <query> [limit]\n"
         << "  atperson sync [limit]\n\n"
@@ -244,6 +245,23 @@ int main(int argc, char **argv) {
                 std::cout << association.token << '\t' << std::fixed << std::setprecision(4)
                           << association.score << '\t' << association.observations << '\t'
                           << std::hex << association.last_source_hash << std::dec << '\n';
+            }
+            return 0;
+        }
+
+        if (command == "candidates") {
+            if (argc < 3) {
+                usage(std::cerr);
+                return 2;
+            }
+            const int limit = argc >= 4 ? parse_limit(argv[3], 10) : 10;
+            for (const auto &candidate :
+                 graph.action_candidates(argv[2], static_cast<std::size_t>(limit))) {
+                std::cout << candidate.token << '\t' << std::fixed << std::setprecision(4)
+                          << candidate.score << '\t' << candidate.association_score << '\t'
+                          << candidate.familiarity_score << '\t' << candidate.support_score << '\t'
+                          << candidate.supporting_observations << '\t' << candidate.context_matches
+                          << '\n';
             }
             return 0;
         }
