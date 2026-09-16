@@ -32,8 +32,7 @@ using Json = std::unique_ptr<cJSON, JsonDelete>;
 
 const char *json_string(cJSON *object, const char *key) {
     cJSON *value = cJSON_GetObjectItemCaseSensitive(object, key);
-    return cJSON_IsString(value) && value->valuestring ? value->valuestring
-                                                       : nullptr;
+    return cJSON_IsString(value) && value->valuestring ? value->valuestring : nullptr;
 }
 
 std::runtime_error wolfram_error(std::string_view operation, wf_status status) {
@@ -43,6 +42,9 @@ std::runtime_error wolfram_error(std::string_view operation, wf_status status) {
 }
 
 } // namespace
+
+TimelineHttpError::TimelineHttpError(long status, const std::string &message)
+    : std::runtime_error(message), status_(status) {}
 
 AtprotoClient::AtprotoClient(std::string service, std::string identifier,
                              std::string app_password)
@@ -56,15 +58,37 @@ AtprotoClient::AtprotoClient(std::string service, std::string identifier,
     if (status != WF_OK) {
         throw wolfram_error("AT Protocol login", status);
     }
+
+    const char *did = wf_agent_get_did(agent_.get());
+    if (!did || !did[0]) {
+        throw std::runtime_error("AT Protocol login did not yield an account DID");
+    }
+    did_ = did;
 }
 
-std::vector<NetworkObservation> AtprotoClient::fetch_timeline(int limit) {
+std::string AtprotoClient::account_did() const {
+    return did_;
+}
+
+SyncPage AtprotoClient::fetch_timeline_page(const std::optional<std::string> &cursor,
+                                            int limit) {
     limit = std::clamp(limit, 1, 100);
 
     ResponseGuard response;
-    const wf_status status =
-        wf_agent_get_timeline(agent_.get(), limit, nullptr, nullptr,
-                              &response.response);
+    const wf_status status = wf_agent_get_timeline(
+        agent_.get(), limit, cursor ? cursor->c_str() : nullptr, nullptr,
+        &response.response);
+    if (status == WF_ERR_HTTP) {
+        // The service rejected the request. A persisted cursor that the
+        // server no longer accepts lands here; the caller resets to the
+        // head and relies on ledger dedup.
+        const char *error = wf_agent_last_error(agent_.get());
+        throw TimelineHttpError(
+            response.response.status,
+            std::string("timeline fetch rejected with HTTP ") +
+                std::to_string(response.response.status) +
+                (error ? std::string(": ") + error : std::string()));
+    }
     if (status != WF_OK) {
         throw wolfram_error("timeline fetch", status);
     }
@@ -83,8 +107,8 @@ std::vector<NetworkObservation> AtprotoClient::fetch_timeline(int limit) {
         throw std::runtime_error("timeline response did not contain a feed");
     }
 
-    std::vector<NetworkObservation> observations;
-    observations.reserve(static_cast<std::size_t>(cJSON_GetArraySize(feed)));
+    SyncPage page;
+    page.items.reserve(static_cast<std::size_t>(cJSON_GetArraySize(feed)));
 
     cJSON *item = nullptr;
     cJSON_ArrayForEach(item, feed) {
@@ -101,15 +125,14 @@ std::vector<NetworkObservation> AtprotoClient::fetch_timeline(int limit) {
 
         const char *text = json_string(record, "text");
         const char *uri = json_string(post, "uri");
-        const char *did = cJSON_IsObject(author) ? json_string(author, "did")
-                                                  : nullptr;
+        const char *did = cJSON_IsObject(author) ? json_string(author, "did") : nullptr;
         const char *created_at = json_string(record, "createdAt");
 
         if (!text || !uri) {
             continue;
         }
 
-        observations.push_back(NetworkObservation{
+        page.items.push_back(SyncObservation{
             .text = text,
             .source_uri = uri,
             .author_did = did ? did : "",
@@ -117,7 +140,13 @@ std::vector<NetworkObservation> AtprotoClient::fetch_timeline(int limit) {
         });
     }
 
-    return observations;
+    // The cursor is opaque: read it, pass it back to Wolfram, never parse it.
+    char *next = nullptr;
+    if (wf_response_cursor(&response.response, &next) == WF_OK && next) {
+        page.next_cursor = std::string(next);
+        std::free(next);
+    }
+    return page;
 }
 
 } // namespace atperson
