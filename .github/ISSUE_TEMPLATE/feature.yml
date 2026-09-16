@@ -1,6 +1,7 @@
 name: Feature request
 description: Propose a concrete capability or improvement that fits atperson's architecture.
 title: "[feature] "
+labels: ["type: feature"]
 body:
   - type: markdown
     attributes:

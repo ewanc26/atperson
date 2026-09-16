@@ -1,6 +1,7 @@
 name: Architecture proposal
 description: Propose a boundary, persistence, learning-model, or runtime design change.
 title: "[architecture] "
+labels: ["type: architecture"]
 body:
   - type: markdown
     attributes:
