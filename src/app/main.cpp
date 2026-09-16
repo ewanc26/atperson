@@ -3,6 +3,7 @@
 #include "atperson/ledger.hpp"
 #include "atproto_client.hpp"
 #include "ingestion_state.hpp"
+#include "resource_runtime.hpp"
 #include "state_lock.hpp"
 #include "sync_engine.hpp"
 
@@ -20,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace {
 
@@ -38,9 +40,6 @@ std::string required_env(const char *name) {
     return value;
 }
 
-/* Default data directory: $ATPERSON_HOME, else ~/.ewanc26/atperson. Falls
- * back to ".atperson" relative to the working directory only when no home
- * directory can be determined. */
 std::filesystem::path data_dir() {
     if (const std::string home = env_or("ATPERSON_HOME"); !home.empty()) {
         return home;
@@ -65,11 +64,14 @@ std::filesystem::path ingestion_state_path() {
                   (data_dir() / "ingestion-state.json").string());
 }
 
+std::vector<std::filesystem::path> durable_paths() {
+    return {data_dir(), state_path(), ledger_path(), ingestion_state_path()};
+}
+
 atperson::LanguageGraph load_or_create(const std::filesystem::path &path) {
     if (std::filesystem::exists(path)) {
         return atperson::LanguageGraph::load(path);
     }
-    /* First run: make sure the data directory exists before anything saves. */
     if (const auto parent = path.parent_path(); !parent.empty()) {
         std::error_code ec;
         std::filesystem::create_directories(parent, ec);
@@ -92,6 +94,7 @@ void print_stats(const atperson::LanguageGraph &graph) {
 void usage(std::ostream &out) {
     out << "usage:\n"
         << "  atperson stats\n"
+        << "  atperson resources\n"
         << "  atperson ingest <text> [source-id]\n"
         << "  atperson ingest-file <path> [source-id]\n"
         << "  atperson assoc <token> [limit]\n"
@@ -112,9 +115,13 @@ void usage(std::ostream &out) {
            "(default ~/.ewanc26/atperson/ingestion-state.json)\n"
         << "  ATPERSON_HOME             data directory override "
            "(default ~/.ewanc26/atperson)\n"
-        << "  ATPERSON_SYNC_PAGE_SIZE   items per timeline page (default 50)\n"
-        << "  ATPERSON_SERVICE       PDS/service URL "
-           "(default https://bsky.social)\n"
+        << "  ATPERSON_MEMORY_BUDGET_BYTES   graph growth memory override (default auto)\n"
+        << "  ATPERSON_DISK_RESERVE_BYTES    free-space reserve override (default auto)\n"
+        << "  ATPERSON_NODE_CAPACITY         graph node ceiling override (default auto)\n"
+        << "  ATPERSON_EDGE_CAPACITY         graph edge ceiling override (default auto)\n"
+        << "  ATPERSON_SYNC_PAGE_SIZE        items per timeline page (default auto)\n"
+        << "  ATPERSON_SYNC_MAX_OBSERVATIONS per-run sync observation budget (default auto)\n"
+        << "  ATPERSON_SERVICE       PDS/service URL (default https://bsky.social)\n"
         << "  ATPERSON_IDENTIFIER    handle or email for sync\n"
         << "  ATPERSON_APP_PASSWORD  app password for sync\n\n"
         << "mutating commands take an exclusive lock on the data directory;\n"
@@ -141,12 +148,8 @@ int main(int argc, char **argv) {
             return 2;
         }
 
-        /* First-run bootstrap (C23 core): create the data directory and a
-         * .env template when either is missing. Idempotent; never touches
-         * existing files. */
         char home_buffer[4096];
-        if (atp_default_home_directory(home_buffer, sizeof(home_buffer), nullptr) !=
-            nullptr) {
+        if (atp_default_home_directory(home_buffer, sizeof(home_buffer), nullptr) != nullptr) {
             char notice[ATP_BOOTSTRAP_NOTICE_BYTES];
             if (atp_bootstrap_home(home_buffer, notice, sizeof(notice)) == ATP_OK &&
                 notice[0] != '\0') {
@@ -156,7 +159,135 @@ int main(int argc, char **argv) {
 
         const std::string_view command = argv[1];
         const auto path = state_path();
+        const auto resource_paths = durable_paths();
+        const auto resource_overrides = atperson::resource_overrides_from_environment();
+        const atp_graph_stats no_graph_stats{};
+        auto resource_status = atperson::inspect_runtime_resources(
+            no_graph_stats, resource_paths, resource_overrides);
+
+        /* These commands operate only on ledger/runtime metadata. Avoid loading
+         * a potentially large model when it cannot contribute to the result. */
+        if (command == "rebuild") {
+            atperson::require_runtime_write_headroom(resource_status);
+            const atperson::StateLock writer_lock(data_dir());
+            const std::filesystem::path ledger_file = ledger_path();
+            if (!std::filesystem::exists(ledger_file)) {
+                throw std::runtime_error("no ledger at " + ledger_file.string() +
+                                         "; nothing to rebuild from");
+            }
+            atperson::Ledger ledger(ledger_file);
+            atperson::LanguageGraph rebuilt;
+            auto rebuild_resources = atperson::refresh_runtime_resources(
+                rebuilt, resource_paths, resource_overrides);
+            atperson::require_runtime_write_headroom(rebuild_resources);
+            const auto report = rebuilt.replay(ledger);
+            rebuilt.save(path);
+            std::cout << "replayed " << report.replayed << " observation(s) from the ledger"
+                      << " (mirrored " << report.mirrored << " skipped, excluded "
+                      << report.excluded_pending << " pending, " << report.excluded_failed
+                      << " failed, " << report.excluded_withdrawn << " withdrawn)\n";
+            print_stats(rebuilt);
+            return 0;
+        }
+
+        if (command == "compact") {
+            atperson::require_runtime_write_headroom(resource_status);
+            const atperson::StateLock writer_lock(data_dir());
+            const std::filesystem::path ledger_file = ledger_path();
+            if (!std::filesystem::exists(ledger_file)) {
+                throw std::runtime_error("no ledger at " + ledger_file.string() +
+                                         "; nothing to compact");
+            }
+            atperson::Ledger ledger(ledger_file);
+            const auto report = ledger.compact();
+            std::cout << "compacted " << report.entries << " entr"
+                      << (report.entries == 1u ? "y" : "ies") << " ("
+                      << report.patches_flattened << " patch record(s) flattened, "
+                      << report.payloads_dropped << " withdrawn payload(s) dropped)\n"
+                      << "ledger " << report.bytes_before << " -> " << report.bytes_after
+                      << " bytes\n";
+            return 0;
+        }
+
+        if (command == "withdraw") {
+            if (argc < 4) {
+                usage(std::cerr);
+                return 2;
+            }
+            atperson::require_runtime_write_headroom(resource_status);
+            const std::string scope = argv[2];
+            const std::string target = argv[3];
+            const atperson::StateLock writer_lock(data_dir());
+            const std::filesystem::path ledger_file = ledger_path();
+            if (!std::filesystem::exists(ledger_file)) {
+                throw std::runtime_error("no ledger at " + ledger_file.string() +
+                                         "; nothing to withdraw from");
+            }
+            atperson::Ledger ledger(ledger_file);
+            if (scope == "id") {
+                const std::uint64_t id = std::strtoull(target.c_str(), nullptr, 10);
+                ledger.withdraw(id);
+                std::cout << "withdrew observation " << id << "\n";
+            } else if (scope == "source") {
+                const std::size_t withdrawn = ledger.withdraw_source(target);
+                std::cout << "withdrew " << withdrawn << " observation(s) from " << target << '\n';
+            } else if (scope == "author") {
+                const std::size_t withdrawn = ledger.withdraw_author(target);
+                std::cout << "withdrew " << withdrawn << " observation(s) by " << target << '\n';
+            } else {
+                usage(std::cerr);
+                return 2;
+            }
+            std::cout << "run `atperson rebuild` to apply the withdrawal to learned state\n";
+            return 0;
+        }
+
+        if (command == "cursor") {
+            const std::string sub = argc >= 3 ? argv[2] : "status";
+            if (sub != "status" && sub != "reset") {
+                usage(std::cerr);
+                return 2;
+            }
+            const std::filesystem::path state_file = ingestion_state_path();
+            const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
+            atperson::AtprotoClient client(service, required_env("ATPERSON_IDENTIFIER"),
+                                           required_env("ATPERSON_APP_PASSWORD"));
+            auto state = atperson::load_ingestion_state(state_file, service,
+                                                        client.account_did());
+            if (sub == "reset") {
+                atperson::require_runtime_write_headroom(resource_status);
+                const atperson::StateLock writer_lock(data_dir());
+                atperson::reset_ingestion_state(state);
+                state.checkpoint.generation++;
+                atperson::save_ingestion_state(state, state_file);
+                std::cout << "ingestion cursor reset; next sync starts at the timeline head\n";
+                return 0;
+            }
+            std::cout << "source: " << state.source.kind << " " << state.source.service
+                      << " " << state.source.account_did << " " << state.source.endpoint << '\n'
+                      << "catch-up: " << (state.catchup.active ? "active" : "inactive") << '\n'
+                      << "checkpoint: generation " << state.checkpoint.generation
+                      << ", pages " << state.checkpoint.pages_completed << ", observations "
+                      << state.checkpoint.observations_seen << '\n';
+            return 0;
+        }
+
+        if (std::filesystem::exists(path)) {
+            std::error_code size_error;
+            const auto snapshot_bytes = std::filesystem::file_size(path, size_error);
+            if (!size_error) {
+                atperson::require_runtime_snapshot_headroom(resource_status, snapshot_bytes);
+            }
+        }
+
         auto graph = load_or_create(path);
+        resource_status =
+            atperson::refresh_runtime_resources(graph, resource_paths, resource_overrides);
+
+        if (command == "resources") {
+            atperson::print_runtime_resources(std::cout, resource_status);
+            return 0;
+        }
 
         if (command == "stats") {
             print_stats(graph);
@@ -168,6 +299,8 @@ int main(int argc, char **argv) {
                 usage(std::cerr);
                 return 2;
             }
+            atperson::require_runtime_write_headroom(resource_status);
+            atperson::require_runtime_input_headroom(resource_status, std::strlen(argv[2]));
             const atperson::StateLock writer_lock(data_dir());
             const std::string source = argc >= 4 ? argv[3] : "local:manual";
             graph.observe(argv[2], source);
@@ -181,7 +314,14 @@ int main(int argc, char **argv) {
                 usage(std::cerr);
                 return 2;
             }
+            atperson::require_runtime_write_headroom(resource_status);
             const std::filesystem::path input_path = argv[2];
+            std::error_code size_error;
+            const auto input_size = std::filesystem::file_size(input_path, size_error);
+            if (size_error) {
+                throw std::runtime_error("could not determine size of " + input_path.string());
+            }
+            atperson::require_runtime_input_headroom(resource_status, input_size);
             std::ifstream input(input_path, std::ios::binary);
             if (!input) {
                 throw std::runtime_error("could not open " + input_path.string());
@@ -195,12 +335,15 @@ int main(int argc, char **argv) {
             print_stats(graph);
             return 0;
         }
+
         if (command == "assoc") {
             if (argc < 3) {
                 usage(std::cerr);
                 return 2;
             }
             const int limit = argc >= 4 ? parse_limit(argv[3], 10) : 10;
+            atperson::require_runtime_inspection_limit(resource_status,
+                                                       static_cast<std::size_t>(limit));
             for (const auto &association :
                  graph.associations(argv[2], static_cast<std::size_t>(limit))) {
                 std::cout << association.token << '\t' << std::fixed << std::setprecision(4)
@@ -216,6 +359,8 @@ int main(int argc, char **argv) {
                 return 2;
             }
             const int limit = argc >= 4 ? parse_limit(argv[3], 10) : 10;
+            atperson::require_runtime_inspection_limit(resource_status,
+                                                       static_cast<std::size_t>(limit));
             for (const auto &candidate :
                  graph.action_candidates(argv[2], static_cast<std::size_t>(limit))) {
                 std::cout << candidate.token << '\t' << std::fixed << std::setprecision(4)
@@ -235,12 +380,15 @@ int main(int argc, char **argv) {
             std::cout << std::fixed << std::setprecision(4) << graph.familiarity(argv[2]) << '\n';
             return 0;
         }
+
         if (command == "recall") {
             if (argc < 3) {
                 usage(std::cerr);
                 return 2;
             }
             const int limit = argc >= 4 ? parse_limit(argv[3], 10) : 10;
+            atperson::require_runtime_inspection_limit(resource_status,
+                                                       static_cast<std::size_t>(limit));
             const std::uint64_t at_epoch = static_cast<std::uint64_t>(std::time(nullptr));
             for (const auto &episode :
                  graph.recall(argv[2], at_epoch, static_cast<std::size_t>(limit))) {
@@ -257,6 +405,7 @@ int main(int argc, char **argv) {
         }
 
         if (command == "sync") {
+            atperson::require_runtime_write_headroom(resource_status);
             const atperson::StateLock writer_lock(data_dir());
             const int max_pages = argc >= 3 ? parse_limit(argv[2], 1) : 1;
             atperson::AtprotoClient client(env_or("ATPERSON_SERVICE", "https://bsky.social"),
@@ -275,19 +424,22 @@ int main(int argc, char **argv) {
                 client.account_did());
 
             atperson::SyncLimits limits;
-            limits.page_size = std::stoi(env_or("ATPERSON_SYNC_PAGE_SIZE", "50"));
+            limits.page_size = resource_status.budget.sync_page_size;
             limits.max_pages = max_pages;
+            limits.max_observations = resource_status.budget.sync_max_observations;
 
-            const auto fetch_page = [&client, &limits](
+            const auto fetch_page = [&client, &limits, &graph, &resource_status,
+                                     &resource_overrides, &resource_paths](
                                         const std::optional<std::string> &cursor) {
+                resource_status = atperson::refresh_runtime_resources(
+                    graph, resource_paths, resource_overrides);
+                atperson::require_runtime_write_headroom(resource_status);
+                limits.page_size = resource_status.budget.sync_page_size;
+                limits.max_observations = resource_status.budget.sync_max_observations;
                 try {
                     return client.fetch_timeline_page(cursor, limits.page_size);
                 } catch (const atperson::TimelineHttpError &) {
                     if (cursor) {
-                        // The service rejected the persisted cursor. It is a
-                        // disposable fetching checkpoint, not learned state:
-                        // reset to the head and let ledger dedup suppress
-                        // anything already committed.
                         std::cerr << "atperson: saved cursor rejected by the service; "
                                      "resetting to the timeline head\n";
                         return client.fetch_timeline_page(std::nullopt, limits.page_size);
@@ -296,9 +448,7 @@ int main(int argc, char **argv) {
                 }
             };
 
-            const auto result = atperson::run_sync(graph, ledger, ingestion, fetch_page,
-                                                   limits);
-
+            const auto result = atperson::run_sync(graph, ledger, ingestion, fetch_page, limits);
             graph.save(path);
             ingestion.checkpoint.generation++;
             atperson::save_ingestion_state(ingestion, state_file);
@@ -309,134 +459,6 @@ int main(int argc, char **argv) {
                       << result.skipped << ", duplicate " << result.duplicates
                       << ") public timeline posts\n";
             print_stats(graph);
-            return 0;
-        }
-
-        if (command == "rebuild") {
-            /* Rebuild learned state from the observation ledger alone: no
-             * network access, and the existing snapshot is only replaced
-             * after the replayed graph has been written atomically. A
-             * failure at any point leaves the previous snapshot untouched. */
-            const atperson::StateLock writer_lock(data_dir());
-            const std::filesystem::path ledger_file = ledger_path();
-            if (!std::filesystem::exists(ledger_file)) {
-                throw std::runtime_error("no ledger at " + ledger_file.string() +
-                                         "; nothing to rebuild from");
-            }
-            atperson::Ledger ledger(ledger_file);
-
-            /* Replay into a fresh graph: same default config, so the PRNG
-             * stream and every training decision reproduce the original
-             * run from the same bytes. */
-            atperson::LanguageGraph rebuilt;
-            const auto report = rebuilt.replay(ledger);
-
-            /* atp_graph_save writes to <path>.tmp, fsyncs, and renames —
-             * the previous snapshot survives any failure here. */
-            rebuilt.save(path);
-            std::cout << "replayed " << report.replayed << " observation(s) from the ledger"
-                      << " (mirrored " << report.mirrored << " skipped, excluded "
-                      << report.excluded_pending << " pending, " << report.excluded_failed
-                      << " failed, " << report.excluded_withdrawn << " withdrawn)\n";
-            print_stats(rebuilt);
-            return 0;
-        }
-
-        if (command == "compact") {
-            /* Reclaim the provably dead bytes in the ledger: patch records
-             * flatten to final outcomes, WITHDRAWN payloads drop, ids stay
-             * stable so episodes and source references need no remapping.
-             * Atomic and crash-safe — interruption cannot destroy the last
-             * valid ledger; the compacted generation only replaces it on
-             * success. */
-            const atperson::StateLock writer_lock(data_dir());
-            const std::filesystem::path ledger_file = ledger_path();
-            if (!std::filesystem::exists(ledger_file)) {
-                throw std::runtime_error("no ledger at " + ledger_file.string() +
-                                         "; nothing to compact");
-            }
-            atperson::Ledger ledger(ledger_file);
-            const auto report = ledger.compact();
-            std::cout << "compacted " << report.entries << " entr"
-                      << (report.entries == 1u ? "y" : "ies") << " ("
-                      << report.patches_flattened << " patch record(s) flattened, "
-                      << report.payloads_dropped << " withdrawn payload(s) dropped)\n"
-                      << "ledger " << report.bytes_before << " -> " << report.bytes_after
-                      << " bytes\n";
-            return 0;
-        }
-
-        if (command == "withdraw") {
-            /* Durably exclude observations from future state: by ledger id,
-             * by source URI (a deleted AT record), or by author DID (an
-             * excluded account). Withdrawal is append-only and idempotent;
-             * it patches the ledger and never touches the live graph. Run
-             * `atperson rebuild` to apply it to learned state. */
-            if (argc < 4) {
-                usage(std::cerr);
-                return 2;
-            }
-            const std::string scope = argv[2];
-            const std::string target = argv[3];
-            const atperson::StateLock writer_lock(data_dir());
-            const std::filesystem::path ledger_file = ledger_path();
-            if (!std::filesystem::exists(ledger_file)) {
-                throw std::runtime_error("no ledger at " + ledger_file.string() +
-                                         "; nothing to withdraw from");
-            }
-            atperson::Ledger ledger(ledger_file);
-            if (scope == "id") {
-                const std::uint64_t id = std::strtoull(target.c_str(), nullptr, 10);
-                ledger.withdraw(id);
-                std::cout << "withdrew observation " << id << "\n";
-            } else if (scope == "source") {
-                const std::size_t withdrawn = ledger.withdraw_source(target);
-                std::cout << "withdrew " << withdrawn << " observation(s) from " << target
-                          << "\n";
-            } else if (scope == "author") {
-                const std::size_t withdrawn = ledger.withdraw_author(target);
-                std::cout << "withdrew " << withdrawn << " observation(s) by " << target
-                          << "\n";
-            } else {
-                usage(std::cerr);
-                return 2;
-            }
-            std::cout << "run `atperson rebuild` to apply the withdrawal to learned state\n";
-            return 0;
-        }
-
-        if (command == "cursor") {
-            const std::string sub = argc >= 3 ? argv[2] : "status";
-            if (sub != "status" && sub != "reset") {
-                usage(std::cerr);
-                return 2;
-            }
-            const std::filesystem::path state_file = ingestion_state_path();
-            const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
-            /* Status and reset both bind to the current session so a stale
-             * cursor from another account is neither shown nor reused. */
-            atperson::AtprotoClient client(service, required_env("ATPERSON_IDENTIFIER"),
-                                           required_env("ATPERSON_APP_PASSWORD"));
-
-            auto state = atperson::load_ingestion_state(state_file, service,
-                                                        client.account_did());
-            if (sub == "reset") {
-                const atperson::StateLock writer_lock(data_dir());
-                atperson::reset_ingestion_state(state);
-                state.checkpoint.generation++;
-                atperson::save_ingestion_state(state, state_file);
-                std::cout << "ingestion cursor reset; next sync starts at the timeline head\n";
-                return 0;
-            }
-
-            std::cout << "source: " << state.source.kind << " " << state.source.service
-                      << " " << state.source.account_did << " " << state.source.endpoint
-                      << '\n'
-                      << "catch-up: "
-                      << (state.catchup.active ? "active" : "inactive") << '\n'
-                      << "checkpoint: generation " << state.checkpoint.generation
-                      << ", pages " << state.checkpoint.pages_completed << ", observations "
-                      << state.checkpoint.observations_seen << '\n';
             return 0;
         }
 

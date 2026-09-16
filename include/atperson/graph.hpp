@@ -45,6 +45,13 @@ class LanguageGraph {
     void save(const std::filesystem::path &path) const;
 
     /**
+     * Apply runtime-only graph growth ceilings. Existing nodes/edges are never
+     * evicted when the ceilings shrink; the C core rejects only future growth.
+     * These values are deployment policy and are deliberately not persisted.
+     */
+    void set_capacity(std::size_t node_capacity_max, std::size_t edge_capacity_max) noexcept;
+
+    /**
      * Learn from one observation and return whether it was remembered as an
      * episode (the C-core selection policy). `ledger_id` links the memory to
      * its source entry in the observation ledger.

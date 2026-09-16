@@ -45,8 +45,18 @@ if(UNIX)
   target_link_libraries(atperson_core PRIVATE m)
 endif()
 
-add_library(atperson_cpp src/app/graph.cpp src/app/ledger.cpp)
-target_include_directories(atperson_cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_library(
+  atperson_cpp
+  src/app/graph.cpp
+  src/app/ledger.cpp
+  src/app/system_resources.cpp
+  src/app/system_filesystems.cpp
+  src/app/resource_budget.cpp
+  src/app/resource_runtime.cpp)
+target_include_directories(
+  atperson_cpp
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
 target_link_libraries(atperson_cpp PUBLIC atperson_core)
 target_compile_features(atperson_cpp PUBLIC cxx_std_23)
 
@@ -280,6 +290,12 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson_cpp_test tests/cpp_test.cpp)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)
   add_test(NAME atperson_cpp COMMAND atperson_cpp_test)
+
+  # Dynamic host/container resource probing and deterministic budget policy.
+  add_executable(atperson_resource_test tests/resource_test.cpp)
+  target_link_libraries(atperson_resource_test PRIVATE atperson_cpp)
+  target_include_directories(atperson_resource_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
+  add_test(NAME atperson_resource COMMAND atperson_resource_test)
 
   # Ingestion-state format and sync-engine restart semantics; offline
   # (fixture page fetchers, no live network).
