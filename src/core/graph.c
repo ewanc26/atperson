@@ -22,6 +22,7 @@ atp_graph_config atp_graph_default_config(void) {
     atp_graph_config config = {
         .seed = UINT64_C(0x4154504552534f4e),
         .learning_rate = 0.025f,
+        .familiarity_decay = 0.98f,
         .episode_capacity = ATPERSON_EPISODE_DEFAULT_CAPACITY,
     };
     return config;
@@ -34,6 +35,9 @@ atp_graph *atp_graph_create(const atp_graph_config *config) {
     }
     if (!(effective.learning_rate > 0.0f) || !isfinite(effective.learning_rate)) {
         effective.learning_rate = atp_graph_default_config().learning_rate;
+    }
+    if (!(effective.familiarity_decay > 0.0f) || effective.familiarity_decay >= 1.0f) {
+        effective.familiarity_decay = atp_graph_default_config().familiarity_decay;
     }
     if (effective.episode_capacity == 0u) {
         effective.episode_capacity = ATPERSON_EPISODE_DEFAULT_CAPACITY;
@@ -202,6 +206,8 @@ int32_t atp_intern_node(atp_graph *graph, const char *token) {
     const int32_t existing = atp_find_node(graph, token);
     if (existing >= 0) {
         graph->nodes[existing].observations++;
+        graph->nodes[existing].familiarity =
+            graph->nodes[existing].familiarity * graph->config.familiarity_decay + 1.0f;
         return existing;
     }
 
@@ -216,6 +222,7 @@ int32_t atp_intern_node(atp_graph *graph, const char *token) {
         return -1;
     }
     node->observations = 1u;
+    node->familiarity = 1.0f;
     for (size_t i = 0; i < ATPERSON_EMBEDDING_DIM; ++i) {
         node->embedding[i] = atp_rng_signed(graph) * 0.05f;
     }
@@ -699,6 +706,17 @@ atp_status atp_graph_episode_at(const atp_graph *graph, size_t index, atp_episod
     }
     *out_episode = graph->episodes[index];
     return ATP_OK;
+}
+
+float atp_graph_familiarity(const atp_graph *graph, const char *token) {
+    if (!graph || !token) {
+        return 0.0f;
+    }
+    const int32_t node = atp_find_node(graph, token);
+    if (node < 0) {
+        return 0.0f;
+    }
+    return graph->nodes[node].familiarity;
 }
 
 atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {

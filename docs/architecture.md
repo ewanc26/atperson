@@ -23,6 +23,7 @@ runtime.
 - exposure and training counters;
 - source hashes attached to learned edges;
 - episodic memory;
+- internal state (per-token familiarity);
 - PRNG state;
 - the observation ledger;
 - persistence format.
@@ -173,13 +174,32 @@ empty text), then the entry is mirrored into the graph snapshot (v2) and the
 episode (if selected) is stored in memory (v3). The ledger remains
 authoritative for rebuilds; memory is linked to it by ledger id.
 
+## Internal state
+
+Internal state is the first, conservative pass at "preferences/values": a
+slowly learned, experience-derived **familiarity** score per token. It is an
+exponentially weighted exposure count:
+
+```text
+familiarity = familiarity * familiarity_decay + 1    on every exposure
+```
+
+A token starts at 1.0 on first sight and rises toward `1 / (1 - decay)`
+(`familiarity_decay` defaults to 0.98, configurable per graph). It is pure
+state derived from repetition — there is no value, polarity, sentiment, or
+topic judgment attached, so it cannot encode a hidden opinion. It is updated
+in the same C23 intern path as every observation, is queryable read-only via
+`atp_graph_familiarity` (and the CLI `familiarity <token>`), and is persisted
+as the snapshot v4 familiarity block. This score is intended to later inform
+recall ordering and action scoring as a purely behavioural signal.
+
 ## Persistence
 
 Snapshots are versioned and contain the complete mutable graph, neural
-parameters, counters, PRNG state, a mirrored ledger block (snapshot v2), and
-the episodic-memory block (snapshot v3). Saving is performed through a
-temporary file and rename so a partially written snapshot does not replace the
-previous state.
+parameters, counters, PRNG state, a mirrored ledger block (snapshot v2), the
+episodic-memory block (snapshot v3), and the per-token familiarity block
+(snapshot v4). Saving is performed through a temporary file and rename so a
+partially written snapshot does not replace the previous state.
 
 Version 1 was host-oriented and wrote fixed-width integers and IEEE-754 floats
 directly. Snapshots are not yet a long-term public interchange format; ledger
@@ -200,7 +220,10 @@ The intended order is:
    command. Semantic memory is the association graph; richer consolidation is
    future work.
 4. **Internal state** — slowly learned preferences/values derived from repeated
-   experience, not hard-coded personality text.
+   experience, not hard-coded personality text. The first pass is implemented:
+   per-token familiarity (exponentially weighted exposure, snapshot v4, CLI
+   `familiarity` accessor). Later passes may feed familiarity into recall
+   ordering and action scoring.
 5. **Action model** — candidate generation and inspectable scoring.
 6. **Network behaviour** — carefully rate-limited output through Wolfram.
 7. **Long-running runtime** — event-driven or scheduled learning with crash

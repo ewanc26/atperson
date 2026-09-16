@@ -59,6 +59,12 @@ class LanguageGraph {
     [[nodiscard]] std::vector<atp_episode> episodes() const;
 
     /**
+     * Slowly learned familiarity score for `token` (exponentially weighted
+     * exposure), 0.0 when the token is unknown. Read-only.
+     */
+    [[nodiscard]] float familiarity(std::string_view token) const noexcept;
+
+    /**
      * Mirrored observation ledger: the entries the graph was trained from.
      * Mirrors are persisted in the snapshot so state can be rebuilt from
      * either the ledger or the snapshot alone.

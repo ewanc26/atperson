@@ -59,6 +59,8 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
               atp_write_u32(file, ATPERSON_EMBEDDING_DIM) &&
               atp_write_u32(file, ATPERSON_HIDDEN_DIM) && atp_write_u64(file, graph->config.seed) &&
               atp_write(file, &graph->config.learning_rate, sizeof(graph->config.learning_rate)) &&
+              atp_write(file, &graph->config.familiarity_decay,
+                        sizeof(graph->config.familiarity_decay)) &&
               atp_write_u64(file, graph->rng_state) && atp_write_u64(file, graph->observations) &&
               atp_write_u64(file, graph->token_observations) &&
               atp_write_u64(file, graph->training_steps) &&
@@ -131,6 +133,12 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
              atp_write(file, episode->author_did, author_len);
     }
 
+    /* Internal state: one familiarity score per node, in node order. */
+    ok = ok && atp_write_u32(file, (uint32_t)graph->node_count);
+    for (size_t i = 0; ok && i < graph->node_count; ++i) {
+        ok = atp_write(file, &graph->nodes[i].familiarity, sizeof(float));
+    }
+
     if (fflush(file) != 0) {
         ok = false;
     }
@@ -196,7 +204,9 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
         version != ATP_SNAPSHOT_VERSION || !atp_read_u32(file, &embedding_dim) ||
         embedding_dim != ATPERSON_EMBEDDING_DIM || !atp_read_u32(file, &hidden_dim) ||
         hidden_dim != ATPERSON_HIDDEN_DIM || !atp_read_u64(file, &config.seed) ||
-        !atp_read(file, &config.learning_rate, sizeof(config.learning_rate))) {
+        !atp_read(file, &config.learning_rate, sizeof(config.learning_rate)) ||
+        !atp_read(file, &config.familiarity_decay, sizeof(config.familiarity_decay)) ||
+        !(config.familiarity_decay > 0.0f) || config.familiarity_decay >= 1.0f) {
         return atp_load_failure(file, NULL, status, ATP_ERR_FORMAT);
     }
 
@@ -322,6 +332,16 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
         episode.source_id[source_len] = '\0';
         episode.author_did[author_len] = '\0';
         graph->episodes[graph->episode_count++] = episode;
+    }
+
+    uint32_t familiarity_count = 0u;
+    if (!atp_read_u32(file, &familiarity_count) || familiarity_count != graph->node_count) {
+        return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
+    }
+    for (size_t i = 0; i < graph->node_count; ++i) {
+        if (!atp_read(file, &graph->nodes[i].familiarity, sizeof(float))) {
+            return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
+        }
     }
 
     if (fclose(file) != 0) {

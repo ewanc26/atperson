@@ -13,6 +13,8 @@
 typedef struct atp_node {
     char *token;
     uint64_t observations;
+    /* Exponentially weighted exposure score; updated on every observation. */
+    float familiarity;
     float embedding[ATPERSON_EMBEDDING_DIM];
 } atp_node;
 

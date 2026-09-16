@@ -40,7 +40,10 @@ The first scaffold provides:
   observations linked to their ledger sources, with per-token summaries,
   use-based recall counters, deterministic least-recalled eviction, and a
   query-time recall view;
-- versioned binary snapshots (v3 adds the episodic-memory block) containing
+- **internal state** (C23): a per-token familiarity score — an exponentially
+  weighted exposure count that slowly rises with repeated experience and
+  decays when exposure stops, with no value judgment baked in;
+- versioned binary snapshots (v4 adds the familiarity block) containing
   the complete mutable learning state;
 - a C++23 RAII wrapper around the C23 graph, memory, and the ledger;
 - a Wolfram-backed read-only timeline ingestion path running through the
@@ -76,6 +79,7 @@ AT Protocol network
 | - learned statistics      |
 | - observation ledger      |
 | - episodic memory         |
+| - internal state          |
 | - persistence             |
 +-------------+-------------+
               |
@@ -117,6 +121,7 @@ State defaults to `.atperson/model.bin`; the observation ledger defaults to
 ./build/atperson stats
 ./build/atperson ingest "hello world" local:first-observation
 ./build/atperson assoc hello
+./build/atperson familiarity hello
 ./build/atperson recall "hello world" 5
 ```
 
@@ -160,8 +165,9 @@ The scaffold intentionally does not:
 Before autonomous output is enabled, the project needs replay/unlearning
 semantics over the observation ledger, inspectable action selection, rate
 limiting, and a way to rebuild or remove learned contributions when source
-material is withdrawn. Episodic memory exists as a first, counter-based pass;
-later stages will layer internal state and action selection on top of it.
+material is withdrawn. Episodic memory and per-token familiarity now exist as
+first, counter-based passes; later stages will layer richer internal state and
+action selection on top of them.
 
 ## Licence
 

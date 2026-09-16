@@ -15,12 +15,13 @@ extern "C" {
 /*
  * Snapshot format version. Version 2 added the mirrored observation ledger
  * block; version 3 adds the episodic-memory block (a selective, consolidated
- * view of remembered observations with recall counters). Snapshot files remain
- * host-oriented (fixed-width integers with host byte order), following the
- * documented plan that a future portable format defines byte order before
- * snapshots become a long-term interchange format.
+ * view of remembered observations with recall counters); version 4 adds the
+ * per-token familiarity block (an exponentially weighted exposure score).
+ * Snapshot files remain host-oriented (fixed-width integers with host byte
+ * order), following the documented plan that a future portable format defines
+ * byte order before snapshots become a long-term interchange format.
  */
-#define ATPERSON_SNAPSHOT_VERSION 3u
+#define ATPERSON_SNAPSHOT_VERSION 4u
 
 /*
  * Observation ledger format version. The ledger keeps each observation in an
@@ -67,6 +68,13 @@ typedef struct atp_ledger atp_ledger;
 typedef struct atp_graph_config {
     uint64_t seed;
     float learning_rate;
+    /*
+     * Exponential decay for per-token familiarity, in [0, 1). Each exposure of
+     * a token updates its score to `familiarity * familiarity_decay + 1`, so
+     * repeated exposure slowly raises the score toward 1 / (1 - decay). 0
+     * selects the default.
+     */
+    float familiarity_decay;
     /* Episode capacity (0 selects ATPERSON_EPISODE_DEFAULT_CAPACITY). */
     size_t episode_capacity;
 } atp_graph_config;
@@ -319,6 +327,21 @@ size_t atp_graph_episode_count(const atp_graph *graph);
 
 /** Copy the i-th remembered episode (0-based, in insertion order). */
 atp_status atp_graph_episode_at(const atp_graph *graph, size_t index, atp_episode *out_episode);
+
+/*
+ * Internal state.
+ *
+ * A slowly learned, experience-derived score per token that reflects repeated
+ * exposure (an exponentially weighted count). Pure state, no value judgment:
+ * it increases monotonically with how often a token has been seen and decays
+ * toward zero as exposure stops.
+ */
+
+/**
+ * Return the familiarity score for `token`; 0.0 when the token is unknown or
+ * arguments are invalid. Querying never mutates the graph.
+ */
+float atp_graph_familiarity(const atp_graph *graph, const char *token);
 
 #ifdef __cplusplus
 }

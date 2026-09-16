@@ -97,6 +97,10 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson_memory_test PRIVATE atperson_core)
   add_test(NAME atperson_memory COMMAND atperson_memory_test)
 
+  add_executable(atperson_familiarity_test tests/familiarity_test.c)
+  target_link_libraries(atperson_familiarity_test PRIVATE atperson_core)
+  add_test(NAME atperson_familiarity COMMAND atperson_familiarity_test)
+
   # The ledger test binary is re-invoked as *separate OS processes* so the
   # cross-run dedup test exercises a genuinely restarted process. Phase 1
   # commits entries for several posts; phase 2 (which CTest runs afterwards)

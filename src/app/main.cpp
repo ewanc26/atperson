@@ -160,6 +160,7 @@ void usage(std::ostream &out) {
         << "  atperson ingest <text> [source-id]\n"
         << "  atperson ingest-file <path> [source-id]\n"
         << "  atperson assoc <token> [limit]\n"
+        << "  atperson familiarity <token>\n"
         << "  atperson recall <query> [limit]\n"
         << "  atperson sync [limit]\n\n"
         << "environment:\n"
@@ -232,7 +233,6 @@ int main(int argc, char **argv) {
             print_stats(graph);
             return 0;
         }
-
         if (command == "assoc") {
             if (argc < 3) {
                 usage(std::cerr);
@@ -248,6 +248,14 @@ int main(int argc, char **argv) {
             return 0;
         }
 
+        if (command == "familiarity") {
+            if (argc < 3) {
+                usage(std::cerr);
+                return 2;
+            }
+            std::cout << std::fixed << std::setprecision(4) << graph.familiarity(argv[2]) << '\n';
+            return 0;
+        }
         if (command == "recall") {
             if (argc < 3) {
                 usage(std::cerr);

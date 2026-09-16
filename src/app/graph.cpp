@@ -149,4 +149,9 @@ std::vector<atp_episode> LanguageGraph::episodes() const {
     return result;
 }
 
+float LanguageGraph::familiarity(std::string_view token) const noexcept {
+    const std::string owned_token(token);
+    return atp_graph_familiarity(graph_, owned_token.c_str());
+}
+
 } // namespace atperson
