@@ -148,7 +148,7 @@ static void test_learning_schema_section(void) {
         if (tag == 8u) {
             found = true;
             assert(length == 4u);
-            assert(data[position + 12u] == 1u); /* schema 1, u32le */
+            assert(data[position + 12u] == ATPERSON_SCHEMA_VERSION); /* u32le */
             break;
         }
         position += 12u + (size_t)length;

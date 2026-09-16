@@ -1,6 +1,5 @@
 #include "internal.h"
 
-#include <ctype.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -292,12 +291,35 @@ atp_status atp_observe_pair(atp_graph *graph, uint32_t source, uint32_t target,
     return ATP_OK;
 }
 
-static bool atp_is_token_byte(unsigned char byte) {
-    return byte >= 0x80u || isalnum(byte) || byte == '\'' || byte == '-' || byte == '_';
-}
+/* Shared tokenizer state for the observe walks. emit returns false to stop
+ * the scan on the first error, carried out through walk->status. */
+typedef struct atp_observe_walk {
+    atp_graph *graph;
+    uint64_t source_hash;
+    int32_t previous;
+    bool saw_token;
+    atp_status status;
+} atp_observe_walk;
 
-static unsigned char atp_normalize_ascii(unsigned char byte) {
-    return byte < 0x80u ? (unsigned char)tolower(byte) : byte;
+static bool atp_observe_emit(void *userdata, const char *token) {
+    atp_observe_walk *walk = userdata;
+    const int32_t current = atp_intern_node(walk->graph, token);
+    if (current < 0) {
+        walk->status = ATP_ERR_OUT_OF_MEMORY;
+        return false;
+    }
+    walk->graph->token_observations++;
+    walk->saw_token = true;
+    if (walk->previous >= 0) {
+        const atp_status status = atp_observe_pair(
+            walk->graph, (uint32_t)walk->previous, (uint32_t)current, walk->source_hash);
+        if (status != ATP_OK) {
+            walk->status = status;
+            return false;
+        }
+    }
+    walk->previous = current;
+    return true;
 }
 
 atp_status atp_graph_observe_text(atp_graph *graph, const char *text, const char *source_id) {
@@ -306,47 +328,19 @@ atp_status atp_graph_observe_text(atp_graph *graph, const char *text, const char
     }
 
     const uint64_t source_hash = atp_hash_source(source_id);
-    char token[ATPERSON_TOKEN_BYTES];
-    size_t token_len = 0u;
-    int32_t previous = -1;
-    bool saw_token = false;
+    atp_observe_walk walk = {
+        .graph = graph,
+        .source_hash = source_hash,
+        .previous = -1,
+        .saw_token = false,
+    };
 
-    for (const unsigned char *cursor = (const unsigned char *)text;; ++cursor) {
-        const unsigned char byte = *cursor;
-        const bool token_byte = byte != '\0' && atp_is_token_byte(byte);
+    atp_tokenize(text, ATPERSON_SCHEMA_VERSION, atp_observe_emit, &walk);
 
-        if (token_byte) {
-            if (token_len + 1u < sizeof(token)) {
-                token[token_len++] = (char)atp_normalize_ascii(byte);
-            }
-        }
-
-        if ((!token_byte || byte == '\0') && token_len > 0u) {
-            token[token_len] = '\0';
-            const int32_t current = atp_intern_node(graph, token);
-            if (current < 0) {
-                return ATP_ERR_OUT_OF_MEMORY;
-            }
-
-            graph->token_observations++;
-            saw_token = true;
-            if (previous >= 0) {
-                const atp_status status =
-                    atp_observe_pair(graph, (uint32_t)previous, (uint32_t)current, source_hash);
-                if (status != ATP_OK) {
-                    return status;
-                }
-            }
-            previous = current;
-            token_len = 0u;
-        }
-
-        if (byte == '\0') {
-            break;
-        }
+    if (walk.status != ATP_OK) {
+        return walk.status;
     }
-
-    if (saw_token) {
+    if (walk.saw_token) {
         graph->observations++;
     }
     return ATP_OK;
@@ -450,6 +444,30 @@ static void atp_evict_episode(atp_graph *graph) {
     graph->episode_evictions++;
 }
 
+/* Episode-building variant of the observe walk: also counts distinct tokens
+ * per observation for the episode's token histogram. */
+typedef struct atp_memory_walk {
+    atp_observe_walk base;
+    atp_token_count *counts;
+    size_t distinct;
+    size_t counts_capacity;
+} atp_memory_walk;
+
+static bool atp_memory_emit(void *userdata, const char *token) {
+    atp_memory_walk *walk = userdata;
+    if (!atp_observe_emit(userdata, token)) {
+        return false;
+    }
+    const atp_status bumped = atp_token_counts_bump(&walk->counts, &walk->distinct,
+                                                    &walk->counts_capacity,
+                                                    (uint32_t)walk->base.previous);
+    if (bumped != ATP_OK) {
+        walk->base.status = bumped;
+        return false;
+    }
+    return true;
+}
+
 atp_status atp_graph_observe_with_memory(atp_graph *graph, const char *text, const char *source_id,
                                          const char *author_did, uint64_t observed_at,
                                          uint64_t content_digest, uint32_t schema_version,
@@ -462,78 +480,46 @@ atp_status atp_graph_observe_with_memory(atp_graph *graph, const char *text, con
     }
 
     const uint64_t source_hash = atp_hash_source(source_id);
-    char token[ATPERSON_TOKEN_BYTES];
-    size_t token_len = 0u;
-    int32_t previous = -1;
-    bool saw_token = false;
     const size_t nodes_before = graph->node_count;
 
-    atp_token_count *counts = NULL;
-    size_t distinct = 0u;
-    size_t counts_capacity = 0u;
+    atp_memory_walk walk = {
+        .base =
+            {
+                .graph = graph,
+                .source_hash = source_hash,
+                .previous = -1,
+                .status = ATP_OK,
+            },
+    };
 
-    for (const unsigned char *cursor = (const unsigned char *)text;; ++cursor) {
-        const unsigned char byte = *cursor;
-        const bool token_byte = byte != '\0' && atp_is_token_byte(byte);
+    /* Tokenization follows the entry's schema version so replay of a
+     * schema-1 ledger reproduces schema-1 token identity exactly. */
+    atp_tokenize(text, schema_version, atp_memory_emit, &walk);
 
-        if (token_byte) {
-            if (token_len + 1u < sizeof(token)) {
-                token[token_len++] = (char)atp_normalize_ascii(byte);
-            }
-        }
-
-        if ((!token_byte || byte == '\0') && token_len > 0u) {
-            token[token_len] = '\0';
-            const int32_t current = atp_intern_node(graph, token);
-            if (current < 0) {
-                free(counts);
-                return ATP_ERR_OUT_OF_MEMORY;
-            }
-            graph->token_observations++;
-            saw_token = true;
-            if (previous >= 0) {
-                const atp_status status =
-                    atp_observe_pair(graph, (uint32_t)previous, (uint32_t)current, source_hash);
-                if (status != ATP_OK) {
-                    free(counts);
-                    return status;
-                }
-            }
-            previous = current;
-            token_len = 0u;
-            const atp_status bumped =
-                atp_token_counts_bump(&counts, &distinct, &counts_capacity, (uint32_t)current);
-            if (bumped != ATP_OK) {
-                free(counts);
-                return bumped;
-            }
-        }
-
-        if (byte == '\0') {
-            break;
-        }
+    if (walk.base.status != ATP_OK) {
+        free(walk.counts);
+        return walk.base.status;
     }
-
-    if (saw_token) {
+    if (walk.base.saw_token) {
         graph->observations++;
     }
 
     /* Count-based selection: new vocabulary or at least two distinct tokens.
      * No hidden thresholds on meaning, sentiment, or topic. */
-    const bool remembered = graph->node_count > nodes_before || distinct >= 2u;
+    const bool remembered = graph->node_count > nodes_before || walk.distinct >= 2u;
     if (!remembered) {
-        free(counts);
+        free(walk.counts);
         return ATP_OK;
     }
     if (out_remembered) {
         *out_remembered = true;
     }
 
-    qsort(counts, distinct, sizeof(*counts), atp_token_count_compare);
+    qsort(walk.counts, walk.distinct, sizeof(*walk.counts), atp_token_count_compare);
     const atp_episode episode =
-        atp_episode_build(counts, distinct, ledger_id, source_id, author_did, observed_at,
+        atp_episode_build(walk.counts, walk.distinct, ledger_id, source_id, author_did, observed_at,
                           content_digest, schema_version);
-    free(counts);
+    free(walk.counts);
 
     if (graph->episode_count >= graph->episode_max) {
         atp_evict_episode(graph);
@@ -576,6 +562,44 @@ static int atp_recall_match_compare(const void *left, const void *right) {
     return 0;
 }
 
+/* Recall query walk: collects distinct known node indices. */
+typedef struct atp_query_walk {
+    atp_graph *graph;
+    uint32_t *nodes;
+    size_t count;
+    size_t capacity;
+    atp_status status;
+} atp_query_walk;
+
+static bool atp_query_emit(void *userdata, const char *token) {
+    atp_query_walk *walk = userdata;
+    const int32_t node = atp_find_node(walk->graph, token);
+    if (node < 0) {
+        return true;
+    }
+    for (size_t i = 0u; i < walk->count; ++i) {
+        if (walk->nodes[i] == (uint32_t)node) {
+            return true;
+        }
+    }
+    if (walk->count == walk->capacity) {
+        const size_t next = walk->capacity ? walk->capacity * 2u : 8u;
+        if (next < walk->count || next > SIZE_MAX / sizeof(*walk->nodes)) {
+            walk->status = ATP_ERR_OUT_OF_MEMORY;
+            return false;
+        }
+        uint32_t *grown = realloc(walk->nodes, next * sizeof(*grown));
+        if (!grown) {
+            walk->status = ATP_ERR_OUT_OF_MEMORY;
+            return false;
+        }
+        walk->nodes = grown;
+        walk->capacity = next;
+    }
+    walk->nodes[walk->count++] = (uint32_t)node;
+    return true;
+}
+
 atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epoch,
                             atp_episode *out, size_t capacity, size_t *out_count) {
     if (out_count) {
@@ -593,50 +617,15 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
 
     /* Distinct query node indices; tokens unknown to the vocabulary cannot
      * match anything and do not mutate the graph. */
-    uint32_t *query_nodes = NULL;
-    size_t query_count = 0u;
-    size_t query_capacity = 0u;
-    char token[ATPERSON_TOKEN_BYTES];
-    size_t token_len = 0u;
-    for (const unsigned char *cursor = (const unsigned char *)query;; ++cursor) {
-        const unsigned char byte = *cursor;
-        const bool token_byte = byte != '\0' && atp_is_token_byte(byte);
-        if (token_byte) {
-            if (token_len + 1u < sizeof(token)) {
-                token[token_len++] = (char)atp_normalize_ascii(byte);
-            }
-        }
-        if ((!token_byte || byte == '\0') && token_len > 0u) {
-            token[token_len] = '\0';
-            token_len = 0u;
-            const int32_t node = atp_find_node(graph, token);
-            if (node >= 0) {
-                bool seen = false;
-                for (size_t i = 0u; i < query_count && !seen; ++i) {
-                    seen = query_nodes[i] == (uint32_t)node;
-                }
-                if (!seen) {
-                    if (query_count == query_capacity) {
-                        const size_t next = query_capacity ? query_capacity * 2u : 8u;
-                        if (next < query_count || next > SIZE_MAX / sizeof(*query_nodes)) {
-                            free(query_nodes);
-                            return ATP_ERR_OUT_OF_MEMORY;
-                        }
-                        uint32_t *grown = realloc(query_nodes, next * sizeof(*grown));
-                        if (!grown) {
-                            free(query_nodes);
-                            return ATP_ERR_OUT_OF_MEMORY;
-                        }
-                        query_nodes = grown;
-                        query_capacity = next;
-                    }
-                    query_nodes[query_count++] = (uint32_t)node;
-                }
-            }
-        }
-        if (byte == '\0') {
-            break;
-        }
+    atp_query_walk walk = {
+        .graph = graph,
+    };
+    atp_tokenize(query, ATPERSON_SCHEMA_VERSION, atp_query_emit, &walk);
+    uint32_t *query_nodes = walk.nodes;
+    size_t query_count = walk.count;
+    if (walk.status != ATP_OK) {
+        free(query_nodes);
+        return walk.status;
     }
 
     if (query_count == 0u) {
@@ -754,15 +743,35 @@ static int atp_ranked_edge_compare(const void *left, const void *right) {
     return 0;
 }
 
-static void atp_normalize_lookup(const char *input, char output[ATPERSON_TOKEN_BYTES]) {
-    size_t len = 0u;
-    for (const unsigned char *cursor = (const unsigned char *)input;
-         *cursor && len + 1u < ATPERSON_TOKEN_BYTES; ++cursor) {
-        if (atp_is_token_byte(*cursor)) {
-            output[len++] = (char)atp_normalize_ascii(*cursor);
-        }
+/* Single-token lookup normalization. The input is one token, not a
+ * sentence, so the whole normalized output is the token — but a caller
+ * passing punctuation must not match vocabulary, so only token bytes are
+ * kept, same rule as the scanner. */
+typedef struct atp_lookup_walk {
+    char output[ATPERSON_TOKEN_BYTES];
+    size_t len;
+} atp_lookup_walk;
+
+static bool atp_lookup_emit(void *userdata, const char *token) {
+    atp_lookup_walk *walk = userdata;
+    walk->len = strlen(token);
+    if (walk->len >= sizeof(walk->output)) {
+        walk->len = sizeof(walk->output) - 1u;
     }
-    output[len] = '\0';
+    memcpy(walk->output, token, walk->len);
+    walk->output[walk->len] = '\0';
+    /* First token wins; a lookup input never spans multiple tokens. */
+    return false;
+}
+
+static void atp_normalize_lookup(const char *input, char output[ATPERSON_TOKEN_BYTES]) {
+    atp_lookup_walk walk = {.len = 0u};
+    atp_tokenize(input, ATPERSON_SCHEMA_VERSION, atp_lookup_emit, &walk);
+    if (walk.len == 0u) {
+        output[0] = '\0';
+        return;
+    }
+    memcpy(output, walk.output, walk.len + 1u);
 }
 
 atp_status atp_graph_associations(const atp_graph *graph, const char *token, atp_association *out,

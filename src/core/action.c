@@ -1,17 +1,27 @@
 #include "atperson/action.h"
 #include "internal.h"
 
-#include <ctype.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-static bool atp_action_is_token_byte(unsigned char byte) {
-    return byte >= 0x80u || isalnum(byte) || byte == '\'' || byte == '-' || byte == '_';
-}
+/* Context walk: collects distinct known node indices from the context
+ * string, using the shared tokenizer so action-context tokenisation
+ * matches observation token identity (issue #8). */
+typedef struct atp_context_walk {
+    const atp_graph *graph;
+    bool *context_nodes;
+    size_t context_count;
+} atp_context_walk;
 
-static unsigned char atp_action_normalize_ascii(unsigned char byte) {
-    return byte < 0x80u ? (unsigned char)tolower(byte) : byte;
+static bool atp_context_emit(void *userdata, const char *token) {
+    atp_context_walk *walk = userdata;
+    const int32_t node = atp_find_node(walk->graph, token);
+    if (node >= 0 && !walk->context_nodes[node]) {
+        walk->context_nodes[node] = true;
+        walk->context_count++;
+    }
+    return true;
 }
 
 static float atp_action_clamp01(float value) {
@@ -122,30 +132,13 @@ atp_status atp_graph_action_candidates(const atp_graph *graph, const char *conte
         return ATP_ERR_OUT_OF_MEMORY;
     }
 
-    size_t context_count = 0u;
-    char token[ATPERSON_TOKEN_BYTES];
-    size_t token_len = 0u;
-    for (const unsigned char *cursor = (const unsigned char *)context;; ++cursor) {
-        const unsigned char byte = *cursor;
-        const bool token_byte = byte != '\0' && atp_action_is_token_byte(byte);
-        if (token_byte) {
-            if (token_len + 1u < sizeof(token)) {
-                token[token_len++] = (char)atp_action_normalize_ascii(byte);
-            }
-        }
-        if ((!token_byte || byte == '\0') && token_len > 0u) {
-            token[token_len] = '\0';
-            token_len = 0u;
-            const int32_t node = atp_find_node(graph, token);
-            if (node >= 0 && !context_nodes[node]) {
-                context_nodes[node] = true;
-                context_count++;
-            }
-        }
-        if (byte == '\0') {
-            break;
-        }
-    }
+    atp_context_walk walk = {
+        .graph = graph,
+        .context_nodes = context_nodes,
+        .context_count = 0u,
+    };
+    atp_tokenize(context, ATPERSON_SCHEMA_VERSION, atp_context_emit, &walk);
+    const size_t context_count = walk.context_count;
 
     if (context_count == 0u) {
         free(context_nodes);

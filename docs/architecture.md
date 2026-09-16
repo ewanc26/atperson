@@ -583,3 +583,48 @@ The intended order is:
    recovery and explicit operator controls.
 
 No stage should skip observability just to make the entity appear more human.
+
+## Tokenization contract
+
+Token identity is durable learning state: interned vocabulary, edges,
+episodes, and snapshots all key on token bytes. The contract is versioned
+through the learning schema (`ATPERSON_SCHEMA_VERSION`), so a tokenizer
+change is a schema decision, never a silent behaviour change.
+
+All token-producing paths — graph observation, action-context scanning,
+recall queries, and association lookup — go through one implementation
+(`src/core/tokenize.c`, entry point `atp_tokenize`). The tokenizer takes
+the schema version and an emit callback; the legacy and Unicode scanners
+are selected by that version, so schema-1 ledger entries replay with
+byte-identical token identity.
+
+### Schema 1 (legacy)
+
+Byte-oriented, preserved byte-for-byte for replay: ASCII is lowercased,
+bytes >= 0x80 are token bytes, `'` `-` `_` are token bytes, everything
+else separates. Tokens cap at 95 bytes with silent truncation.
+
+### Schema 2 (Unicode)
+
+| Decision | Rule |
+|---|---|
+| UTF-8 validation | Invalid sequences sanitize to U+FFFD, which is a separator. Malformed bytes never enter the vocabulary and never pass through raw. |
+| Normalization | NFKC_Casefold + LUMP (utf8proc) |
+| Case handling | Unicode case folding: `STRASSE`/`Straße`/`straße` collapse; Cyrillic and Greek fold too |
+| Token bytes | Unicode categories L* (letters), M* (marks), N* (numbers), plus `'` `-` `_` |
+| Separators | Punctuation, symbols, whitespace, control, emoji, U+FFFD |
+| Emoji | Separators — ZWJ sequences and skin-tone modifiers would explode the vocabulary with visually-identical variants |
+| Combining marks | Token bytes, so scripts without precomposed forms survive |
+| URLs/handles | Split at `.` `:` `/` `@` (they are punctuation) |
+| Truncation | At a codepoint boundary, never mid-sequence: a token longer than 95 bytes is cut after the last codepoint that fits |
+
+Canonical equivalence examples — all one token:
+
+- `café` (NFC) and `cafe` + U+0301 (NFD)
+- `Café`, `CAFÉ` (case folding)
+- `ﬁ` → `fi` (compatibility decomposition)
+- `K` (Kelvin sign U+212A) → `k`
+- `don’t` (U+2019) → `don't` (LUMP)
+
+utf8proc (MIT, pure C) provides normalization, case folding, and
+validation without introducing a C++ or Wolfram dependency into the core.

@@ -54,6 +54,14 @@ extern "C" {
  * tokenisation, negative sampling, memory selection, familiarity, and the
  * training equations. Bump it whenever any of those change.
  *
+ * Schema history:
+ * - 1: byte-oriented tokenisation (ASCII lowercase, bytes >= 0x80 pass
+ *   through, silent truncation at 95 bytes).
+ * - 2: Unicode tokenization contract (issue #8) — invalid UTF-8 sanitizes
+ *   to U+FFFD, NFKC_Casefold + LUMP normalization, category-based token
+ *   boundaries, codepoint-boundary truncation. Emoji are separators;
+ *   combining marks are token bytes. See src/core/tokenize.c.
+ *
  * Compatibility classes (see atp_schema_can_replay):
  * - Replay-compatible: replaying an entry under the new code reproduces the
  *   same learning effect as the old code did. The table lists the old
@@ -71,7 +79,7 @@ extern "C" {
  * deterministically in id order and fails at the first entry whose schema
  * is not replayable by this core.
  */
-#define ATPERSON_SCHEMA_VERSION 1u
+#define ATPERSON_SCHEMA_VERSION 2u
 
 #define ATPERSON_LEDGER_SOURCE_BYTES 256u
 #define ATPERSON_LEDGER_AUTHOR_BYTES 256u

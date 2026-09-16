@@ -26,6 +26,7 @@ add_library(
   src/core/neural.c
   src/core/ledger.c
   src/core/replay.c
+  src/core/tokenize.c
   src/core/portable_io.c
   src/core/persistence.c)
 target_include_directories(
@@ -74,6 +75,19 @@ target_include_directories(atperson_cpp PUBLIC ${cjson_SOURCE_DIR})
 if(NOT WOLFRAM_CJSON_OVERRIDDEN)
   target_link_libraries(atperson_cpp PUBLIC cjson)
 endif()
+
+# Token identity is durable learning state (issue #8): the core needs a
+# deterministic Unicode contract — NFKC_Casefold normalization, category-
+# based token boundaries, UTF-8 validation. utf8proc is pure C (no C++ or
+# Wolfram dependency), MIT-licensed, and is the same Unicode backend Julia
+# uses. Pinned tag for reproducible builds.
+FetchContent_Declare(
+  utf8proc
+  GIT_REPOSITORY https://github.com/JuliaStrings/utf8proc.git
+  GIT_TAG v2.11.0)
+set(UTF8PROC_INSTALL OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(utf8proc)
+target_link_libraries(atperson_core PUBLIC utf8proc)
 
 if(MSVC)
   target_compile_options(atperson_core PRIVATE /W4)
@@ -217,6 +231,17 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson_compact_rebuild_equivalence
     COMMAND atperson_compact_test rebuild-equivalence
             ${CMAKE_CURRENT_BINARY_DIR}/compact-rebuild)
+
+  # Unicode tokenization contract; pure core, no network.
+  add_executable(atperson_tokenize_test tests/tokenize_test.c)
+  target_link_libraries(atperson_tokenize_test PRIVATE atperson_core)
+  target_include_directories(atperson_tokenize_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  add_test(
+    NAME atperson_tokenize
+    COMMAND atperson_tokenize_test tokenize)
+  add_test(
+    NAME atperson_tokenize_graph
+    COMMAND atperson_tokenize_test tokenize-graph)
 
   add_executable(atperson_snapshot_test tests/snapshot_test.c)
   target_link_libraries(atperson_snapshot_test PRIVATE atperson_core)

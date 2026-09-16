@@ -50,7 +50,16 @@
 bool atp_schema_can_replay(uint32_t version) {
     switch (version) {
     case 1u:
-        /* Schema 1: the current learning algorithm. */
+        /* Schema 1: the byte-oriented learning algorithm. Replay is an
+         * adapter migration: the legacy tokenizer (atp_tokenize with
+         * schema_version 1) reproduces schema-1 token identity exactly,
+         * so atp_graph_observe_with_memory replays these entries
+         * byte-for-byte. */
+        return true;
+    case 2u:
+        /* Schema 2: the Unicode tokenization contract (issue #8) —
+         * NFKC_Casefold normalization, category-based token boundaries,
+         * UTF-8 sanitization. Current learning algorithm. */
         return true;
     default:
         return false;

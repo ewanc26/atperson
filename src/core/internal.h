@@ -10,6 +10,16 @@
 #define ATPERSON_HIDDEN_DIM 16u
 #define ATPERSON_INPUT_DIM (ATPERSON_EMBEDDING_DIM * 2u)
 
+/*
+ * Shared tokenizer (src/core/tokenize.c). Calls emit once per token; emit
+ * returning false stops the scan early. schema_version selects the
+ * contract: 1 = legacy byte tokenizer, >= 2 = Unicode contract (see
+ * tokenize.c header comment). All token-producing paths — observation,
+ * action context, recall, lookup — must go through this one entry point.
+ */
+void atp_tokenize(const char *text, uint32_t schema_version,
+                  bool (*emit)(void *userdata, const char *token), void *userdata);
+
 typedef struct atp_node {
     char *token;
     uint64_t observations;
