@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -22,6 +23,18 @@ atp_graph_stats graph_stats(std::size_t nodes, std::size_t edges) {
     return stats;
 }
 
+atperson::SystemResources roomy_system() {
+    atperson::SystemResources system;
+    system.host_logical_cpus = 8u;
+    system.effective_cpu_capacity = 8.0;
+    system.host_memory_total_bytes = 32u * GIB;
+    system.effective_memory_total_bytes = 32u * GIB;
+    system.effective_memory_available_bytes = 24u * GIB;
+    system.disk_capacity_bytes = 1ull * 1024ull * GIB;
+    system.disk_available_bytes = 800u * GIB;
+    return system;
+}
+
 void test_budget_scales_with_reported_resources() {
     atperson::SystemResources small;
     small.host_logical_cpus = 1u;
@@ -32,7 +45,7 @@ void test_budget_scales_with_reported_resources() {
     small.disk_capacity_bytes = 16u * GIB;
     small.disk_available_bytes = 2u * GIB;
 
-    atperson::SystemResources large;
+    atperson::SystemResources large = roomy_system();
     large.host_logical_cpus = 16u;
     large.effective_cpu_capacity = 16.0;
     large.host_memory_total_bytes = 64u * GIB;
@@ -55,14 +68,9 @@ void test_budget_scales_with_reported_resources() {
 }
 
 void test_fractional_cpu_can_reduce_page_to_one() {
-    atperson::SystemResources constrained;
+    atperson::SystemResources constrained = roomy_system();
     constrained.host_logical_cpus = 8u;
     constrained.effective_cpu_capacity = 0.05;
-    constrained.host_memory_total_bytes = 8u * GIB;
-    constrained.effective_memory_total_bytes = 8u * GIB;
-    constrained.effective_memory_available_bytes = 6u * GIB;
-    constrained.disk_capacity_bytes = 128u * GIB;
-    constrained.disk_available_bytes = 64u * GIB;
     constrained.cpu_limited_by_container = true;
 
     const auto budget = atperson::derive_resource_budget(constrained, graph_stats(0u, 0u));
@@ -107,15 +115,23 @@ void test_disk_pressure_stops_normal_write_budget() {
     assert(budget.sync_max_observations >= 1u);
 }
 
+void test_tightest_durable_filesystem_wins() {
+    atperson::SystemResources system = roomy_system();
+    system.filesystems = {
+        {.path = "/large", .capacity_bytes = 1ull * 1024ull * GIB,
+         .available_bytes = 100u * GIB},
+        {.path = "/small", .capacity_bytes = 10u * GIB,
+         .available_bytes = 400u * MIB},
+    };
+
+    const auto budget = atperson::derive_resource_budget(system, graph_stats(0u, 0u));
+    assert(budget.limiting_disk_path == std::filesystem::path("/small"));
+    assert(budget.limiting_disk_available_bytes == 400u * MIB);
+    assert(budget.disk_pressure);
+}
+
 void test_explicit_overrides_win() {
-    atperson::SystemResources system;
-    system.host_logical_cpus = 8u;
-    system.effective_cpu_capacity = 8.0;
-    system.host_memory_total_bytes = 32u * GIB;
-    system.effective_memory_total_bytes = 32u * GIB;
-    system.effective_memory_available_bytes = 24u * GIB;
-    system.disk_capacity_bytes = 1ull * 1024ull * GIB;
-    system.disk_available_bytes = 800u * GIB;
+    atperson::SystemResources system = roomy_system();
 
     atperson::ResourceOverrides overrides;
     overrides.memory_growth_budget_bytes = 512u * MIB;
@@ -168,6 +184,11 @@ void test_probe_smoke() {
            resources.effective_memory_available_bytes <= resources.effective_memory_total_bytes);
     assert(resources.disk_capacity_bytes == 0u ||
            resources.disk_available_bytes <= resources.disk_capacity_bytes);
+
+    const auto multiple = atperson::probe_system_resources(
+        std::vector<std::filesystem::path>{std::filesystem::current_path(),
+                                          std::filesystem::temp_directory_path()});
+    assert(multiple.filesystems.size() == 2u);
 }
 
 } // namespace
@@ -177,6 +198,7 @@ int main() {
     test_fractional_cpu_can_reduce_page_to_one();
     test_existing_graph_is_never_evicted_by_pressure();
     test_disk_pressure_stops_normal_write_budget();
+    test_tightest_durable_filesystem_wins();
     test_explicit_overrides_win();
     test_snapshot_load_preflight();
     test_probe_smoke();
