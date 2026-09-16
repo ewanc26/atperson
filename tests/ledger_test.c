@@ -280,7 +280,8 @@ static int run_crash_safety(const char *dir) {
      * behind. */
     FILE *file = fopen(path, "ab");
     CHECK(file != NULL);
-    CHECK(fwrite("torn-tail-garbage-after-committed-fence", 1u, 41u, file) == 41u);
+    static const char torn_tail[] = "torn-tail-garbage-after-committed-fence";
+    CHECK(fwrite(torn_tail, 1u, sizeof(torn_tail) - 1u, file) == sizeof(torn_tail) - 1u);
     CHECK(fclose(file) == 0);
     file = fopen(off_tmp_path, "wb");
     CHECK(file != NULL);
