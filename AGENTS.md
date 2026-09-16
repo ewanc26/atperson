@@ -1,70 +1,180 @@
 # AGENTS.md
 
-## Project invariant
+## Purpose and architectural invariant
 
-atperson is a C23/C++23 project.
+`atperson` is an experimental persistent learning entity for the AT Protocol. It
+must grow from observed experience rather than from a developer-authored
+persona.
 
-- C23 owns authoritative learned state and learning algorithms.
-- C++23 owns application/runtime concerns and AT Protocol integration.
-- AT Protocol functionality comes from `ewanc26/wolfram`; do not duplicate
-  Wolfram APIs locally.
+The project has a strict C23/C++23 boundary:
 
-If a change makes it impossible to run or test the learning graph without the
-C++ network runtime, the boundary is probably wrong.
+- **C23 owns authoritative learned state and learning/decision algorithms.**
+  This includes the language graph, neural state, familiarity, episodic memory,
+  semantic recall, author/source interaction state, action scoring and bounded
+  planning primitives.
+- **C++23 owns runtime and application concerns.** This includes configuration,
+  filesystem/state-directory handling, process locking, scheduling, ingestion
+  cursors, operator policy and orchestration.
+- **`ewanc26/wolfram` owns AT Protocol mechanics.** Use Wolfram for sessions,
+  XRPC/protocol operations and eventual repository writes. Do not copy or
+  reimplement Wolfram protocol APIs inside atperson.
 
-## Learning model rules
+If a learning, memory or planning primitive cannot be built and tested with
+`ATPERSON_BUILD_NETWORK=OFF`, the boundary is probably wrong.
 
-The entity starts without a seeded persona.
+## No seeded persona
 
-Do not add hard-coded:
+The entity starts without a biography or developer-chosen personality.
 
-- opinions;
-- political/religious preferences;
-- biography;
-- favourite things;
+Do not add hard-coded learned:
+
+- opinions or ideology;
+- political or religious preferences;
+- biography or identity claims;
+- favourite or disliked things;
 - emotional history;
-- social relationships;
-- vocabulary presented as learned experience.
+- friendships, trust, reputation or social hierarchy;
+- vocabulary presented as prior experience;
+- canned beliefs disguised as model state.
 
 Small random neural initialisation is implementation state, not personality.
-Tests may use fixed toy observations.
+Tests and fixtures may use deterministic toy observations.
 
-Learning changes must remain inspectable. Prefer explicit counters, scores,
-provenance, and serialisable state over opaque global behaviour.
+Prefer experience-derived, inspectable signals over labels that imply meaning
+which the observations do not support. For example, repeated exposure may
+produce familiarity; it must not silently become trust or friendship.
 
-## Network rules
+## Durable experience and reconstructability
 
-The current network path is read-only. Do not add autonomous posts, replies,
-likes, follows, reposts, DMs, or moderation actions as a side effect of a
-learning change.
+The durable observation ledger is the authority for reconstructable experience.
+Learned state must remain explainable and rebuildable from durable observations.
 
-Never log or persist app passwords.
+Preserve these invariants:
+
+- deduplication is based on stable source identity plus content digest;
+- committed observations are not trained twice after restart;
+- replay is deterministic for a fixed compatible learning schema;
+- source withdrawal is durable and takes effect in learned state after rebuild;
+- compaction may remove dead representation details, but must preserve final
+  ledger outcomes, stable entry identity and dedup semantics;
+- episodic memories and derived author/source state must remain consistent with
+  replay, snapshots, compaction and withdrawal;
+- do not introduce a second mutable counter store when the value can be derived
+  reliably from existing authoritative state.
+
+Do not treat a snapshot as a substitute for the durable experience ledger.
+Snapshots are portable persisted learning state and must remain versioned and
+validated.
+
+Snapshot-format changes require an explicit format-version/migration decision
+and round-trip/corruption tests. Changes to learning semantics must also review
+`ATPERSON_SCHEMA_VERSION` and replay compatibility. Read-only inspection or
+ranking changes do not automatically require a learning-schema bump; changes
+that alter what an observation learns do.
+
+## Runtime ingestion state
+
+Runtime ingestion cursor state is C++23 operational metadata, not learned C23
+state. Keep it outside model snapshots.
+
+The persistent cursor represents an interrupted catch-up traversal only. It is
+opaque server state: do not parse it, infer time from it, compare cursors, or
+use it as proof that an observation has been learned. Reuse a cursor only when
+its recorded source identity matches the current service/account/endpoint
+context. After catch-up exhaustion, clear it; a later independent sync begins
+again at the timeline head and relies on the durable ledger for deduplication.
+
+## Memory and internal state
+
+Episodic recall must remain deterministic and inspectable.
+
+The richer recall path may combine explicit components such as exact token
+support, learned graph association, bounded familiarity, recency and previous
+recall use. Keep those components separately inspectable. Do not replace this
+with opaque embedding-only retrieval or hidden LLM summarisation.
+
+Semantic recall may surface a zero-literal-overlap episode only when learned
+graph evidence supports it. Familiarity, recency or previous use must not make
+an otherwise unrelated memory eligible by themselves.
+
+Unknown query/context tokens must not mutate vocabulary or learned state.
+
+Author/source interaction state should use stable DIDs and AT URIs where
+possible. Handles are mutable presentation metadata. Neutral exposure counters
+and bounded familiarity are acceptable; trust, affinity, friendship,
+reputation, sentiment or preference require explicit evidence and modelling.
+
+## Planning and action model
+
+Planning belongs in C23 and must remain bounded, deterministic and inspectable.
+
+Preserve the current principles:
+
+- hard limits on search depth/length, beam width, items and work;
+- every candidate/plan step retains the evidence used to score it;
+- deterministic tie-breaking for fixed learned state and inputs;
+- planning/inspection is read-only unless an API explicitly documents a
+  learning mutation;
+- core planning performs no network I/O;
+- cycles and dead ends terminate through explicit bounded semantics rather than
+  accidental resource exhaustion.
+
+Structured context selection for planning also belongs in C23. Do not hide
+behaviour in a parallel C++ prompt/context heuristic. Selected memories,
+interaction state and later preference signals should carry provenance and an
+inspectable selection reason/score.
+
+Fluent output is not sufficient reason to act. The action layer must eventually
+be able to abstain and explain why no supported action was selected.
+
+## Network and safety boundary
+
+The current network path is for controlled public-data ingestion. Do not add
+autonomous posts, replies, likes, follows, reposts, DMs or moderation actions
+as a side effect of learning, memory or planning work.
+
+Outbound behaviour must remain fail-closed until the roadmap's explicit
+operator controls, outbound policy/rate budgets and Wolfram-backed write path
+are implemented and tested. Do not bypass those gates to demonstrate that a
+planner can produce text.
 
 Do not ingest private messages into the learning graph.
 
-Any future continuous ingestion loop must first have durable source
-deduplication so restarting the process cannot repeatedly train on the same
-events.
+Never log, commit or persist app passwords, tokens or other authentication
+secrets. Keep credentials in runtime configuration only and minimise their
+lifetime in memory.
+
+AT Protocol policy belongs in the C++ runtime; learned scoring/state belongs in
+C23; protocol mechanics belong in Wolfram.
 
 ## C23 core
 
-Public C API lives in `include/atperson/`.
+Public C APIs live in `include/atperson/` and implementations in `src/core/`.
 
-Core implementation lives in `src/core/`.
+Do not introduce C++ types, exceptions, STL or Wolfram dependencies into the C
+core. Keep APIs explicit about ownership, mutability, bounds and failure modes.
 
-Avoid C++ types, exceptions, STL, or Wolfram dependencies in the C core.
+Prefer deterministic data structures and stable tie-breakers. Avoid hidden
+global state, unbounded allocations driven directly by network input, and
+silent clamping when a caller should instead receive an error.
 
-Snapshot changes require an explicit format-version decision and tests covering
-round-trip persistence.
+When adding learned state, define persistence, replay, withdrawal and
+inspection semantics at the same time rather than leaving them as future
+cleanup.
 
 ## C++23 runtime
 
-Keep `LanguageGraph` thin; model logic belongs in C.
+Keep wrappers such as `LanguageGraph` and `Ledger` thin. Do not move learning,
+recall, scoring or planning policy into wrappers merely because C++ is more
+convenient.
 
-Use RAII for Wolfram and JSON resources.
+Use RAII for Wolfram, JSON and operating-system resources.
 
-Environment/config parsing, filesystem handling, scheduling, and protocol event
-translation belong here.
+Configuration parsing, filesystem setup, state locking, scheduling, ingestion
+state, recovery/backoff and network/operator policy belong here.
+
+Runtime code may translate protocol observations into C-core inputs, but it
+must not maintain a second hidden model of what the entity knows.
 
 ## Verification
 
@@ -76,7 +186,41 @@ cmake --build build-core -j
 ctest --test-dir build-core --output-on-failure
 ```
 
-For network changes, also configure and build with
-`ATPERSON_BUILD_NETWORK=ON`.
+For changes touching public C APIs, C++ integration, ingestion or networking,
+also configure/build/test with `ATPERSON_BUILD_NETWORK=ON` so the Wolfram-backed
+runtime remains compatible.
 
-Keep commits atomic and scoped. Do not manufacture commit timestamps.
+CI currently exercises Linux GCC, Linux Clang, macOS Clang, ASan/UBSan and the
+full Linux Wolfram-backed network build. Treat failures in any relevant leg as
+real failures; do not weaken CI to make a change pass.
+
+Add focused regression tests for behaviour changes. Persistence work should
+cover restart/round-trip behaviour; learned-state changes should cover replay;
+withdrawal-sensitive state should cover rebuild after withdrawal; ranking and
+planning work should cover ties, bounds and repeated deterministic calls.
+
+## Repository discipline
+
+This is an existing repository. Inspect the current code, README, roadmap,
+issues and recent commits before assuming documentation is current.
+
+Do not:
+
+- run `git init` or replace repository history;
+- overwrite unrelated user changes;
+- force-push rewritten history without an explicit requirement;
+- manufacture or backdate commit timestamps;
+- create commits with timestamps in the future relative to the real current
+  time;
+- mix unrelated cleanup into a feature/fix commit.
+
+Keep commits atomic, scoped and accurately described. Follow existing commit
+prefixes where practical (`feat(core):`, `feat(memory):`, `feat(action):`,
+`fix(...)`, `test:`, `docs:`, `build:`, `chore:`).
+
+Use the normal PR/CI path for substantial changes. When work completes a
+tracked issue, close it through the PR when appropriate and keep umbrella
+roadmap checklists in sync.
+
+Before finishing, verify the effective diff, repository status, tests and the
+current `main` base. Do not claim verification that was not actually run.
