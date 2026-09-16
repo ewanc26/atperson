@@ -1,4 +1,5 @@
 #include "resource_budget.hpp"
+#include "resource_runtime.hpp"
 #include "system_resources.hpp"
 
 #include <atperson/core.h>
@@ -7,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <stdexcept>
 
 namespace {
 
@@ -50,6 +52,21 @@ void test_budget_scales_with_reported_resources() {
     assert(large_budget.edge_capacity_max > small_budget.edge_capacity_max);
     assert(large_budget.sync_page_size >= small_budget.sync_page_size);
     assert(large_budget.sync_page_size <= 100);
+}
+
+void test_fractional_cpu_can_reduce_page_to_one() {
+    atperson::SystemResources constrained;
+    constrained.host_logical_cpus = 8u;
+    constrained.effective_cpu_capacity = 0.05;
+    constrained.host_memory_total_bytes = 8u * GIB;
+    constrained.effective_memory_total_bytes = 8u * GIB;
+    constrained.effective_memory_available_bytes = 6u * GIB;
+    constrained.disk_capacity_bytes = 128u * GIB;
+    constrained.disk_available_bytes = 64u * GIB;
+    constrained.cpu_limited_by_container = true;
+
+    const auto budget = atperson::derive_resource_budget(constrained, graph_stats(0u, 0u));
+    assert(budget.sync_page_size == 1);
 }
 
 void test_existing_graph_is_never_evicted_by_pressure() {
@@ -118,6 +135,31 @@ void test_explicit_overrides_win() {
     assert(budget.sync_max_observations == 1234u);
 }
 
+void test_snapshot_load_preflight() {
+    atperson::SystemResources system;
+    system.host_logical_cpus = 2u;
+    system.effective_cpu_capacity = 2.0;
+    system.host_memory_total_bytes = 1u * GIB;
+    system.effective_memory_total_bytes = 1u * GIB;
+    system.effective_memory_available_bytes = 512u * MIB;
+    system.disk_capacity_bytes = 16u * GIB;
+    system.disk_available_bytes = 8u * GIB;
+
+    atperson::RuntimeResourceStatus status{
+        .system = system,
+        .budget = atperson::derive_resource_budget(system, graph_stats(0u, 0u)),
+    };
+    atperson::require_runtime_snapshot_headroom(status, 64u * MIB);
+
+    bool rejected = false;
+    try {
+        atperson::require_runtime_snapshot_headroom(status, 256u * MIB);
+    } catch (const std::runtime_error &) {
+        rejected = true;
+    }
+    assert(rejected);
+}
+
 void test_probe_smoke() {
     const auto resources = atperson::probe_system_resources(std::filesystem::current_path());
     assert(resources.host_logical_cpus >= 1u);
@@ -132,9 +174,11 @@ void test_probe_smoke() {
 
 int main() {
     test_budget_scales_with_reported_resources();
+    test_fractional_cpu_can_reduce_page_to_one();
     test_existing_graph_is_never_evicted_by_pressure();
     test_disk_pressure_stops_normal_write_budget();
     test_explicit_overrides_win();
+    test_snapshot_load_preflight();
     test_probe_smoke();
     std::cout << "resource: ok\n";
     return 0;
