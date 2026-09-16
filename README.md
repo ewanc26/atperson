@@ -1,65 +1,72 @@
 # atperson
 
 `atperson` is an experiment in building a persistent digital entity on the
-[AT Protocol](https://atproto.com/) whose internal language model starts empty
-and changes through experience rather than beginning with a hand-written
-persona.
+[AT Protocol](https://atproto.com/) whose learned state begins empty and grows
+through experience rather than from a hand-written persona or system prompt.
 
-The project is deliberately split between **C23** and **C++23**:
+The project is intentionally split across **C23** and **C++23**:
 
-- **C23 is authoritative for learned state.** It owns the language graph,
-  vocabulary, trainable embeddings, neural association scorer, online updates,
-  statistics, memory, internal state, inspectable action scoring, and snapshot
-  persistence.
-- **C++23 owns the application/runtime boundary.** It provides RAII around the
-  C core, configuration, command-line orchestration, JSON extraction, and
-  AT Protocol connectivity.
-- **[wolfram](https://github.com/ewanc26/wolfram) owns AT Protocol mechanics.**
-  atperson does not reimplement XRPC, sessions, identity, repositories, or
-  Bluesky agent calls.
+- **C23 owns authoritative learned state**: vocabulary, the language graph,
+  trainable embeddings, neural association scoring, online learning, episodic
+  memory, familiarity, inspectable action scoring, the durable observation
+  ledger, and snapshot persistence.
+- **C++23 owns the application/runtime boundary**: RAII wrappers, lifecycle and
+  configuration, command-line orchestration, record extraction, and AT Protocol
+  integration.
+- **[Wolfram](https://github.com/ewanc26/wolfram) owns AT Protocol mechanics**:
+  sessions, XRPC, identity, repository operations, and Bluesky-facing client
+  behaviour are dependencies rather than reimplemented here.
 
-This is an early scaffold. It does **not** claim sentience or personhood, and it
-does not yet autonomously post. The intended research direction is a durable
-entity whose vocabulary, associations, memories, preferences, and eventually
-behaviour emerge from accumulated interaction instead of a predefined
-character prompt.
+`atperson` does not claim sentience or personhood, and it does not currently
+publish autonomously. The aim is to make learning, memory, state, and eventual
+behaviour durable and inspectable so that development does not collapse into a
+hidden LLM prompt pretending to be a persistent individual.
+
+## Status
+
+The project now has working implementations for the first five architectural
+stages, with later stages intentionally incomplete:
+
+| Stage | State | Current implementation |
+| --- | --- | --- |
+| Language graph | Implemented | Empty-start vocabulary, directed associations, trainable 16D embeddings, online neural scoring and negative sampling |
+| Observation ledger | Implemented | Crash-safe append-only C23 log, durable commit marker, provenance, outcomes, and cross-run `(source id + digest)` deduplication |
+| Memory | First pass implemented | Source-linked episodic memories, token summaries, recall counters, deterministic eviction, and graph-backed semantic association |
+| Internal state | First pass implemented | Per-token familiarity learned purely from repeated exposure |
+| Action model | First pass implemented | Deterministic, read-only continuation candidates with inspectable score components |
+| Network behaviour | Not enabled | Wolfram-backed ingestion exists; autonomous likes, replies, follows, reposts, and posts do not |
+| Long-running runtime | Future work | `sync` is currently one-shot rather than a continuously operating agent |
+
+The model begins with **zero words and zero relationships**. Neural parameters
+have small deterministic random initial values so learning can start, but there
+is no seeded vocabulary, biography, ideology, personality, or preference set.
 
 ## What exists now
 
-The current scaffold provides:
+The C23 core currently provides:
 
 - an initially empty directed token graph;
 - 16-dimensional trainable embeddings created only when a token is observed;
-- a small online neural scorer trained from observed bigrams with negative
+- a small neural scorer trained online from observed bigrams with negative
   sampling;
-- edge strength, exposure counts, and hashed source provenance;
-- a **durable observation ledger** (C23 append-only log) that keeps every
-  observation fed to the core, with an in-memory unique `(source id + digest)`
-  index rebuilt on open and a crash-safe offset marker written via
-  temp-file + rename;
-- **episodic memory** (C23): a selective, consolidated view of remembered
-  observations linked to their ledger sources, with per-token summaries,
-  use-based recall counters, deterministic least-recalled eviction, and a
-  query-time recall view;
-- **internal state** (C23): a per-token familiarity score — an exponentially
-  weighted exposure count that slowly rises with repeated experience and
-  decays when exposure stops, with no value judgment baked in;
-- a first **action-model primitive** (C23): read-only continuation candidates
-  derived only from learned outgoing associations, with association,
-  familiarity, support, exposure, context-match, and final score components
-  exposed for inspection;
-- versioned binary snapshots (v4 adds the familiarity block) containing
-  the complete mutable learning state;
-- a C++23 RAII wrapper around the C23 graph, memory, and the ledger;
-- a Wolfram-backed read-only timeline ingestion path running through the
-  ledger for cross-run deduplication, where trainable posts are remembered;
-- offline C and C++ tests including crash-safety, cross-process dedup, memory
-  selection/eviction/round-trip coverage, familiarity persistence, and
-  read-only action scoring.
+- learned edge strength, exposure counts, and hashed source provenance;
+- a durable observation ledger whose append/commit ordering is designed for
+  crash recovery and restart-safe deduplication;
+- source-linked episodic memory with selective retention, weighted token
+  summaries, recall accounting, and deterministic least-recalled eviction;
+- per-token **familiarity**, an exponentially weighted exposure signal updated
+  when that token is encountered again;
+- a read-only **action candidate** API that ranks learned continuations from
+  context without mutating the graph;
+- versioned binary snapshots containing the complete mutable learning state,
+  including the ledger mirror, episodic memory, and familiarity state;
+- deterministic PRNG state and learning counters required for persistence and
+  reproducibility.
 
-The model starts with **zero words and zero relationships**. Neural weights have
-small deterministic random initial values so learning can begin, but there is
-no seeded vocabulary, personality, biography, ideology, or preference set.
+The C++23 layer provides RAII wrappers for the graph and ledger, the CLI/runtime,
+and the Wolfram-backed AT Protocol ingestion path. Timeline observations are
+committed to the ledger before they are learned, preventing a restarted process
+from silently training on the same committed post again.
 
 ## Architecture
 
@@ -70,7 +77,7 @@ AT Protocol network
 +---------------------------+
 | C++23 runtime             |
 | - Wolfram session         |
-| - feed/event extraction   |
+| - feed/record extraction  |
 | - lifecycle/config        |
 | - future network policy   |
 +-------------+-------------+
@@ -81,26 +88,73 @@ AT Protocol network
 | C23 learning core         |
 | - token graph             |
 | - embeddings              |
-| - online neural training  |
-| - learned statistics      |
+| - neural training         |
 | - observation ledger      |
 | - episodic memory         |
-| - internal state          |
+| - familiarity state       |
 | - action candidate scores |
 | - persistence             |
 +-------------+-------------+
               |
               v
-       model snapshot
+       durable state
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the invariants and
-planned progression.
+The architectural rule is simple: **C++ may orchestrate the entity, but it must
+not become the hidden authority for what the entity has learned.** Learned
+state and the evidence behind decisions stay in the C23 core.
+
+See [`docs/architecture.md`](docs/architecture.md) for the invariants, scoring
+formulae, persistence details, and staged growth path.
+
+## Action model
+
+Stage 5 currently stops deliberately short of generating or publishing text.
+The C23 API in [`include/atperson/action.h`](include/atperson/action.h) exposes:
+
+```c
+atp_status atp_graph_action_candidates(
+    const atp_graph *graph,
+    const char *context,
+    atp_action_candidate *out,
+    size_t capacity,
+    size_t *out_count);
+```
+
+Candidates come only from learned outgoing graph associations. Each result
+includes the final score plus the evidence used to construct it:
+
+- learned association score;
+- familiarity score;
+- observation-support score;
+- summed supporting observations;
+- number of distinct context nodes supporting the candidate.
+
+Queries are deterministic and read-only. Unknown context does not seed new
+vocabulary, and querying the action model does not train or mutate the graph.
+This is intended to become the evidence surface consumed by later sequence
+planning and network policy rather than being replaced by opaque prompt logic.
+
+## Persistence and memory
+
+The current snapshot format is **v4**. Snapshots persist the mutable language
+graph and neural state together with the mirrored observation ledger, episodic
+memory, familiarity values, counters, and PRNG state.
+
+The observation ledger is separate from the snapshot and is the authority for
+which external observations have been committed. It records source identity,
+author identity where available, observation time, content digest, schema
+version, and outcome. Its in-memory deduplication index is rebuilt from the log
+when opened.
+
+Episodic memories remain linked to ledger IDs so remembered material retains a
+route back to its source evidence. Source deletion and exact unlearning/replay
+semantics are not yet solved; those are required before autonomous output is a
+responsible next step.
 
 ## Build
 
-A normal build fetches the pinned Wolfram revision and builds the network
-runtime:
+A normal build fetches the pinned Wolfram revision and builds the full runtime:
 
 ```sh
 cmake -S . -B build
@@ -108,7 +162,7 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-For work on the language graph alone, skip network dependencies:
+For core work without network dependencies:
 
 ```sh
 cmake -S . -B build-core -DATPERSON_BUILD_NETWORK=OFF
@@ -116,24 +170,31 @@ cmake --build build-core -j
 ctest --test-dir build-core --output-on-failure
 ```
 
+The build uses strict C23 and C++23. Unix builds explicitly request POSIX.1-2008
+for the ledger durability APIs rather than relying on GNU language extensions.
+
 The Wolfram dependency is currently pinned to commit
 `9e63f76ab0b4f97f2cb5c62a5d0129b3d9023917`.
+
+GitHub Actions exercises both the core-only build and the full Wolfram-backed
+network build, including the C and C++ test suites.
 
 ## Runtime
 
 State defaults to `.atperson/model.bin`; the observation ledger defaults to
-`.atperson/ledger.bin`. Override with `ATPERSON_STATE` and `ATPERSON_LEDGER`.
+`.atperson/ledger.bin`. Override them with `ATPERSON_STATE` and
+`ATPERSON_LEDGER`.
 
 ```sh
 ./build/atperson stats
 ./build/atperson ingest "hello world" local:first-observation
+./build/atperson ingest-file ./notes.txt
 ./build/atperson assoc hello
 ./build/atperson familiarity hello
 ./build/atperson recall "hello world" 5
 ```
 
-To learn from the authenticated account's **public home timeline**, use an app
-password:
+To learn from the authenticated account's public home timeline:
 
 ```sh
 export ATPERSON_IDENTIFIER="handle.example"
@@ -146,41 +207,33 @@ export ATPERSON_SERVICE="https://bsky.social" # optional
 Credentials are read from environment variables rather than command-line
 arguments. Do not commit them.
 
-Each fetched post is recorded in the ledger before training, so a restarted
-process cannot re-train on already-committed observations; empty posts are
-recorded but skipped. Trainable posts are fed through the memory path, so an
-episode is remembered for every post that introduces vocabulary or carries at
-least two distinct tokens, each linked to its ledger id. `recall <query>`
-returns the remembered episodes whose token summaries overlap the query,
-strongest first, and bumps those episodes' recall counters. `sync` is
-intentionally one-shot at this stage. A continuous daemon comes after durable
-source deduplication (the ledger) is paired with replay/unlearning semantics
-for the snapshot; the ledger's pending -> committed outcome fencing is what a
-future ingestion loop will rely on.
+`sync` records each fetched post in the durable ledger before learning from it.
+Already committed `(source id + digest)` pairs are skipped on later runs. Empty
+records remain represented in the ledger but are not trained. Trainable posts
+flow through the episodic-memory path and can be recalled by overlapping known
+tokens.
 
-The first action-model API is currently core-only: include
-`<atperson/action.h>` and call `atp_graph_action_candidates`. It does not emit
-text or perform an AT Protocol action. It only returns ranked learned token
-candidates plus the full score breakdown that a later planner can consume.
+`sync` is intentionally one-shot at this stage. A continuously operating
+runtime should come only after replay/unlearning semantics, explicit action
+policy, rate limiting, operator controls, and stronger recovery behaviour are
+in place.
 
 ## Current boundaries
 
-The scaffold intentionally does not:
+`atperson` intentionally does **not** currently:
 
 - read private messages or private data;
 - autonomously like, follow, reply, repost, or publish;
-- use an LLM as a hidden personality engine;
-- seed a biography or opinions into the learning graph;
-- treat a generated response as evidence of consciousness;
-- pretend that source deletion/unlearning is solved.
+- use an LLM as a hidden personality or decision engine;
+- seed a biography, ideology, preferences, or opinions into learned state;
+- equate generated language with consciousness or personhood;
+- pretend source deletion and learned-contribution removal are solved.
 
-Before autonomous output is enabled, the project still needs replay/unlearning
-semantics over the observation ledger, higher-level action composition and
-policy on top of the inspectable candidate scorer, rate limiting, and a way to
-rebuild or remove learned contributions when source material is withdrawn.
-Episodic memory, familiarity, and the first read-only action candidate model now
-exist as explicit, counter/score-based passes; later stages can build behaviour
-on those primitives without hiding where a decision came from.
+The next meaningful work is not simply "let it post". The action model needs
+higher-level sequence planning and explicit network policy, while the ledger
+needs replay/unlearning semantics capable of removing or rebuilding learned
+contributions when source material disappears. Autonomous output should sit on
+top of those observable mechanisms, not bypass them.
 
 ## Licence
 
