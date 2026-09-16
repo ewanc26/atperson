@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace {
 
@@ -61,6 +62,10 @@ std::filesystem::path ledger_path() {
 std::filesystem::path ingestion_state_path() {
     return env_or("ATPERSON_INGESTION_STATE",
                   (data_dir() / "ingestion-state.json").string());
+}
+
+std::vector<std::filesystem::path> durable_paths() {
+    return {data_dir(), state_path(), ledger_path(), ingestion_state_path()};
 }
 
 atperson::LanguageGraph load_or_create(const std::filesystem::path &path) {
@@ -154,10 +159,11 @@ int main(int argc, char **argv) {
 
         const std::string_view command = argv[1];
         const auto path = state_path();
+        const auto resource_paths = durable_paths();
         const auto resource_overrides = atperson::resource_overrides_from_environment();
         const atp_graph_stats no_graph_stats{};
         auto resource_status = atperson::inspect_runtime_resources(
-            no_graph_stats, data_dir(), resource_overrides);
+            no_graph_stats, resource_paths, resource_overrides);
 
         /* These commands operate only on ledger/runtime metadata. Avoid loading
          * a potentially large model when it cannot contribute to the result. */
@@ -172,7 +178,7 @@ int main(int argc, char **argv) {
             atperson::Ledger ledger(ledger_file);
             atperson::LanguageGraph rebuilt;
             auto rebuild_resources = atperson::refresh_runtime_resources(
-                rebuilt, data_dir(), resource_overrides);
+                rebuilt, resource_paths, resource_overrides);
             atperson::require_runtime_write_headroom(rebuild_resources);
             const auto report = rebuilt.replay(ledger);
             rebuilt.save(path);
@@ -276,7 +282,7 @@ int main(int argc, char **argv) {
 
         auto graph = load_or_create(path);
         resource_status =
-            atperson::refresh_runtime_resources(graph, data_dir(), resource_overrides);
+            atperson::refresh_runtime_resources(graph, resource_paths, resource_overrides);
 
         if (command == "resources") {
             atperson::print_runtime_resources(std::cout, resource_status);
@@ -423,10 +429,10 @@ int main(int argc, char **argv) {
             limits.max_observations = resource_status.budget.sync_max_observations;
 
             const auto fetch_page = [&client, &limits, &graph, &resource_status,
-                                     &resource_overrides](
+                                     &resource_overrides, &resource_paths](
                                         const std::optional<std::string> &cursor) {
                 resource_status = atperson::refresh_runtime_resources(
-                    graph, data_dir(), resource_overrides);
+                    graph, resource_paths, resource_overrides);
                 atperson::require_runtime_write_headroom(resource_status);
                 limits.page_size = resource_status.budget.sync_page_size;
                 limits.max_observations = resource_status.budget.sync_max_observations;
