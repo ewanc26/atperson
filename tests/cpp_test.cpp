@@ -30,6 +30,26 @@ int main() {
     assert(associations.size() == 1u);
     assert(associations.front().token == "world");
 
+    atperson::LanguageGraph action_graph;
+    action_graph.observe("alpha beta", "at://example/1");
+    action_graph.observe("alpha beta", "at://example/2");
+    action_graph.observe("delta beta", "at://example/3");
+    action_graph.observe("alpha gamma", "at://example/4");
+    const auto action_stats = action_graph.stats();
+    const auto candidates = action_graph.action_candidates("alpha delta", 4u);
+    assert(candidates.size() == 2u);
+    assert(candidates.front().token == "beta");
+    assert(candidates.front().context_matches == 2u);
+    assert(candidates.front().supporting_observations == 3u);
+    assert(candidates.front().score > 0.0f);
+    assert(candidates.front().association_score > 0.0f);
+    assert(candidates.front().familiarity_score > 0.0f);
+    assert(candidates.front().support_score > 0.0f);
+    assert(action_graph.stats().node_count == action_stats.node_count);
+    assert(action_graph.stats().training_steps == action_stats.training_steps);
+    assert(action_graph.action_candidates("unknown context", 4u).empty());
+    assert(action_graph.action_candidates("alpha", 0u).empty());
+
     const std::filesystem::path path = "atperson-cpp-test.bin";
     graph.save(path);
     auto restored = atperson::LanguageGraph::load(path);
