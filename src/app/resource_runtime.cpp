@@ -1,6 +1,7 @@
 #include "resource_runtime.hpp"
 
 #include <iomanip>
+#include <limits>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -25,13 +26,19 @@ void print_bytes(std::ostream &out, std::uint64_t bytes) {
 
 } // namespace
 
-RuntimeResourceStatus inspect_runtime_resources(const LanguageGraph &graph,
+RuntimeResourceStatus inspect_runtime_resources(const atp_graph_stats &graph_stats,
                                                 const std::filesystem::path &data_path,
                                                 const ResourceOverrides &overrides) {
     RuntimeResourceStatus status;
     status.system = probe_system_resources(data_path);
-    status.budget = derive_resource_budget(status.system, graph.stats(), overrides);
+    status.budget = derive_resource_budget(status.system, graph_stats, overrides);
     return status;
+}
+
+RuntimeResourceStatus inspect_runtime_resources(const LanguageGraph &graph,
+                                                const std::filesystem::path &data_path,
+                                                const ResourceOverrides &overrides) {
+    return inspect_runtime_resources(graph.stats(), data_path, overrides);
 }
 
 RuntimeResourceStatus refresh_runtime_resources(LanguageGraph &graph,
@@ -47,6 +54,28 @@ void require_runtime_write_headroom(const RuntimeResourceStatus &status) {
         throw std::runtime_error(
             "filesystem is inside atperson's dynamic safety reserve; refusing durable mutation "
             "until more space is available or ATPERSON_DISK_RESERVE_BYTES is explicitly adjusted");
+    }
+}
+
+void require_runtime_snapshot_headroom(const RuntimeResourceStatus &status,
+                                       std::uint64_t snapshot_bytes) {
+    if (snapshot_bytes == 0u || status.system.effective_memory_available_bytes == 0u) {
+        return;
+    }
+    const std::uint64_t available_after_reserve =
+        status.system.effective_memory_available_bytes > status.budget.memory_reserve_bytes
+            ? status.system.effective_memory_available_bytes - status.budget.memory_reserve_bytes
+            : 0u;
+    const std::uint64_t required =
+        snapshot_bytes > std::numeric_limits<std::uint64_t>::max() / 2u
+            ? std::numeric_limits<std::uint64_t>::max()
+            : snapshot_bytes * 2u;
+    if (required > available_after_reserve) {
+        throw std::runtime_error(
+            "model snapshot is too large for current memory headroom (conservative load "
+            "estimate " +
+            std::to_string(required) + " bytes, " + std::to_string(available_after_reserve) +
+            " bytes available after reserve)");
     }
 }
 
