@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iosfwd>
+#include <vector>
 
 namespace atperson {
 
@@ -18,19 +19,30 @@ struct RuntimeResourceStatus {
 };
 
 /* Probe + derive without mutating graph policy. */
+RuntimeResourceStatus inspect_runtime_resources(
+    const atp_graph_stats &graph_stats,
+    const std::vector<std::filesystem::path> &durable_paths,
+    const ResourceOverrides &overrides);
 RuntimeResourceStatus inspect_runtime_resources(const atp_graph_stats &graph_stats,
                                                 const std::filesystem::path &data_path,
                                                 const ResourceOverrides &overrides);
+RuntimeResourceStatus inspect_runtime_resources(
+    const LanguageGraph &graph,
+    const std::vector<std::filesystem::path> &durable_paths,
+    const ResourceOverrides &overrides);
 RuntimeResourceStatus inspect_runtime_resources(const LanguageGraph &graph,
                                                 const std::filesystem::path &data_path,
                                                 const ResourceOverrides &overrides);
 
 /* Probe + derive and apply #9 node/edge ceilings to the live graph. */
+RuntimeResourceStatus refresh_runtime_resources(
+    LanguageGraph &graph, const std::vector<std::filesystem::path> &durable_paths,
+    const ResourceOverrides &overrides);
 RuntimeResourceStatus refresh_runtime_resources(LanguageGraph &graph,
                                                 const std::filesystem::path &data_path,
                                                 const ResourceOverrides &overrides);
 
-/* Refuse new durable writes when the filesystem is inside its safety reserve. */
+/* Refuse new durable writes when any destination is inside its safety reserve. */
 void require_runtime_write_headroom(const RuntimeResourceStatus &status);
 
 /* Refuse an obviously unsafe snapshot load before allocating the graph. */
