@@ -20,6 +20,14 @@
 void atp_tokenize(const char *text, uint32_t schema_version,
                   bool (*emit)(void *userdata, const char *token), void *userdata);
 
+/*
+ * Shared query helper (src/core/graph.c): tokenize a query under the
+ * current schema and collect distinct known node indices. Caller frees
+ * *out_nodes. Unknown tokens are ignored; the graph is not mutated.
+ */
+atp_status atp_graph_query_nodes(const atp_graph *graph, const char *query, uint32_t **out_nodes,
+                                 size_t *out_count);
+
 typedef struct atp_node {
     char *token;
     uint64_t observations;

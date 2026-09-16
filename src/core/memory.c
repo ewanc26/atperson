@@ -2,7 +2,6 @@
 
 #include "internal.h"
 
-#include <ctype.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,14 +19,6 @@ typedef struct atp_recall_match {
     uint64_t observed_at;
     uint64_t ledger_id;
 } atp_recall_match;
-
-static bool atp_memory_is_token_byte(unsigned char byte) {
-    return byte >= 0x80u || isalnum(byte) || byte == '\'' || byte == '-' || byte == '_';
-}
-
-static unsigned char atp_memory_normalize_ascii(unsigned char byte) {
-    return byte < 0x80u ? (unsigned char)tolower(byte) : byte;
-}
 
 static float atp_memory_clamp01(float value) {
     if (!(value > 0.0f)) {
@@ -120,60 +111,9 @@ static int atp_recall_match_compare(const void *left, const void *right) {
 
 static atp_status atp_memory_query_nodes(const atp_graph *graph, const char *query,
                                          uint32_t **out_nodes, size_t *out_count) {
-    *out_nodes = NULL;
-    *out_count = 0u;
-
-    uint32_t *nodes = NULL;
-    size_t count = 0u;
-    size_t capacity = 0u;
-    char token[ATPERSON_TOKEN_BYTES];
-    size_t token_len = 0u;
-
-    for (const unsigned char *cursor = (const unsigned char *)query;; ++cursor) {
-        const unsigned char byte = *cursor;
-        const bool token_byte = byte != '\0' && atp_memory_is_token_byte(byte);
-        if (token_byte && token_len + 1u < sizeof(token)) {
-            token[token_len++] = (char)atp_memory_normalize_ascii(byte);
-        }
-        if ((!token_byte || byte == '\0') && token_len > 0u) {
-            token[token_len] = '\0';
-            token_len = 0u;
-            const int32_t found = atp_find_node(graph, token);
-            if (found >= 0) {
-                bool seen = false;
-                for (size_t i = 0u; i < count; ++i) {
-                    if (nodes[i] == (uint32_t)found) {
-                        seen = true;
-                        break;
-                    }
-                }
-                if (!seen) {
-                    if (count == capacity) {
-                        const size_t next = capacity ? capacity * 2u : 8u;
-                        if (next < count || next > SIZE_MAX / sizeof(*nodes)) {
-                            free(nodes);
-                            return ATP_ERR_OUT_OF_MEMORY;
-                        }
-                        uint32_t *grown = realloc(nodes, next * sizeof(*grown));
-                        if (!grown) {
-                            free(nodes);
-                            return ATP_ERR_OUT_OF_MEMORY;
-                        }
-                        nodes = grown;
-                        capacity = next;
-                    }
-                    nodes[count++] = (uint32_t)found;
-                }
-            }
-        }
-        if (byte == '\0') {
-            break;
-        }
-    }
-
-    *out_nodes = nodes;
-    *out_count = count;
-    return ATP_OK;
+    /* Shared tokenizer path (issue #8): identical token identity to
+     * observation and recall. */
+    return atp_graph_query_nodes(graph, query, out_nodes, out_count);
 }
 
 atp_status atp_graph_recall_ranked(atp_graph *graph, const char *query, uint64_t at_epoch,
