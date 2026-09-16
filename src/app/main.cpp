@@ -100,6 +100,7 @@ void usage(std::ostream &out) {
         << "  atperson recall <query> [limit]\n"
         << "  atperson sync [max-pages]\n"
         << "  atperson rebuild\n"
+        << "  atperson compact\n"
         << "  atperson withdraw <id|source|author> <target>\n"
         << "  atperson cursor [status|reset]\n\n"
         << "environment:\n"
@@ -338,6 +339,30 @@ int main(int argc, char **argv) {
                       << report.excluded_pending << " pending, " << report.excluded_failed
                       << " failed, " << report.excluded_withdrawn << " withdrawn)\n";
             print_stats(rebuilt);
+            return 0;
+        }
+
+        if (command == "compact") {
+            /* Reclaim the provably dead bytes in the ledger: patch records
+             * flatten to final outcomes, WITHDRAWN payloads drop, ids stay
+             * stable so episodes and source references need no remapping.
+             * Atomic and crash-safe — interruption cannot destroy the last
+             * valid ledger; the compacted generation only replaces it on
+             * success. */
+            const atperson::StateLock writer_lock(data_dir());
+            const std::filesystem::path ledger_file = ledger_path();
+            if (!std::filesystem::exists(ledger_file)) {
+                throw std::runtime_error("no ledger at " + ledger_file.string() +
+                                         "; nothing to compact");
+            }
+            atperson::Ledger ledger(ledger_file);
+            const auto report = ledger.compact();
+            std::cout << "compacted " << report.entries << " entr"
+                      << (report.entries == 1u ? "y" : "ies") << " ("
+                      << report.patches_flattened << " patch record(s) flattened, "
+                      << report.payloads_dropped << " withdrawn payload(s) dropped)\n"
+                      << "ledger " << report.bytes_before << " -> " << report.bytes_after
+                      << " bytes\n";
             return 0;
         }
 

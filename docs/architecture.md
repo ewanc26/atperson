@@ -359,6 +359,53 @@ surfaces this as `atperson withdraw <id|source|author> <target>`, which
 prints a reminder to run `atperson rebuild` to apply the withdrawal to
 learned state.
 
+## Ledger compaction
+
+The append-only design grows without bound: entry records, outcome
+patches, and retained payloads accumulate forever. `atp_ledger_compact`
+reclaims the provably dead bytes in one atomic pass, opt-in and never run
+implicitly on open. The CLI surfaces it as `atperson compact`.
+
+What compaction drops, and why each drop is safe:
+
+| Dropped | Why it is dead |
+|---------|----------------|
+| Patch records | The in-memory state already holds flattened outcomes; the compacted log writes one entry record per entry with its final outcome — the same flattening the v1 migration documents |
+| WITHDRAWN payloads | Replay excludes withdrawn entries, dedup still suppresses the key from the tombstone, and withdrawal is durable — the bytes are unreachable by design |
+| Nothing else | LEARNED payloads are replay input; SKIPPED/PENDING/FAILED entries can still legally close to LEARNED, so their bytes stay |
+
+What compaction preserves, exactly:
+
+- Entry ids are stable across generations. Episodes and source references
+  key on ledger ids and need no remapping.
+- Every entry survives as itself or as a tombstone (withdrawn): the dedup
+  index is rebuilt from the compacted log on reopen, so withdrawn and
+  skipped content is never re-learned.
+- Logical outcomes are identical to the source ledger, verified per entry.
+
+Crash safety uses the same ordering as every other ledger write, with the
+self-heal recovery doing the heavy lifting at the window boundaries:
+
+1. Stream the compacted log to `<path>.tmp`, fsync, close.
+2. Remove the commit marker.
+3. Rename the temp file over the original log.
+4. Reopen and rewrite the marker from the compacted generation.
+
+A crash before step 2 leaves the original log authoritative — the marker
+still points into it, and open discards the stale staging file. A crash
+between steps 2 and 3 leaves no marker: open self-heals from the longest
+valid prefix of whichever log is present (the original before the rename,
+the compacted log after it). A crash after step 3 heals the marker from
+the complete compacted log. No interruption point destroys the last
+valid ledger; recovery always distinguishes the situation from the marker's
+presence plus the log's own validation.
+
+`atp_compact_report` records what the pass did — entries written, patch
+records flattened, withdrawn payloads dropped, bytes before and after —
+so operators can see the effect. Rebuild equivalence is a test invariant:
+replaying a ledger before and after compaction produces byte-identical
+snapshots, because the learned payload bytes are the same bytes.
+
 ## Episodic memory
 
 The ledger is the durable, complete record; memory is a curated facet of it.

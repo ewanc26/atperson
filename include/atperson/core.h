@@ -337,6 +337,50 @@ atp_status atp_ledger_entry_at(const atp_ledger *ledger, size_t index, atp_ledge
 atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void *out,
                                      size_t capacity, size_t *out_len);
 
+/** What a compaction pass did, for logging and operator confidence. */
+typedef struct atp_compact_report {
+    uint64_t entries;           /**< entries written to the compacted log */
+    uint64_t patches_flattened; /**< patch records folded into final outcomes */
+    uint64_t payloads_dropped;  /**< WITHDRAWN payloads discarded */
+    uint64_t bytes_before;      /**< committed log size before compaction */
+    uint64_t bytes_after;       /**< committed log size after compaction */
+} atp_compact_report;
+
+/**
+ * Rewrite the ledger into a compacted generation, atomically.
+ *
+ * The log grows without bound by design: append-only entries plus outcome
+ * patches plus retained payloads. Compaction reclaims the provably dead
+ * bytes while preserving every semantic the model depends on:
+ *
+ *   - Entry ids are stable. Episodes and source references need no
+ *     remapping; the i-th entry keeps its id across generations.
+ *   - Patch history flattens to final entry outcomes — the same documented
+ *     behaviour as the v1 migration. The audit trail of *what* was
+ *     observed is the entry set; per-patch history is not retained.
+ *   - WITHDRAWN payloads are dropped: replay excludes withdrawn entries,
+ *     the dedup index still suppresses re-observation, and withdrawal is
+ *     durable, so the bytes are unreachable by design. The entry itself
+ *     (source, digest, outcome) survives as a tombstone.
+ *   - LEARNED/SKIPPED payloads are retained: replay needs LEARNED bytes,
+ *     and PENDING/FAILED entries can still legally close to LEARNED.
+ *   - Dedup behaviour is unchanged: the unique (source id + digest) index
+ *     is rebuilt from the compacted log on reopen.
+ *
+ * Crash safety follows the same ordering as every other ledger write:
+ * the compacted log is streamed to a temporary file and fsync'd first;
+ * only then is the commit marker removed and the temp file renamed over
+ * the original. A crash at any point leaves either the intact previous
+ * log or the complete compacted log — recovery heals the marker from
+ * whichever is present, so interruption cannot destroy the last valid
+ * ledger. Staging files from a crashed compaction are discarded on open.
+ *
+ * Compaction is opt-in and does not run on open. On success the ledger
+ * handle continues from the compacted generation. Returns ATP_OK and
+ * fills `report` (when non-NULL) on success.
+ */
+atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report);
+
 /*
  * Deterministic replay.
  *

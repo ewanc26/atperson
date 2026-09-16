@@ -120,4 +120,10 @@ std::string Ledger::payload(std::uint64_t id) const {
     return result;
 }
 
+atp_compact_report Ledger::compact() {
+    atp_compact_report report = {};
+    require(atp_ledger_compact(ledger_, &report), "compact ledger");
+    return report;
+}
+
 } // namespace atperson

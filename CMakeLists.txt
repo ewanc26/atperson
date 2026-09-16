@@ -206,6 +206,17 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson_withdraw
     COMMAND atperson_withdraw_test withdraw ${CMAKE_CURRENT_BINARY_DIR}/withdraw)
 
+  # Safe ledger compaction and checkpointing; pure core, no network.
+  add_executable(atperson_compact_test tests/compact_test.c)
+  target_link_libraries(atperson_compact_test PRIVATE atperson_core)
+  add_test(
+    NAME atperson_compact
+    COMMAND atperson_compact_test compact ${CMAKE_CURRENT_BINARY_DIR}/compact)
+  add_test(
+    NAME atperson_compact_rebuild_equivalence
+    COMMAND atperson_compact_test rebuild-equivalence
+            ${CMAKE_CURRENT_BINARY_DIR}/compact-rebuild)
+
   add_executable(atperson_snapshot_test tests/snapshot_test.c)
   target_link_libraries(atperson_snapshot_test PRIVATE atperson_core)
   add_test(

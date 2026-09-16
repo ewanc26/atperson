@@ -1477,3 +1477,194 @@ atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void 
     *out_len = payload_len;
     return ATP_OK;
 }
+
+/*
+ * Compaction.
+ *
+ * Streams the logical ledger — one entry record per entry, patches
+ * flattened to final outcomes, WITHDRAWN payloads dropped — to the staging
+ * file, then swaps it in with the same crash ordering as every other
+ * ledger write: fsync the staging file, remove the commit marker, rename.
+ *
+ * A crash before the marker removal leaves the original log authoritative
+ * (recovery heals the marker from it). A crash between the removal and
+ * the rename is healed on the next open: no marker means self-heal mode,
+ * which validates the longest prefix of whichever log file is present —
+ * the original pre-rename, the compacted log post-rename. Neither state
+ * destroys the last valid ledger.
+ */
+atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
+    if (report) {
+        memset(report, 0, sizeof(*report));
+    }
+    if (!ledger) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+
+    /* Count patch records in the committed prefix: the history compaction
+     * folds away. One bounded scan, record headers only. */
+    uint64_t patches = 0u;
+    if (report) {
+        if (fseek(ledger->log, (long)ATP_LEDGER_HEADER_SIZE, SEEK_SET) != 0) {
+            return ATP_ERR_IO;
+        }
+        uint64_t position = ATP_LEDGER_HEADER_SIZE;
+        while (position + 9u <= ledger->committed_offset) {
+            unsigned char head[9u];
+            if (!atp_read_file(ledger->log, head, sizeof(head))) {
+                return ATP_ERR_IO;
+            }
+            const uint32_t payload_len = atp_load_u32_le(&head[0]);
+            if (payload_len == 0u || payload_len > ATP_LEDGER_BODY_MAX ||
+                position + 9u + (size_t)payload_len > ledger->committed_offset) {
+                /* The committed prefix is validated by recovery; a bad
+                 * length here means the handle is inconsistent. */
+                return ATP_ERR_FORMAT;
+            }
+            if (head[8] == ATP_LEDGER_RECORD_PATCH) {
+                patches++;
+            }
+            position += 9u + (size_t)payload_len;
+            if (fseek(ledger->log, (long)position, SEEK_SET) != 0) {
+                return ATP_ERR_IO;
+            }
+        }
+        if (position != ledger->committed_offset) {
+            return ATP_ERR_FORMAT;
+        }
+        report->patches_flattened = patches;
+        report->bytes_before = ledger->committed_offset;
+        if (fseek(ledger->log, 0, SEEK_END) != 0) {
+            return ATP_ERR_IO;
+        }
+    }
+
+    FILE *tmp = fopen(ledger->log_tmp_path, "wb");
+    if (!tmp) {
+        return ATP_ERR_IO;
+    }
+
+    unsigned char header[ATP_LEDGER_HEADER_SIZE];
+    header[0] = ATP_LEDGER_FILE_MAGIC_0;
+    header[1] = ATP_LEDGER_FILE_MAGIC_1;
+    header[2] = ATP_LEDGER_FILE_MAGIC_2;
+    header[3] = ATP_LEDGER_FILE_MAGIC_3;
+    header[4] = ATP_LEDGER_FILE_MAGIC_4;
+    header[5] = ATP_LEDGER_FILE_MAGIC_5;
+    header[6] = ATP_LEDGER_FILE_MAGIC_6;
+    header[7] = ATP_LEDGER_FILE_MAGIC_7;
+    atp_store_u32_le(&header[8], ATPERSON_LEDGER_VERSION);
+    if (fwrite(header, 1u, sizeof(header), tmp) != sizeof(header)) {
+        fclose(tmp);
+        remove(ledger->log_tmp_path);
+        return ATP_ERR_IO;
+    }
+
+    atp_status result = ATP_OK;
+    unsigned char *body = malloc(ATP_LEDGER_BODY_MAX);
+    if (!body) {
+        fclose(tmp);
+        remove(ledger->log_tmp_path);
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
+    unsigned char *record = malloc(ATP_LEDGER_RECORD_MAX);
+    if (!record) {
+        free(body);
+        fclose(tmp);
+        remove(ledger->log_tmp_path);
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
+
+    /* One entry record per entry, in id order. The in-memory state already
+     * holds the flattened outcomes (recovery and set_outcome apply patches
+     * on load), so the compacted log needs no patch records at all. */
+    for (size_t i = 0u; i < ledger->count && result == ATP_OK; ++i) {
+        const atp_ledger_entry *entry = &ledger->entries[i];
+        const unsigned char *payload = ledger->payloads[i];
+        size_t payload_len = ledger->payload_lens[i];
+
+        if (entry->outcome == ATP_LEDGER_OUTCOME_WITHDRAWN && payload) {
+            /* Withdrawn bytes are unreachable by design: replay excludes
+             * the entry, dedup still suppresses the key, withdrawal is
+             * durable. Keep the tombstone, drop the bytes — in the
+             * compacted log and in the live handle, so the handle
+             * matches what a reopen of the compacted generation sees. */
+            payload = NULL;
+            payload_len = 0u;
+            free(ledger->payloads[i]);
+            ledger->payloads[i] = NULL;
+            ledger->payload_lens[i] = 0u;
+            if (report) {
+                report->payloads_dropped++;
+            }
+        }
+
+        const size_t body_len = atp_serialize_entry(body, entry, payload, payload_len);
+        const size_t record_len =
+            atp_build_record(record, ATP_LEDGER_RECORD_ENTRY, body, body_len);
+        if (fwrite(record, 1u, record_len, tmp) != record_len) {
+            result = ATP_ERR_IO;
+        } else if (report) {
+            report->entries++;
+        }
+    }
+
+    if (result == ATP_OK && (!atp_fsync(tmp) || fclose(tmp) != 0)) {
+        result = ATP_ERR_IO;
+    } else if (result == ATP_OK) {
+        /* The staging file is complete and durable. Swap ordering: remove
+         * the marker first, then rename. A crash anywhere in this window
+         * is healed by self-heal recovery from whichever log is present. */
+        remove(ledger->off_path);
+        if (rename(ledger->log_tmp_path, ledger->log_path) != 0) {
+            result = ATP_ERR_IO;
+        }
+    }
+    if (result != ATP_OK) {
+        remove(ledger->log_tmp_path);
+        free(body);
+        free(record);
+        return result;
+    }
+
+    /* Reopen the compacted log and heal the marker from it. The handle
+     * continues from the compacted generation. */
+    if (fclose(ledger->log) != 0) {
+        ledger->log = NULL;
+        free(body);
+        free(record);
+        return ATP_ERR_IO;
+    }
+    ledger->log = NULL;
+    FILE *log = fopen(ledger->log_path, "rb+");
+    if (!log) {
+        free(body);
+        free(record);
+        return ATP_ERR_IO;
+    }
+    ledger->log = log;
+    if (fseek(ledger->log, 0, SEEK_END) != 0) {
+        free(body);
+        free(record);
+        return ATP_ERR_IO;
+    }
+    const long end_position = ftell(ledger->log);
+    if (end_position < 0) {
+        free(body);
+        free(record);
+        return ATP_ERR_IO;
+    }
+
+    if (report) {
+        report->bytes_after = (uint64_t)end_position;
+    }
+    ledger->committed_offset = (uint64_t)end_position;
+    if (!atp_write_off(ledger)) {
+        free(body);
+        free(record);
+        return ATP_ERR_IO;
+    }
+    free(body);
+    free(record);
+    return ATP_OK;
+}

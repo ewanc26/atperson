@@ -68,6 +68,14 @@ class Ledger {
      */
     std::size_t withdraw_author(std::string_view author_did);
 
+    /**
+     * Rewrite the ledger into a compacted generation: patches flatten to
+     * final outcomes, WITHDRAWN payloads drop, ids stay stable. Atomic and
+     * crash-safe; interruption cannot destroy the last valid ledger.
+     * Returns what the pass did. Throws on error.
+     */
+    atp_compact_report compact();
+
     /** Dedup query on the unique (source id + digest) index. */
     [[nodiscard]] LedgerResult lookup(std::string_view source_id, std::uint64_t content_digest,
                                       atp_ledger_entry *out_entry) const;

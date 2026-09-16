@@ -39,6 +39,7 @@ stages, with later stages intentionally incomplete:
 | Deterministic replay | Implemented | `atp_replay_ledger` + `atperson rebuild`: rebuild learned state from the ledger alone, explicit outcome semantics, atomic snapshot replacement, byte-identical rebuilds |
 | Withdrawal/unlearning | Implemented | `ATP_LEDGER_OUTCOME_WITHDRAWN` + `atperson withdraw <id|source|author>`: append-only idempotent exclusion, rebuild produces the state that would have existed without the withdrawn source |
 | Schema compatibility | Implemented | Per-entry learning schema + `atp_schema_can_replay` compatibility table; replay and snapshot load refuse foreign schemas with `ATP_ERR_SCHEMA`, never silently reinterpret |
+| Ledger compaction | Implemented | `atp_ledger_compact` + `atperson compact`: patches flatten to final outcomes, withdrawn payloads drop, ids stay stable; atomic and crash-safe, rebuild-equivalent |
 | Long-running runtime | Future work | `sync` is an explicitly-invoked bounded run with persistent catch-up state rather than a continuously operating agent |
 
 The model begins with **zero words and zero relationships**. Neural parameters
