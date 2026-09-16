@@ -22,6 +22,7 @@ add_library(
   src/core/graph.c
   src/core/memory.c
   src/core/action.c
+  src/core/decision.c
   src/core/context.c
   src/core/bootstrap.c
   src/core/neural.c
@@ -60,11 +61,6 @@ target_include_directories(
 target_link_libraries(atperson_cpp PUBLIC atperson_core)
 target_compile_features(atperson_cpp PUBLIC cxx_std_23)
 
-# Runtime ingestion state is JSON; cJSON is the same parser Wolfram uses.
-# Fetch it unconditionally so the runtime layer builds and tests without the
-# network stack too. (cJSON v1.7.18 declares an old cmake_minimum_required;
-# the policy floor keeps it configurable with modern CMake, same workaround
-# Wolfram's own build uses.)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 include(FetchContent)
 FetchContent_Declare(
@@ -74,28 +70,16 @@ FetchContent_Declare(
 set(WOLFRAM_CJSON_OVERRIDDEN
     OFF
     CACHE INTERNAL "")
-# cJSON's own test suite compiles cJSON.c with -Werror-incompatible settings
-# and is not needed; atperson's tests exercise the parser through real usage.
 set(ENABLE_CJSON_TEST
     OFF
     CACHE INTERNAL "")
 FetchContent_MakeAvailable(cjson)
-# cJSON v1.7.18 declares old cmake_minimum_required and defines a `bool`
-# macro that Clang rejects under -Werror; same workarounds Wolfram's build
-# uses.
 target_compile_options(cjson PRIVATE -Wno-keyword-macro)
-# cJSON's own CMakeLists does not declare target include directories; the
-# header lives at the top of its source tree (same as Wolfram's build).
 target_include_directories(atperson_cpp PUBLIC ${cjson_SOURCE_DIR})
 if(NOT WOLFRAM_CJSON_OVERRIDDEN)
   target_link_libraries(atperson_cpp PUBLIC cjson)
 endif()
 
-# Token identity is durable learning state (issue #8): the core needs a
-# deterministic Unicode contract — NFKC_Casefold normalization, category-
-# based token boundaries, UTF-8 validation. utf8proc is pure C (no C++ or
-# Wolfram dependency), MIT-licensed, and is the same Unicode backend Julia
-# uses. Pinned tag for reproducible builds.
 FetchContent_Declare(
   utf8proc
   GIT_REPOSITORY https://github.com/JuliaStrings/utf8proc.git
@@ -115,10 +99,6 @@ endif()
 if(ATPERSON_BUILD_NETWORK)
   include(FetchContent)
 
-  # Keep Wolfram as a dependency rather than duplicating AT Protocol logic here.
-  # Pin the current known-good revision so a clean build is reproducible.
-  # cJSON is already fetched above; tell Wolfram's build to reuse it rather
-  # than declaring a second FetchContent of the same name.
   set(WOLFRAM_CJSON_OVERRIDDEN
       ON
       CACHE INTERNAL "")
@@ -131,11 +111,6 @@ if(ATPERSON_BUILD_NETWORK)
     wolfram
     GIT_REPOSITORY https://github.com/ewanc26/wolfram.git
     GIT_TAG 9e63f76ab0b4f97f2cb5c62a5d0129b3d9023917
-    # wolfram-src/cpp/CMakeLists.txt uses ${CMAKE_SOURCE_DIR} (the top-level
-    # project) to locate Wolfram's public headers. Under FetchContent that is
-    # atperson, so the generated_owners.hpp codegen step would scan a
-    # non-existent include/wolfram. Rewrite those references to the actual
-    # Wolfram source dir.
     PATCH_COMMAND
       ${CMAKE_COMMAND} -DWOLFRAM_SRC_DIR=${FETCHCONTENT_BASE_DIR}/wolfram-src
       -DWOLFRAM_CPP_CMAKE=${FETCHCONTENT_BASE_DIR}/wolfram-src/cpp/CMakeLists.txt
@@ -180,15 +155,14 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson_action_test PRIVATE atperson_core)
   add_test(NAME atperson_action COMMAND atperson_action_test)
 
+  add_executable(atperson_action_decision_test tests/action_decision_test.c)
+  target_link_libraries(atperson_action_decision_test PRIVATE atperson_core)
+  add_test(NAME atperson_action_decision COMMAND atperson_action_decision_test)
+
   add_executable(atperson_context_test tests/context_test.c)
   target_link_libraries(atperson_context_test PRIVATE atperson_core)
   add_test(NAME atperson_context COMMAND atperson_context_test)
 
-  # The ledger test binary is re-invoked as *separate OS processes* so the
-  # cross-run dedup test exercises a genuinely restarted process. Phase 1
-  # commits entries for several posts; phase 2 (which CTest runs afterwards)
-  # re-opens the same files and asserts the unique (source id + digest) index
-  # blocks every already-committed post.
   add_executable(atperson_ledger_test tests/ledger_test.c)
   target_link_libraries(atperson_ledger_test PRIVATE atperson_core)
   add_test(
@@ -222,7 +196,6 @@ if(ATPERSON_BUILD_TESTS)
     COMMAND atperson_ledger_test migration
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-migration)
 
-  # Deterministic replay/rebuild from the ledger; pure core, no network.
   add_executable(atperson_replay_test tests/replay_test.c)
   target_link_libraries(atperson_replay_test PRIVATE atperson_core)
   add_test(
@@ -233,14 +206,12 @@ if(ATPERSON_BUILD_TESTS)
     COMMAND atperson_replay_test rebuild-safety
             ${CMAKE_CURRENT_BINARY_DIR}/replay-safety)
 
-  # Source withdrawal/unlearning semantics; pure core, no network.
   add_executable(atperson_withdraw_test tests/withdraw_test.c)
   target_link_libraries(atperson_withdraw_test PRIVATE atperson_core)
   add_test(
     NAME atperson_withdraw
     COMMAND atperson_withdraw_test withdraw ${CMAKE_CURRENT_BINARY_DIR}/withdraw)
 
-  # Safe ledger compaction and checkpointing; pure core, no network.
   add_executable(atperson_compact_test tests/compact_test.c)
   target_link_libraries(atperson_compact_test PRIVATE atperson_core)
   add_test(
@@ -251,7 +222,6 @@ if(ATPERSON_BUILD_TESTS)
     COMMAND atperson_compact_test rebuild-equivalence
             ${CMAKE_CURRENT_BINARY_DIR}/compact-rebuild)
 
-  # Unicode tokenization contract; pure core, no network.
   add_executable(atperson_tokenize_test tests/tokenize_test.c)
   target_link_libraries(atperson_tokenize_test PRIVATE atperson_core)
   target_include_directories(atperson_tokenize_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
@@ -262,7 +232,6 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson_tokenize_graph
     COMMAND atperson_tokenize_test tokenize-graph)
 
-  # Graph growth bounds and pathological input; pure core, no network.
   add_executable(atperson_growth_test tests/growth_test.c)
   target_link_libraries(atperson_growth_test PRIVATE atperson_core)
   add_test(
@@ -272,8 +241,6 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson_growth_pathology
     COMMAND atperson_growth_test growth-pathology)
 
-  # Scale benchmarks (issue #9). Explicit suite, excluded from default
-  # runs via label; invoke with: ctest -L bench
   add_executable(atperson_bench tests/bench.c)
   target_link_libraries(atperson_bench PRIVATE atperson_core)
   add_test(
@@ -291,14 +258,11 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)
   add_test(NAME atperson_cpp COMMAND atperson_cpp_test)
 
-  # Dynamic host/container resource probing and deterministic budget policy.
   add_executable(atperson_resource_test tests/resource_test.cpp)
   target_link_libraries(atperson_resource_test PRIVATE atperson_cpp)
   target_include_directories(atperson_resource_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
   add_test(NAME atperson_resource COMMAND atperson_resource_test)
 
-  # Ingestion-state format and sync-engine restart semantics; offline
-  # (fixture page fetchers, no live network).
   add_executable(
     atperson_sync_test
     tests/sync_test.cpp
@@ -309,8 +273,6 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson_sync_test PRIVATE src/app)
   add_test(NAME atperson_sync COMMAND atperson_sync_test)
 
-  # Ingestion policy: every skip class produces the documented reason and
-  # eligible classes are tagged (repost/reply). Offline, no network.
   add_executable(
     atperson_policy_test
     tests/policy_test.cpp
