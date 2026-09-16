@@ -55,6 +55,10 @@ set(WOLFRAM_CJSON_OVERRIDDEN
     OFF
     CACHE INTERNAL "")
 FetchContent_MakeAvailable(cjson)
+# cJSON v1.7.18 declares old cmake_minimum_required and defines a `bool`
+# macro that Clang rejects under -Werror; same workarounds Wolfram's build
+# uses.
+target_compile_options(cjson PRIVATE -Wno-keyword-macro)
 # cJSON's own CMakeLists does not declare target include directories; the
 # header lives at the top of its source tree (same as Wolfram's build).
 target_include_directories(atperson_cpp PUBLIC ${cjson_SOURCE_DIR})
