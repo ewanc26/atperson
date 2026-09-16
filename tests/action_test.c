@@ -1,4 +1,5 @@
 #include "atperson/action.h"
+#include "atperson/interaction.h"
 
 #include <assert.h>
 #include <math.h>
@@ -42,6 +43,31 @@ static void assert_same_plan(const atp_action_plan *a, const atp_action_plan *b)
     for (size_t i = 0u; i < a->step_count; ++i) {
         assert_same_candidate(&a->steps[i], &b->steps[i]);
     }
+}
+
+static void cleanup_interaction_files(void) {
+    remove("atperson-interaction-test-ledger.bin");
+    remove("atperson-interaction-test-ledger.bin.off");
+    remove("atperson-interaction-test-ledger.bin.tmp");
+    remove("atperson-interaction-test-ledger.bin.off.tmp");
+    remove("atperson-interaction-test-model.bin");
+    remove("atperson-interaction-test-model.bin.tmp");
+}
+
+static uint64_t append_interaction_observation(atp_ledger *ledger, const char *source,
+                                               const char *author, uint64_t observed_at,
+                                               const char *text,
+                                               atp_ledger_outcome outcome) {
+    uint64_t id = 0u;
+    atp_status status = ATP_OK;
+    const size_t text_len = strlen(text);
+    const atp_ledger_result result =
+        atp_ledger_append(ledger, source, author, observed_at,
+                          atp_ledger_digest(text, text_len), ATPERSON_SCHEMA_VERSION,
+                          outcome, text, text_len, &id, &status);
+    assert(result == ATP_LEDGER_NEW);
+    assert(status == ATP_OK);
+    return id;
 }
 
 static void test_ranked_candidates_are_inspectable_and_read_only(void) {
@@ -259,12 +285,143 @@ static void test_planner_unknown_context_and_limit_validation(void) {
     atp_graph_destroy(graph);
 }
 
+static void test_interaction_state_is_derived_persistent_and_withdrawable(void) {
+    cleanup_interaction_files();
+
+    atp_status status = ATP_OK;
+    atp_ledger *ledger = atp_ledger_open("atperson-interaction-test-ledger.bin", &status);
+    assert(ledger != NULL);
+    assert(status == ATP_OK);
+
+    append_interaction_observation(ledger, "at://did:plc:a/app.bsky.feed.post/one",
+                                   "did:plc:a", 100u, "alpha beta",
+                                   ATP_LEDGER_OUTCOME_LEARNED);
+    append_interaction_observation(ledger, "at://did:plc:a/app.bsky.feed.post/two",
+                                   "did:plc:a", 300u, "beta gamma",
+                                   ATP_LEDGER_OUTCOME_LEARNED);
+    append_interaction_observation(ledger, "at://did:plc:b/app.bsky.feed.post/one",
+                                   "did:plc:b", 200u, "delta epsilon",
+                                   ATP_LEDGER_OUTCOME_LEARNED);
+    append_interaction_observation(ledger, "at://did:plc:a/app.bsky.feed.post/skipped",
+                                   "did:plc:a", 400u, "ignored content",
+                                   ATP_LEDGER_OUTCOME_SKIPPED);
+    append_interaction_observation(ledger, "at://did:plc:a/app.bsky.feed.post/one",
+                                   "did:plc:a", 500u, "alpha theta",
+                                   ATP_LEDGER_OUTCOME_LEARNED);
+
+    atp_graph *graph = atp_graph_create(NULL);
+    assert(graph != NULL);
+    atp_replay_report report = {0};
+    assert(atp_replay_ledger(ledger, graph, &report) == ATP_OK);
+    assert(report.replayed == 4u);
+    assert(report.mirrored == 1u);
+
+    atp_interaction_state author_a = {0};
+    assert(atp_graph_interaction_lookup(graph, ATP_INTERACTION_SUBJECT_AUTHOR,
+                                        "did:plc:a", &author_a) == ATP_OK);
+    assert(author_a.subject == ATP_INTERACTION_SUBJECT_AUTHOR);
+    assert(strcmp(author_a.identifier, "did:plc:a") == 0);
+    assert(author_a.encounter_count == 3u);
+    assert(author_a.last_seen_at == 500u);
+    assert(author_a.remembered_episode_count == 3u);
+    assert(fabsf(author_a.familiarity - 0.75f) < 0.000001f);
+
+    atp_interaction_state source_one = {0};
+    assert(atp_graph_interaction_lookup(graph, ATP_INTERACTION_SUBJECT_SOURCE,
+                                        "at://did:plc:a/app.bsky.feed.post/one",
+                                        &source_one) == ATP_OK);
+    assert(source_one.encounter_count == 2u);
+    assert(source_one.last_seen_at == 500u);
+    assert(source_one.remembered_episode_count == 2u);
+    assert(fabsf(source_one.familiarity - (2.0f / 3.0f)) < 0.000001f);
+
+    atp_interaction_state author_b = {0};
+    assert(atp_graph_interaction_lookup(graph, ATP_INTERACTION_SUBJECT_AUTHOR,
+                                        "did:plc:b", &author_b) == ATP_OK);
+    assert(author_b.encounter_count == 1u);
+    assert(author_b.last_seen_at == 200u);
+    assert(author_b.remembered_episode_count == 1u);
+    assert(fabsf(author_b.familiarity - 0.5f) < 0.000001f);
+
+    /* Policy-skipped observations stay auditable but do not create learned
+     * interaction state or inflate author familiarity. */
+    atp_interaction_state skipped = {0};
+    assert(atp_graph_interaction_lookup(graph, ATP_INTERACTION_SUBJECT_SOURCE,
+                                        "at://did:plc:a/app.bsky.feed.post/skipped",
+                                        &skipped) == ATP_ERR_NOT_FOUND);
+    assert(skipped.encounter_count == 0u);
+
+    const atp_graph_stats before = atp_graph_get_stats(graph);
+    const size_t ledger_before = atp_graph_ledger_count(graph);
+    const size_t episodes_before = atp_graph_episode_count(graph);
+    atp_interaction_state unknown = {0};
+    assert(atp_graph_interaction_lookup(graph, ATP_INTERACTION_SUBJECT_AUTHOR,
+                                        "did:plc:unknown", &unknown) == ATP_ERR_NOT_FOUND);
+    assert(atp_graph_interaction_lookup(graph, (atp_interaction_subject)99,
+                                        "did:plc:a", &unknown) == ATP_ERR_INVALID_ARGUMENT);
+    assert(atp_graph_interaction_lookup(graph, ATP_INTERACTION_SUBJECT_AUTHOR,
+                                        "", &unknown) == ATP_ERR_INVALID_ARGUMENT);
+    const atp_graph_stats after = atp_graph_get_stats(graph);
+    assert(after.node_count == before.node_count);
+    assert(after.edge_count == before.edge_count);
+    assert(after.observations == before.observations);
+    assert(after.token_observations == before.token_observations);
+    assert(after.training_steps == before.training_steps);
+    assert(atp_graph_ledger_count(graph) == ledger_before);
+    assert(atp_graph_episode_count(graph) == episodes_before);
+
+    /* No new snapshot section is required: the state is derived from the
+     * already-persisted ledger mirror and episodes. */
+    assert(atp_graph_save(graph, "atperson-interaction-test-model.bin") == ATP_OK);
+    atp_status load_status = ATP_OK;
+    atp_graph *loaded = atp_graph_load("atperson-interaction-test-model.bin", &load_status);
+    assert(loaded != NULL);
+    assert(load_status == ATP_OK);
+    atp_interaction_state loaded_author = {0};
+    assert(atp_graph_interaction_lookup(loaded, ATP_INTERACTION_SUBJECT_AUTHOR,
+                                        "did:plc:a", &loaded_author) == ATP_OK);
+    assert(loaded_author.encounter_count == author_a.encounter_count);
+    assert(loaded_author.last_seen_at == author_a.last_seen_at);
+    assert(loaded_author.remembered_episode_count == author_a.remembered_episode_count);
+    assert(fabsf(loaded_author.familiarity - author_a.familiarity) < 0.000001f);
+    atp_graph_destroy(loaded);
+
+    /* Withdrawal intentionally has no live in-memory effect. Rebuild is the
+     * point where withdrawn experience disappears from every learned facet. */
+    assert(atp_ledger_withdraw_source(ledger,
+                                      "at://did:plc:a/app.bsky.feed.post/one") == 2u);
+    atp_graph *rebuilt = atp_graph_create(NULL);
+    assert(rebuilt != NULL);
+    atp_replay_report withdrawn_report = {0};
+    assert(atp_replay_ledger(ledger, rebuilt, &withdrawn_report) == ATP_OK);
+    assert(withdrawn_report.replayed == 2u);
+    assert(withdrawn_report.mirrored == 1u);
+    assert(withdrawn_report.excluded_withdrawn == 2u);
+
+    atp_interaction_state rebuilt_author = {0};
+    assert(atp_graph_interaction_lookup(rebuilt, ATP_INTERACTION_SUBJECT_AUTHOR,
+                                        "did:plc:a", &rebuilt_author) == ATP_OK);
+    assert(rebuilt_author.encounter_count == 1u);
+    assert(rebuilt_author.last_seen_at == 300u);
+    assert(rebuilt_author.remembered_episode_count == 1u);
+    assert(fabsf(rebuilt_author.familiarity - 0.5f) < 0.000001f);
+    assert(atp_graph_interaction_lookup(rebuilt, ATP_INTERACTION_SUBJECT_SOURCE,
+                                        "at://did:plc:a/app.bsky.feed.post/one",
+                                        &unknown) == ATP_ERR_NOT_FOUND);
+
+    atp_graph_destroy(rebuilt);
+    atp_graph_destroy(graph);
+    atp_ledger_destroy(ledger);
+    cleanup_interaction_files();
+}
+
 int main(void) {
     test_ranked_candidates_are_inspectable_and_read_only();
     test_unknown_context_and_capacity();
     test_planner_builds_bounded_inspectable_sequences();
     test_planner_cycles_stop_at_maximum_depth();
     test_planner_unknown_context_and_limit_validation();
-    printf("action model tests passed\n");
+    test_interaction_state_is_derived_persistent_and_withdrawable();
+    printf("action/state model tests passed\n");
     return 0;
 }
