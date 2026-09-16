@@ -3,6 +3,7 @@
 #include "atperson/action.h"
 #include "atperson/ledger.hpp"
 
+#include <array>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -128,6 +129,34 @@ std::vector<ActionCandidate> LanguageGraph::action_candidates(std::string_view c
         });
     }
     return result;
+}
+
+std::vector<atp_action_plan> LanguageGraph::action_plans(std::string_view context,
+                                                        atp_action_plan_config config) const {
+    std::array<atp_action_plan, ATPERSON_PLAN_MAX_BEAM_WIDTH> raw{};
+    std::size_t count = 0u;
+    const std::string owned_context(context);
+    require(atp_graph_action_plans(graph_, owned_context.c_str(), &config, raw.data(), raw.size(),
+                                   &count),
+            "query action plans");
+    return std::vector<atp_action_plan>(raw.begin(), raw.begin() + count);
+}
+
+atp_action_decision LanguageGraph::action_decide(std::string_view context,
+                                                 atp_action_decision_config config) const {
+    const std::string owned_context(context);
+    atp_action_decision decision{};
+    require(atp_graph_action_decide(graph_, owned_context.c_str(), &config, &decision),
+            "query action decision");
+    return decision;
+}
+
+atp_context_selection LanguageGraph::select_context(const atp_context_request &request,
+                                                    atp_context_config config) const {
+    atp_context_selection selection{};
+    require(atp_graph_select_context(graph_, &request, &config, &selection),
+            "select planner context");
+    return selection;
 }
 
 void LanguageGraph::save(const std::filesystem::path &path) const {

@@ -50,6 +50,7 @@ add_library(
   atperson_cpp
   src/app/graph.cpp
   src/app/ledger.cpp
+  src/app/action_inspection.cpp
   src/app/system_resources.cpp
   src/app/system_filesystems.cpp
   src/app/resource_budget.cpp
@@ -295,6 +296,12 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson_cpp_test tests/cpp_test.cpp)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)
   add_test(NAME atperson_cpp COMMAND atperson_cpp_test)
+
+  # Read-only rendering of authoritative C23 plan/context/decision traces.
+  add_executable(atperson_action_inspection_test tests/action_inspection_test.cpp)
+  target_link_libraries(atperson_action_inspection_test PRIVATE atperson_cpp)
+  target_include_directories(atperson_action_inspection_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
+  add_test(NAME atperson_action_inspection COMMAND atperson_action_inspection_test)
 
   # Dynamic host/container resource probing and deterministic budget policy.
   add_executable(atperson_resource_test tests/resource_test.cpp)
