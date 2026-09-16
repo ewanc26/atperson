@@ -1,0 +1,148 @@
+---
+name: REPLACE-WITH-KEBAB-NAME
+description: REPLACE — one paragraph, third-person, naming the concrete AT Protocol terms the skill handles AND the Wolfram API surface that backs them (entry headers, wf_* functions like "wf_agent_get_timeline", "wf_did_resolve", "wf_syntax_nsid_validate"). Include user phrases it should fire on and the atperson layer it applies to (C23 core learning graph vs C++23 Wolfram runtime vs protocol knowledge). State what it does NOT cover so adjacent skills aren't shadowed. Description is the ONLY trigger signal — err on keyword-dense over terse.
+version: 0.1.0
+---
+
+# REPLACE — Skill Title
+
+<!--
+This is the WOLFRAM-mapped router template for atperson skills. atperson is
+C23/C++23; all AT Protocol mechanics come from the pinned ewanc26/wolfram
+library. There are no per-language guides. Use SKILL.md.template only for pure
+knowledge topics that route entirely to shared/ + references/.
+
+Target layout for a wolfram-mapped skill (copy this into place):
+
+  skills/<name>/
+  ├── SKILL.md          ← this file — thin router, ≤~150 lines.
+  ├── shared/           ← protocol ground truth. Language-neutral specs,
+  │                       layouts, test vectors. Inherited verbatim from the
+  │                       upstream ngerakines.me atproto-crates skill set.
+  └── wolfram/
+      └── README.md     ← atperson-specific mapping onto the pinned Wolfram
+                          C API: entry headers, key wf_* functions with
+                          signatures, ownership/RAII, offline-testability,
+                          and how the C23 core vs C++23 runtime split applies.
+
+Landed wolfram-mapped skills to mirror (read one before filling this in):
+
+  skills/atproto-cid/              — wf_cid_*, repo/cid.h, codec rules
+  skills/atproto-identity-resolution/ — wf_did_resolve, wf_handle_resolve, syntax.h
+  skills/atproto-repository/       — repo/{car,mst,commit,record,diff}.h, sync*.h
+  skills/atproto-lexicon/          — validate.h, lexcall.h, atproto_lex.h
+  skills/atproto-oauth/            — oauth.h umbrella; legacy app-password path
+  skills/atproto-publish-lexicon/  — knowledge-only (read-only network)
+  skills/atproto-attestation/      — knowledge-only (no Wolfram machinery)
+
+Rules the router must honor:
+
+  • SKILL.md is a ROUTER, not a tutorial. Layer routing, defaults, reading
+    guide, atperson hazards. Procedure points at shared/*.md + wolfram/README.md.
+  • Protocol ground truth lives in shared/ and is NEVER rewritten to match
+    Wolfram. It is the normative source; wolfram/README.md documents how the
+    pinned Wolfram revision implements it.
+  • wolfram/README.md must name real symbols from the pinned revision. If a
+    Wolfram API is absent, say so explicitly and state whether atperson has
+    any current use for the topic.
+  • Every skill must respect the atperson invariants (AGENTS.md/CLAUDE.md §1):
+    C23 core never touches Wolfram/network; network path is read-only; no app
+    passwords logged or persisted; no per-language/dependency content.
+-->
+
+One-paragraph framing: what this topic is, why it matters to atperson, and
+that this skill routes protocol ground truth to `shared/` and the atperson
+implementation surface to `wolfram/README.md`.
+
+## When to use
+
+One to three sentences on the concrete situations that should pull in this
+skill. Mirror the language a user would actually type ("I'm getting a CID
+mismatch decoding `wf_sync_get_repo` output…", "how do I scope a lexicon
+record from a timeline post?").
+
+## What this skill provides
+
+Bulleted list of specific capabilities — routing decisions, checks, Wolfram
+entry points, references.
+
+## Layer routing
+
+How this topic lands on atperson's layers:
+
+- **C23 core (`include/atperson/`, `src/core/`)** — what, if anything, this
+  topic means for the learning graph. Usually nothing: atperson core consumes
+  distilled observations only.
+- **C++23 runtime (`src/app/`)** — which Wolfram entry points are called here
+  (e.g. `AtprotoClient` calling `wf_agent_get_timeline`), how return values
+  and RAII are handled, what JSON/cJSON extraction produces.
+- **Wolfram (pinned revision)** — the mechanics live here; never re-implement
+  them. Point at `wolfram/README.md`.
+
+## Defaults
+
+The invariants that hold regardless of layer. Keep to 3–6 bullets. Example:
+
+- **<Wire rule>** — one-line normative rule. Link to `shared/<file>.md`.
+- **<Wolfram entry point>** — one-line rule naming the header/function.
+- **<Key edge case>** — the thing that bites everyone once.
+
+## Reading guide
+
+For every <topic> task:
+
+1. Read the relevant `shared/*.md` first. They define the protocol rules.
+2. Read `wolfram/README.md` for the API mapping at the pinned revision.
+3. Read the matching `src/app/` integration (e.g. `atproto_client.cpp`) when
+   the task touches the runtime.
+
+Always prefer the Wolfram call over hand-rolling: this is AGENTS.md policy.
+
+## Hazards to flag up front
+
+High-frequency failure modes specific to atperson + Wolfram. Short entries,
+one line of context each. Examples:
+
+- **Never let the C core see AT Protocol types.** Observations must be
+  distilled primitives (text, URI, DID, timestamp) before crossing into C23.
+- **`wf_*` returns `wf_status`; check `WF_OK` and free owned outputs** with
+  the documented free function. RAII wrappers live in `src/app/`.
+- **<Wire field> omitted vs null divergence.** Signatures produced by one impl
+  may not verify through another.
+- **Read-only network:** skills must not describe write flows for the learning
+  graph (no posts/replies/moderations as learning side effects).
+
+## Verification
+
+Clone-agnostic checks for this topic:
+
+- Offline parsers/validators in Wolfram that work without a network
+  (`wf_cid_from_string`, `wf_syntax_*_is_valid`, `wf_did_document_parse`,
+  `wf_validate_record`, `wf_car_parse`, …).
+- Core-only build/tests:
+  ```sh
+  cmake -S . -B build-core -DATPERSON_BUILD_NETWORK=OFF
+  cmake --build build-core -j
+  ctest --test-dir build-core --output-on-failure
+  ```
+- Network-enabled build/tests when the topic touches `src/app/`:
+  `cmake -S . -B build-net -DATPERSON_BUILD_NETWORK=ON` then build + ctest.
+
+## Directory layout
+
+```
+<skill-name>/
+├── SKILL.md                    # this file — router
+├── shared/
+│   ├── <spec-file>.md          # normative protocol rules (inherited)
+│   └── test-vectors.md         # fixtures (inherited)
+└── wolfram/
+    └── README.md               # API mapping at pinned Wolfram revision
+```
+
+## References
+
+Everything reachable from the tree above, listed for quick grep:
+
+- `shared/<spec-file>.md`, `shared/test-vectors.md`
+- `wolfram/README.md`

@@ -1,0 +1,50 @@
+# wolfram/README.md — REPLACE: mapping onto the pinned Wolfram API
+
+<!--
+Copy me to skills/<name>/wolfram/README.md. This file is the atperson-specific
+half of the skill: where the topic lives in the pinned ewanc26/wolfram
+revision (see the FetchContent pin in CMakeLists.txt), which header to open,
+the key wf_* functions, ownership rules, offline-testability, and how the
+C23 core / C++23 runtime split applies.
+
+Verify every symbol here against the wolfram checkout before committing:
+the pinned revision is the contract, not documentation of some other release.
+Keep this file ≤ ~150 lines.
+-->
+
+## Entry headers
+
+- `<include/wolfram/...>` — what this header provides for this topic.
+- … (one line per header)
+
+## Key functions
+
+List only the functions the atperson layers actually touch (or could touch),
+with signatures and one-line semantics. Feature-complete API dumps belong in
+the Wolfram docs, not here.
+
+- `wf_…(…)` — does X; caller owns `*out` and frees with `wf_…_free`.
+
+## Ownership / RAII
+
+- Who allocates, who frees, which `wf_…_free` to call.
+- Where `src/app/` should wrap the handle (`AtprotoClient` already wraps
+  `wf_agent_handle`; extend it rather than reaching past it).
+
+## Layer split (C23 vs C++23)
+
+- **C23 core** — what the learning graph ever sees from this topic (usually:
+  nothing, only distilled observations).
+- **C++23 runtime** — which calls live here and how their outputs become
+  observations.
+
+## Offline-testable surface
+
+What can be exercised in `build-core` without the network runtime:
+`wf_syntax_*`, `wf_cid_from_string`, `wf_did_document_parse`, `wf_car_parse`,
+`wf_validate_record`, etc.
+
+## Gaps
+
+Explicitly list what the pinned Wolfram revision does NOT provide for this
+topic, and whether atperson has any current use for it.

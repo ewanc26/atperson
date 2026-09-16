@@ -1,0 +1,76 @@
+---
+name: REPLACE-WITH-KEBAB-NAME
+description: REPLACE — one paragraph, third-person, that tells Claude WHEN to trigger this skill. Name the concrete ATProto terms it handles (e.g. "DID document", "lexicon", "at:// URI", "com.atproto.repo.*", "XRPC"), the user phrases it should fire on, and what it does NOT cover so adjacent skills aren't shadowed.
+version: 0.1.0
+---
+
+# REPLACE — Skill Title
+
+<!--
+Which template should I use?
+
+  Use THIS template (SKILL.md.template) when the skill's guidance is a single
+  thin router with protocol ground truth in shared/ and a Wolfram mapping in
+  wolfram/README.md — the standard atperson shape. A lexicon-design checklist,
+  an OAuth flow walkthrough, a record-shape reference: all land here, with the
+  Wolfram layer in wolfram/README.md (see WOLFRAM-SKILL.md.template).
+
+  There is no per-language layout. atperson is C23/C++23; every skill routes
+  protocol mechanics to the pinned ewanc26/wolfram library. See CLAUDE.md §1.
+
+Skill layout conventions (enforced by convention, not by tooling):
+
+  skills/<name>/
+  ├── SKILL.md          ← this file. Thin router. Keep the body under ~500 lines.
+  ├── shared/           ← protocol ground truth. Language-neutral specs, layouts,
+  │                       test vectors. Inherited verbatim from upstream skills.
+  ├── wolfram/          ← atperson-specific mapping onto the pinned Wolfram API:
+  │   └── README.md       entry headers, key wf_* functions, RAII, offline tests,
+  │                       atperson C23/C++23 split for this topic.
+  ├── references/       ← long-form material loaded on demand (specs, examples,
+  │                       reference tables). SKILL.md should LINK into this.
+  ├── scripts/          ← deterministic helpers Claude runs rather than reasoning
+  │                       through (e.g. validators, parsers, generators).
+  └── assets/           ← templates or boilerplate copied into user outputs.
+                          NOT loaded into context.
+
+  Frontmatter:
+    name         required  Must match the directory name exactly. kebab-case.
+    description  required  The trigger mechanism — see CLAUDE.md for guidance.
+    version      optional  Semver is conventional.
+-->
+
+## When to use
+
+One to three sentences on the concrete situations that should pull in this
+skill. Mirror the language a user would actually type ("I'm getting a CBOR
+decode error…", "how do I resolve a did:web?").
+
+## What this skill provides
+
+Bulleted list of the specific capabilities — workflows, checks, generators,
+references — this skill contributes. Keep it tight; detail lives in the
+sections below.
+
+## Procedure
+
+Numbered, step-by-step instructions for the main task. Favor explicit steps
+over prose. If a step calls a Wolfram function or an offline script under
+`scripts/`, name it (e.g. `wf_validate_record`, `scripts/verify-something.py`).
+
+1. …
+2. …
+3. …
+
+## References
+
+Point at files in `references/` rather than inlining long content. Example:
+
+- `references/did-plc-spec-excerpt.md` — the relevant parts of the did:plc
+  spec for resolution.
+- `references/example-records.json` — canonical record shapes.
+
+## Examples
+
+Short, concrete before/after or input/output examples. If examples get long,
+move them into `references/` and link from here.
