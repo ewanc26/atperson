@@ -50,6 +50,7 @@ add_library(
   src/app/graph.cpp
   src/app/ledger.cpp
   src/app/system_resources.cpp
+  src/app/system_filesystems.cpp
   src/app/resource_budget.cpp
   src/app/resource_runtime.cpp)
 target_include_directories(
