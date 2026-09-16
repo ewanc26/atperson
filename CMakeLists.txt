@@ -54,6 +54,11 @@ FetchContent_Declare(
 set(WOLFRAM_CJSON_OVERRIDDEN
     OFF
     CACHE INTERNAL "")
+# cJSON's own test suite compiles cJSON.c with -Werror-incompatible settings
+# and is not needed; atperson's tests exercise the parser through real usage.
+set(ENABLE_CJSON_TEST
+    OFF
+    CACHE INTERNAL "")
 FetchContent_MakeAvailable(cjson)
 # cJSON v1.7.18 declares old cmake_minimum_required and defines a `bool`
 # macro that Clang rejects under -Werror; same workarounds Wolfram's build
