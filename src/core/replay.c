@@ -41,6 +41,7 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
     const size_t count = atp_ledger_count(ledger);
     unsigned char *payload = NULL;
     size_t payload_capacity = 0u;
+    atp_status status = ATP_OK;
 
     for (size_t i = 0u; i < count; ++i) {
         atp_ledger_entry entry;
@@ -48,7 +49,8 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
             if (report) {
                 report->failed_at_id = (uint64_t)i + 1u;
             }
-            return ATP_ERR_FORMAT;
+            status = ATP_ERR_FORMAT;
+            break;
         }
 
         if (entry.schema_version != ATPERSON_SCHEMA_VERSION) {
@@ -56,7 +58,8 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
             if (report) {
                 report->failed_at_id = entry.id;
             }
-            return ATP_ERR_FORMAT;
+            status = ATP_ERR_FORMAT;
+            break;
         }
 
         switch (entry.outcome) {
@@ -71,28 +74,29 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
                 if (report) {
                     report->failed_at_id = entry.id;
                 }
-                return ATP_ERR_FORMAT;
+                status = ATP_ERR_FORMAT;
+                break;
             }
             if (payload_len + 1u > payload_capacity) {
                 /* + 1: observe takes a NUL-terminated C string. */
                 unsigned char *grown = realloc(payload, payload_len + 1u);
                 if (!grown) {
-                    free(payload);
                     if (report) {
                         report->failed_at_id = entry.id;
                     }
-                    return ATP_ERR_OUT_OF_MEMORY;
+                    status = ATP_ERR_OUT_OF_MEMORY;
+                    break;
                 }
                 payload = grown;
                 payload_capacity = payload_len + 1u;
             }
             if (atp_ledger_entry_payload(ledger, entry.id, payload, payload_len,
                                          &payload_len) != ATP_OK) {
-                free(payload);
                 if (report) {
                     report->failed_at_id = entry.id;
                 }
-                return ATP_ERR_FORMAT;
+                status = ATP_ERR_FORMAT;
+                break;
             }
             payload[payload_len] = '\0';
 
@@ -102,19 +106,19 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
                 graph, (const char *)payload, entry.source_id, entry.author_did,
                 entry.observed_at, entry.content_digest, entry.schema_version, entry.id, NULL);
             if (observed != ATP_OK) {
-                free(payload);
                 if (report) {
                     report->failed_at_id = entry.id;
                 }
-                return observed;
+                status = observed;
+                break;
             }
             const atp_status mirrored = atp_graph_add_ledger_entry(graph, &entry);
             if (mirrored != ATP_OK) {
-                free(payload);
                 if (report) {
                     report->failed_at_id = entry.id;
                 }
-                return mirrored;
+                status = mirrored;
+                break;
             }
             if (report) {
                 report->replayed++;
@@ -126,11 +130,11 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
              * rebuilt snapshot keeps skipped provenance inspectable. */
             const atp_status mirrored = atp_graph_add_ledger_entry(graph, &entry);
             if (mirrored != ATP_OK) {
-                free(payload);
                 if (report) {
                     report->failed_at_id = entry.id;
                 }
-                return mirrored;
+                status = mirrored;
+                break;
             }
             if (report) {
                 report->mirrored++;
@@ -153,11 +157,15 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
             if (report) {
                 report->failed_at_id = entry.id;
             }
-            free(payload);
-            return ATP_ERR_FORMAT;
+            status = ATP_ERR_FORMAT;
+            break;
+        }
+
+        if (status != ATP_OK) {
+            break;
         }
     }
 
     free(payload);
-    return ATP_OK;
+    return status;
 }
