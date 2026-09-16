@@ -16,7 +16,7 @@ The goals are:
 
 The C++23 runtime probes:
 
-- effective CPU capacity;
+- effective CPU capacity, including fractional CPU quotas;
 - total and currently available memory;
 - capacity and available bytes on the filesystem containing the atperson data
   directory.
@@ -54,15 +54,31 @@ If available memory falls, existing learned state remains untouched; only new
 structural growth becomes more restricted. A zero-growth situation is never
 translated to the C core's `0 = unlimited` capacity convention.
 
+Before a command loads an existing model snapshot, the runtime performs a
+conservative memory preflight using the snapshot's file size and current memory
+headroom. It reserves twice the serialized size as a minimum load allowance;
+if that no longer fits after the safety reserve, loading is refused rather than
+letting the process drift into an out-of-memory failure.
+
+Commands that do not use learned graph state (`rebuild`, `compact`, `withdraw`
+and `cursor`) do not load the existing snapshot at all. In particular, rebuild
+starts from a fresh graph instead of keeping the previous model resident while
+constructing its replacement.
+
 Disk keeps a dynamic free-space reserve and allows one run to consume only a
 portion of the headroom above it. If the filesystem is inside the safety
 reserve, durable mutating commands fail before doing new work. Sync page size
 and the per-run observation budget also shrink with disk, memory and effective
-CPU capacity.
+CPU capacity. A sufficiently small fractional CPU quota or memory budget can
+reduce a timeline page all the way to one item.
 
 Longer multi-page syncs re-probe before each page. This allows cgroup limits,
 memory pressure and disk headroom to change while a process is running without
 requiring a restart.
+
+One-shot inputs and result allocations are bounded too. `ingest-file` checks
+file size before reading it into memory, and inspection commands reject result
+limits larger than the current memory-derived allowance.
 
 ## What is deliberately not dynamic
 
