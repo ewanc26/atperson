@@ -26,6 +26,10 @@ add_library(
   src/core/bootstrap.c
   src/core/neural.c
   src/core/ledger.c
+  src/core/ledger_format.c
+  src/core/ledger_off.c
+  src/core/ledger_index.c
+  src/core/ledger_recover.c
   src/core/replay.c
   src/core/tokenize.c
   src/core/portable_io.c
