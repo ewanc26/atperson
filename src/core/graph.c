@@ -64,6 +64,8 @@ void atp_graph_destroy(atp_graph *graph) {
     }
     free(graph->nodes);
     free(graph->edges);
+    free(graph->node_index_slots);
+    free(graph->edge_index_slots);
     free(graph->ledger_entries);
     free(graph->episodes);
     free(graph);
@@ -92,6 +94,161 @@ uint64_t atp_hash_source(const char *source_id) {
         hash *= UINT64_C(1099511628211);
     }
     return hash;
+}
+
+/* -------- hash indexes (issue #9) --------
+ *
+ * Open-addressing indexes over the canonical node and edge arrays. The
+ * arrays remain the source of truth; the indexes are derived state that
+ * any loader rebuilds after restoring the arrays. Power-of-two capacity,
+ * linear probing, UINT32_MAX = empty slot. */
+
+#define ATP_INDEX_EMPTY UINT32_MAX
+
+static uint64_t atp_hash_token(const char *token) {
+    const unsigned char *cursor = (const unsigned char *)token;
+    uint64_t hash = UINT64_C(1469598103934665603);
+    while (*cursor) {
+        hash ^= (uint64_t)*cursor++;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static uint64_t atp_hash_edge_key(uint32_t source, uint32_t target) {
+    /* The packed key is dense and sequential (intern indices grow
+     * together), so identity hashing packs linear-probe runs into
+     * contiguous spans and degrades toward O(n) probes. Run the key
+     * through a splitmix64-style finalizer to spread it. */
+    uint64_t hash = (uint64_t)source << 32u | (uint64_t)target;
+    hash ^= hash >> 30;
+    hash *= UINT64_C(0xBF58476D1CE4E5B9);
+    hash ^= hash >> 27;
+    hash *= UINT64_C(0x94D049BB133111EB);
+    hash ^= hash >> 31;
+    return hash;
+}
+
+/* Grow (or create) the node index so it holds node_count entries at a load
+ * factor <= 0.5, then reinsert every existing node. */
+static bool atp_node_index_rebuild(atp_graph *graph, size_t needed) {
+    size_t capacity = graph->node_index_capacity ? graph->node_index_capacity * 2u : 64u;
+    while (capacity < needed * 2u) {
+        if (capacity > SIZE_MAX / 2u) {
+            return false;
+        }
+        capacity *= 2u;
+    }
+
+    uint32_t *slots = malloc(capacity * sizeof(*slots));
+    if (!slots) {
+        return false;
+    }
+    for (size_t i = 0u; i < capacity; ++i) {
+        slots[i] = ATP_INDEX_EMPTY;
+    }
+
+    for (size_t i = 0u; i < graph->node_count; ++i) {
+        const uint64_t hash = atp_hash_token(graph->nodes[i].token);
+        size_t slot = (size_t)(hash & (uint64_t)(capacity - 1u));
+        while (slots[slot] != ATP_INDEX_EMPTY) {
+            slot = (slot + 1u) & (capacity - 1u);
+        }
+        slots[slot] = (uint32_t)i;
+    }
+
+    free(graph->node_index_slots);
+    graph->node_index_slots = slots;
+    graph->node_index_capacity = capacity;
+    return true;
+}
+
+static bool atp_node_index_maybe_grow(atp_graph *graph) {
+    if (graph->node_count * 2u + 2u > graph->node_index_capacity) {
+        return atp_node_index_rebuild(graph, graph->node_count + 1u);
+    }
+    return true;
+}
+
+/* Insert a freshly appended node index. The token must not already be
+ * indexed. Call only after node_count includes the new node. */
+static void atp_node_index_insert(atp_graph *graph, uint32_t node_index) {
+    if (!graph->node_index_slots) {
+        return;
+    }
+    const uint64_t hash = atp_hash_token(graph->nodes[node_index].token);
+    size_t slot = (size_t)(hash & (uint64_t)(graph->node_index_capacity - 1u));
+    while (graph->node_index_slots[slot] != ATP_INDEX_EMPTY) {
+        slot = (slot + 1u) & (graph->node_index_capacity - 1u);
+    }
+    graph->node_index_slots[slot] = node_index;
+}
+
+static bool atp_edge_index_rebuild(atp_graph *graph, size_t needed) {
+    size_t capacity = graph->edge_index_capacity ? graph->edge_index_capacity * 2u : 128u;
+    while (capacity < needed * 2u) {
+        if (capacity > SIZE_MAX / 2u) {
+            return false;
+        }
+        capacity *= 2u;
+    }
+
+    uint32_t *slots = malloc(capacity * sizeof(*slots));
+    if (!slots) {
+        return false;
+    }
+    for (size_t i = 0u; i < capacity; ++i) {
+        slots[i] = ATP_INDEX_EMPTY;
+    }
+
+    for (size_t i = 0u; i < graph->edge_count; ++i) {
+        const uint64_t hash = atp_hash_edge_key(graph->edges[i].source, graph->edges[i].target);
+        size_t slot = (size_t)(hash & (uint64_t)(capacity - 1u));
+        while (slots[slot] != ATP_INDEX_EMPTY) {
+            slot = (slot + 1u) & (capacity - 1u);
+        }
+        slots[slot] = (uint32_t)i;
+    }
+
+    free(graph->edge_index_slots);
+    graph->edge_index_slots = slots;
+    graph->edge_index_capacity = capacity;
+    return true;
+}
+
+static bool atp_edge_index_maybe_grow(atp_graph *graph) {
+    if (graph->edge_count * 2u + 2u > graph->edge_index_capacity) {
+        return atp_edge_index_rebuild(graph, graph->edge_count + 1u);
+    }
+    return true;
+}
+
+static void atp_edge_index_insert(atp_graph *graph, uint32_t edge_index) {
+    if (!graph->edge_index_slots) {
+        return;
+    }
+    const uint64_t hash =
+        atp_hash_edge_key(graph->edges[edge_index].source, graph->edges[edge_index].target);
+    size_t slot = (size_t)(hash & (uint64_t)(graph->edge_index_capacity - 1u));
+    while (graph->edge_index_slots[slot] != ATP_INDEX_EMPTY) {
+        slot = (slot + 1u) & (graph->edge_index_capacity - 1u);
+    }
+    graph->edge_index_slots[slot] = edge_index;
+}
+
+/* Rebuild both indexes from the canonical arrays. Called by snapshot
+ * loaders; the arrays are complete and the indexes are empty. */
+bool atp_graph_rebuild_indexes(atp_graph *graph) {
+    if (!graph) {
+        return false;
+    }
+    if (!atp_node_index_rebuild(graph, graph->node_count + 1u)) {
+        return false;
+    }
+    if (!atp_edge_index_rebuild(graph, graph->edge_count + 1u)) {
+        return false;
+    }
+    return true;
 }
 
 bool atp_reserve_nodes(atp_graph *graph, size_t needed) {
@@ -187,21 +344,34 @@ bool atp_reserve_episodes(atp_graph *graph, size_t needed) {
 }
 
 int32_t atp_find_node(const atp_graph *graph, const char *token) {
-    if (!graph || !token) {
+    if (!graph || !token || !graph->node_index_slots) {
         return -1;
     }
-    for (size_t i = 0; i < graph->node_count; ++i) {
-        if (strcmp(graph->nodes[i].token, token) == 0) {
-            if (i > INT32_MAX) {
-                return -1;
-            }
-            return (int32_t)i;
+    const uint64_t mask = (uint64_t)(graph->node_index_capacity - 1u);
+    size_t slot = (size_t)(atp_hash_token(token) & mask);
+    for (;;) {
+        const uint32_t entry = graph->node_index_slots[slot];
+        if (entry == ATP_INDEX_EMPTY) {
+            return -1;
         }
+        if (strcmp(graph->nodes[entry].token, token) == 0) {
+            return (int32_t)entry;
+        }
+        slot = (slot + 1u) & (size_t)mask;
     }
-    return -1;
 }
 
-int32_t atp_intern_node(atp_graph *graph, const char *token) {
+int32_t atp_intern_node_checked(atp_graph *graph, const char *token, atp_status *status) {
+    if (status) {
+        *status = ATP_OK;
+    }
+    if (!graph || !token) {
+        if (status) {
+            *status = ATP_ERR_INVALID_ARGUMENT;
+        }
+        return -1;
+    }
+
     const int32_t existing = atp_find_node(graph, token);
     if (existing >= 0) {
         graph->nodes[existing].observations++;
@@ -210,7 +380,27 @@ int32_t atp_intern_node(atp_graph *graph, const char *token) {
         return existing;
     }
 
+    /* Resource ceiling: reject before any mutation. The caller rejects
+     * the whole observation; nothing is half-interned. */
+    if (graph->config.node_capacity_max != 0u &&
+        graph->node_count >= graph->config.node_capacity_max) {
+        graph->capacity_rejections++;
+        if (status) {
+            *status = ATP_ERR_CAPACITY;
+        }
+        return -1;
+    }
+
     if (graph->node_count >= UINT32_MAX || !atp_reserve_nodes(graph, graph->node_count + 1u)) {
+        if (status) {
+            *status = ATP_ERR_OUT_OF_MEMORY;
+        }
+        return -1;
+    }
+    if (!atp_node_index_maybe_grow(graph)) {
+        if (status) {
+            *status = ATP_ERR_OUT_OF_MEMORY;
+        }
         return -1;
     }
 
@@ -218,6 +408,9 @@ int32_t atp_intern_node(atp_graph *graph, const char *token) {
     memset(node, 0, sizeof(*node));
     node->token = atp_strdup_local(token);
     if (!node->token) {
+        if (status) {
+            *status = ATP_ERR_OUT_OF_MEMORY;
+        }
         return -1;
     }
     node->observations = 1u;
@@ -228,19 +421,32 @@ int32_t atp_intern_node(atp_graph *graph, const char *token) {
 
     const int32_t index = (int32_t)graph->node_count;
     graph->node_count++;
+    atp_node_index_insert(graph, (uint32_t)index);
     return index;
 }
 
+int32_t atp_intern_node(atp_graph *graph, const char *token) {
+    atp_status status = ATP_OK;
+    return atp_intern_node_checked(graph, token, &status);
+}
+
 int32_t atp_find_edge(const atp_graph *graph, uint32_t source, uint32_t target) {
-    for (size_t i = 0; i < graph->edge_count; ++i) {
-        if (graph->edges[i].source == source && graph->edges[i].target == target) {
-            if (i > INT32_MAX) {
-                return -1;
-            }
-            return (int32_t)i;
-        }
+    if (!graph || !graph->edge_index_slots) {
+        return -1;
     }
-    return -1;
+    const uint64_t mask = (uint64_t)(graph->edge_index_capacity - 1u);
+    size_t slot = (size_t)(atp_hash_edge_key(source, target) & mask);
+    for (;;) {
+        const uint32_t entry = graph->edge_index_slots[slot];
+        if (entry == ATP_INDEX_EMPTY) {
+            return -1;
+        }
+        const atp_edge *edge = &graph->edges[entry];
+        if (edge->source == source && edge->target == target) {
+            return (int32_t)entry;
+        }
+        slot = (slot + 1u) & (size_t)mask;
+    }
 }
 
 atp_status atp_observe_pair(atp_graph *graph, uint32_t source, uint32_t target,
@@ -251,7 +457,16 @@ atp_status atp_observe_pair(atp_graph *graph, uint32_t source, uint32_t target,
 
     int32_t edge_index = atp_find_edge(graph, source, target);
     if (edge_index < 0) {
+        /* Resource ceiling: reject before any mutation. */
+        if (graph->config.edge_capacity_max != 0u &&
+            graph->edge_count >= graph->config.edge_capacity_max) {
+            graph->capacity_rejections++;
+            return ATP_ERR_CAPACITY;
+        }
         if (!atp_reserve_edges(graph, graph->edge_count + 1u)) {
+            return ATP_ERR_OUT_OF_MEMORY;
+        }
+        if (!atp_edge_index_maybe_grow(graph)) {
             return ATP_ERR_OUT_OF_MEMORY;
         }
         edge_index = (int32_t)graph->edge_count++;
@@ -262,6 +477,7 @@ atp_status atp_observe_pair(atp_graph *graph, uint32_t source, uint32_t target,
             .last_source_hash = source_hash,
             .strength = 0.0f,
         };
+        atp_edge_index_insert(graph, (uint32_t)edge_index);
     }
 
     const float positive_loss = atp_network_train(graph, source, target, 1.0f);
@@ -301,11 +517,74 @@ typedef struct atp_observe_walk {
     atp_status status;
 } atp_observe_walk;
 
+/* Dry-run walk (issue #9): counts the new nodes and edges a text would
+ * create without mutating anything. Observations that would cross a
+ * resource ceiling are rejected whole before any learning happens, so a
+ * rejected observation never leaves half-learned state behind. */
+typedef struct atp_budget_walk {
+    const atp_graph *graph;
+    size_t new_nodes;
+    size_t new_edges;
+    int32_t previous;
+} atp_budget_walk;
+
+static bool atp_budget_emit(void *userdata, const char *token) {
+    atp_budget_walk *walk = userdata;
+    const int32_t current = atp_find_node(walk->graph, token);
+    const uint32_t current_index =
+        current >= 0 ? (uint32_t)current : (uint32_t)walk->graph->node_count;
+    if (current < 0) {
+        walk->new_nodes++;
+    }
+    if (walk->previous >= 0) {
+        const uint32_t previous_index = (uint32_t)walk->previous;
+        bool edge_exists = false;
+        if (current >= 0) {
+            edge_exists = atp_find_edge(walk->graph, previous_index, current_index) >= 0;
+        } else {
+            /* New node: every pair touching it is a new edge. */
+            edge_exists = false;
+        }
+        if (!edge_exists) {
+            walk->new_edges++;
+        }
+    }
+    walk->previous = (int32_t)current_index;
+    return true;
+}
+
+/* Reject the observation if it would cross a configured ceiling. Returns
+ * ATP_OK when it fits (or no ceiling is configured). */
+static atp_status atp_check_budget(atp_graph *graph, const char *text) {
+    if (graph->config.node_capacity_max == 0u && graph->config.edge_capacity_max == 0u) {
+        return ATP_OK;
+    }
+
+    atp_budget_walk walk = {
+        .graph = graph,
+        .previous = -1,
+    };
+    atp_tokenize(text, ATPERSON_SCHEMA_VERSION, atp_budget_emit, &walk);
+
+    if (graph->config.node_capacity_max != 0u &&
+        graph->node_count + walk.new_nodes > graph->config.node_capacity_max) {
+        graph->capacity_rejections++;
+        return ATP_ERR_CAPACITY;
+    }
+    if (graph->config.edge_capacity_max != 0u &&
+        graph->edge_count + walk.new_edges > graph->config.edge_capacity_max) {
+        graph->capacity_rejections++;
+        return ATP_ERR_CAPACITY;
+    }
+    return ATP_OK;
+}
+
 static bool atp_observe_emit(void *userdata, const char *token) {
     atp_observe_walk *walk = userdata;
-    const int32_t current = atp_intern_node(walk->graph, token);
+    atp_status status = ATP_OK;
+    const int32_t current = atp_intern_node_checked(walk->graph, token, &status);
     if (current < 0) {
-        walk->status = ATP_ERR_OUT_OF_MEMORY;
+        walk->status = status;
         return false;
     }
     walk->graph->token_observations++;
@@ -325,6 +604,13 @@ static bool atp_observe_emit(void *userdata, const char *token) {
 atp_status atp_graph_observe_text(atp_graph *graph, const char *text, const char *source_id) {
     if (!graph || !text) {
         return ATP_ERR_INVALID_ARGUMENT;
+    }
+
+    /* Whole-observation budget check: a text that would cross a ceiling
+     * is rejected before any learning happens. */
+    const atp_status budget = atp_check_budget(graph, text);
+    if (budget != ATP_OK) {
+        return budget;
     }
 
     const uint64_t source_hash = atp_hash_source(source_id);
@@ -477,6 +763,13 @@ atp_status atp_graph_observe_with_memory(atp_graph *graph, const char *text, con
     }
     if (!graph || !text) {
         return ATP_ERR_INVALID_ARGUMENT;
+    }
+
+    /* Whole-observation budget check: a text that would cross a ceiling
+     * is rejected before any learning happens. */
+    const atp_status budget = atp_check_budget(graph, text);
+    if (budget != ATP_OK) {
+        return budget;
     }
 
     const uint64_t source_hash = atp_hash_source(source_id);
@@ -733,8 +1026,16 @@ float atp_graph_familiarity(const atp_graph *graph, const char *token) {
     return graph->nodes[node].familiarity;
 }
 
-atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {
+void atp_graph_set_capacity(atp_graph *graph, size_t node_capacity_max,
+                            size_t edge_capacity_max) {
     if (!graph) {
+        return;
+    }
+    graph->config.node_capacity_max = node_capacity_max;
+    graph->config.edge_capacity_max = edge_capacity_max;
+}
+
+atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {    if (!graph) {
         return (atp_graph_stats){0};
     }
     return (atp_graph_stats){
@@ -748,6 +1049,7 @@ atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {
         .episode_count = graph->episode_count,
         .episode_capacity = graph->episode_max,
         .episode_evictions = graph->episode_evictions,
+        .capacity_rejections = graph->capacity_rejections,
     };
 }
 
@@ -914,6 +1216,8 @@ const char *atp_status_string(atp_status status) {
         return "not found";
     case ATP_ERR_SCHEMA:
         return "learning schema not replayable by this build";
+    case ATP_ERR_CAPACITY:
+        return "configured resource ceiling reached";
     }
     return "unknown error";
 }
