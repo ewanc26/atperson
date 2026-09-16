@@ -38,7 +38,11 @@ add_library(
   src/core/replay.c
   src/core/tokenize.c
   src/core/portable_io.c
-  src/core/persistence.c)
+  src/core/persistence/encode.c
+  src/core/persistence/reader.c
+  src/core/persistence/decode.c
+  src/core/persistence/migration.c
+  src/core/persistence/load.c)
 target_include_directories(
   atperson_core
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
