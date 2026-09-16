@@ -31,6 +31,16 @@
  * survives process restarts.
  */
 
+/*
+ * fileno/ftruncate/off_t are POSIX. glibc hides them under strict C23
+ * (which defines __STRICT_ANSI__), so request the POSIX API explicitly on
+ * non-Windows targets; macOS exposes it by default, which is why a mac build
+ * does not trip over this.
+ */
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "atperson/core.h"
 
 #include <stdbool.h>
@@ -777,6 +787,7 @@ void atp_ledger_destroy(atp_ledger *ledger) {
         return;
     }
     if (ledger->log) {
+        /* Flush durability here; atp_ledger_release owns the single fclose. */
         atp_fsync(ledger->log);
     }
     atp_ledger_release(ledger);
