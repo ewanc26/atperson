@@ -49,9 +49,27 @@ extern "C" {
 #define ATPERSON_LEDGER_PAYLOAD_LIMIT 65536u
 
 /*
- * Learning schema version attached to each ledger entry. Bump this when the
- * graph's learning algorithm changes so a rebuild-from-ledger replay can
- * reject entries recorded under an incompatible schema.
+ * Learning schema version attached to each ledger entry. The schema version
+ * identifies the learning behaviour an observation was recorded under:
+ * tokenisation, negative sampling, memory selection, familiarity, and the
+ * training equations. Bump it whenever any of those change.
+ *
+ * Compatibility classes (see atp_schema_can_replay):
+ * - Replay-compatible: replaying an entry under the new code reproduces the
+ *   same learning effect as the old code did. The table lists the old
+ *   version as replayable; historical ledgers keep working unchanged.
+ * - Adapter migration: replay semantics differ but a versioned handler can
+ *   reproduce the old behaviour. Add the old version to the table with an
+ *   adapter entry point; replay dispatches on the entry's schema version.
+ * - Incompatible: no handler can honestly reproduce the old behaviour (the
+ *   training input itself changed meaning). The version is absent from the
+ *   table; replay fails with ATP_ERR_SCHEMA naming the entry. Start a new
+ *   model generation: a fresh ledger (or a compacted one, #7) under the new
+ *   schema. Old and new algorithms are never ambiguously mixed.
+ *
+ * Mixed-schema ledgers accumulate across upgrades; replay processes them
+ * deterministically in id order and fails at the first entry whose schema
+ * is not replayable by this core.
  */
 #define ATPERSON_SCHEMA_VERSION 1u
 
@@ -76,7 +94,11 @@ typedef enum atp_status {
     ATP_ERR_OUT_OF_MEMORY = 2,
     ATP_ERR_IO = 3,
     ATP_ERR_FORMAT = 4,
-    ATP_ERR_NOT_FOUND = 5
+    ATP_ERR_NOT_FOUND = 5,
+    /** A ledger entry or snapshot was recorded under a learning schema this
+     * core cannot replay. Distinct from ATP_ERR_FORMAT (corruption): the
+     * data is intact, the algorithm is the mismatch. */
+    ATP_ERR_SCHEMA = 6
 } atp_status;
 
 typedef struct atp_graph atp_graph;
@@ -335,9 +357,21 @@ atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void 
  *
  * A LEARNED entry without a retained payload (v1-migrated ledger) fails the
  * rebuild with ATP_ERR_FORMAT — the training input is gone, and a graph that
- * silently never saw those bytes would be a lie. Schema versions other than
- * the one this core implements fail the same way.
+ * silently never saw those bytes would be a lie. An entry recorded under a
+ * learning schema this core cannot replay (see atp_schema_can_replay) fails
+ * with ATP_ERR_SCHEMA, naming the entry and its schema in the report.
  */
+
+/**
+ * Whether an observation recorded under learning schema `version` can be
+ * replayed by this core. This is the single compatibility table: when a
+ * learning-algorithm change bumps ATPERSON_SCHEMA_VERSION, decide its
+ * compatibility class (see the schema version docs above) and record that
+ * decision here, in the same change. Replay consults this predicate for
+ * every entry; snapshots record their learning schema and load refuses
+ * foreign ones.
+ */
+bool atp_schema_can_replay(uint32_t version);
 
 /** Replay counters; zeroed on entry, filled on success. */
 typedef struct atp_replay_report {
@@ -353,6 +387,9 @@ typedef struct atp_replay_report {
     size_t excluded_withdrawn;
     /** Ledger id of the entry that failed (0 when none did). */
     uint64_t failed_at_id;
+    /** Schema version of the entry that failed (0 when none did, or when
+     * the failure was not schema-related). */
+    uint32_t failed_schema;
 } atp_replay_report;
 
 /**

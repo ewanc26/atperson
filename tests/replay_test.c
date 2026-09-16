@@ -196,7 +196,16 @@ static int run_replay(const char *dir) {
     atp_graph_destroy(first);
     atp_ledger_destroy(ledger);
 
-    /* --- Schema mismatch fails clearly, never silently reinterprets. --- */
+    /* --- Compatible schema transition: entries recorded under the
+     * current schema replay through the compatibility table. This is the
+     * fixture for the replay-compatible class — when a future bump lists
+     * schema 1 as still-replayable, this ledger keeps replaying under the
+     * bumped core without migration. --- */
+    CHECK(atp_schema_can_replay(ATPERSON_SCHEMA_VERSION));
+
+    /* --- Incompatible learning schema fails clearly, never silently
+     * reinterprets. The schema-specific status names the class of
+     * problem; the report names the entry and the schema. --- */
     remove_dir_files(dir);
     CHECK(atp_mkdir(dir) == 0);
     ledger = open_ledger(dir);
@@ -208,8 +217,33 @@ static int run_replay(const char *dir) {
     CHECK(status == ATP_OK);
     atp_graph *fresh = atp_graph_create(&config);
     atp_replay_report fail_report = {0};
-    CHECK(atp_replay_ledger(ledger, fresh, &fail_report) == ATP_ERR_FORMAT);
+    CHECK(atp_replay_ledger(ledger, fresh, &fail_report) == ATP_ERR_SCHEMA);
     CHECK(fail_report.failed_at_id == id);
+    CHECK(fail_report.failed_schema == ATPERSON_SCHEMA_VERSION + 1u);
+    atp_graph_destroy(fresh);
+    atp_ledger_destroy(ledger);
+
+    /* --- A mixed-schema ledger fails deterministically at the first
+     * unreplayable entry, after replaying the compatible prefix. --- */
+    remove_dir_files(dir);
+    CHECK(atp_mkdir(dir) == 0);
+    ledger = open_ledger(dir);
+    CHECK(atp_ledger_append(ledger, "at://r/9", "did:plc:i", 100u,
+                            atp_ledger_digest("moon", 4u), ATPERSON_SCHEMA_VERSION,
+                            ATP_LEDGER_OUTCOME_LEARNED, "moon", 4u, &id, &status) ==
+          ATP_LEDGER_NEW);
+    CHECK(status == ATP_OK);
+    CHECK(atp_ledger_append(ledger, "at://r/10", "did:plc:j", 100u,
+                            atp_ledger_digest("stone", 5u), ATPERSON_SCHEMA_VERSION + 1u,
+                            ATP_LEDGER_OUTCOME_LEARNED, "stone", 5u, &id, &status) ==
+          ATP_LEDGER_NEW);
+    CHECK(status == ATP_OK);
+    fresh = atp_graph_create(&config);
+    fail_report = (atp_replay_report){0};
+    CHECK(atp_replay_ledger(ledger, fresh, &fail_report) == ATP_ERR_SCHEMA);
+    CHECK(fail_report.failed_at_id == id);
+    CHECK(fail_report.failed_schema == ATPERSON_SCHEMA_VERSION + 1u);
+    CHECK(fail_report.replayed == 1u); /* the schema-1 prefix was applied */
     atp_graph_destroy(fresh);
     atp_ledger_destroy(ledger);
 
@@ -255,8 +289,10 @@ static int run_rebuild_safety(const char *dir) {
     atp_graph_destroy(graph);
     atp_ledger_destroy(ledger);
 
-    /* Corrupt the ledger with an unreplayable entry (schema mismatch). A
-     * rebuild must fail and leave the snapshot exactly as it was. */
+    /* Corrupt the ledger with an unreplayable entry (incompatible learning
+     * schema). A rebuild must fail with the schema-specific status, name
+     * the entry and schema in the report, and leave the snapshot exactly
+     * as it was. */
     ledger = open_ledger(dir);
     uint64_t id = 0u;
     atp_status status = ATP_OK;
@@ -265,7 +301,13 @@ static int run_rebuild_safety(const char *dir) {
                             &id, &status) == ATP_LEDGER_NEW);
     atp_graph *rebuilt = atp_graph_create(&config);
     atp_replay_report report = {0};
-    CHECK(atp_replay_ledger(ledger, rebuilt, &report) == ATP_ERR_FORMAT);
+    CHECK(atp_replay_ledger(ledger, rebuilt, &report) == ATP_ERR_SCHEMA);
+    CHECK(report.failed_at_id == id);
+    CHECK(report.failed_schema == ATPERSON_SCHEMA_VERSION + 1u);
+    /* The compatibility table is the single policy point. */
+    CHECK(atp_schema_can_replay(ATPERSON_SCHEMA_VERSION));
+    CHECK(!atp_schema_can_replay(ATPERSON_SCHEMA_VERSION + 1u));
+    CHECK(!atp_schema_can_replay(0u));
     /* The partially trained graph is discarded; the snapshot was never
      * touched by the failed rebuild. */
     atp_graph_destroy(rebuilt);

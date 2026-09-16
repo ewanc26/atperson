@@ -30,7 +30,7 @@
 #define ATP_SNAPSHOT_MAGIC "ATPERSN5"
 #define ATP_SNAPSHOT_MAGIC_V4 "ATPERSN1"
 
-/* Section tags. 1-7 are the v5 baseline; unknown tags are skipped. */
+/* Section tags. 1-8 are the v5 baseline; unknown tags are skipped. */
 #define ATP_SECTION_HEADER 1u        /* dims, config, rng state, counters */
 #define ATP_SECTION_NETWORK 2u       /* neural parameters (fixed layout) */
 #define ATP_SECTION_NODES 3u        /* vocabulary nodes + familiarity */
@@ -38,6 +38,7 @@
 #define ATP_SECTION_LEDGER 5u       /* mirrored observation ledger */
 #define ATP_SECTION_EPISODES 6u    /* episodic memory */
 #define ATP_SECTION_FAMILIARITY 7u /* per-node familiarity (split out) */
+#define ATP_SECTION_SCHEMA 8u      /* learning schema that produced this state */
 
 /* ---- Growable in-memory buffer; encoded fully, then written once. ---- */
 
@@ -240,6 +241,21 @@ static bool atp_encode_ledger(const atp_graph *graph, atp_buffer *buffer) {
     return ok;
 }
 
+static bool atp_encode_schema(const atp_graph *graph, atp_buffer *buffer) {
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_SCHEMA)) {
+        return false;
+    }
+    /* The learning schema that produced this state. A graph trained under
+     * schema N must not be extended by schema M != N code: the section is
+     * absent only in v5 snapshots written before section 8 existed, which
+     * are all schema 1. */
+    const bool ok = atp_buffer_u32(buffer, ATPERSON_SCHEMA_VERSION);
+    atp_section_end(&section);
+    (void)graph;
+    return ok;
+}
+
 static bool atp_encode_episodes(const atp_graph *graph, atp_buffer *buffer) {
     atp_section_writer section;
     if (!atp_section_begin(buffer, &section, ATP_SECTION_EPISODES)) {
@@ -278,6 +294,7 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
         atp_encode_header(graph, &buffer) && atp_encode_network(graph, &buffer) &&
         atp_encode_nodes(graph, &buffer) && atp_encode_edges(graph, &buffer) &&
         atp_encode_ledger(graph, &buffer) && atp_encode_episodes(graph, &buffer) &&
+        atp_encode_schema(graph, &buffer) &&
         atp_buffer_u64(&buffer, atp_fnv1a64(buffer.data, buffer.size));
     if (!encoded) {
         free(buffer.data);
@@ -586,7 +603,8 @@ static bool atp_decode_episodes(atp_reader *reader, atp_graph *graph) {
 static atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *status) {
     atp_reader reader = {data, size, 12u}; /* past magic + version */
     atp_graph *graph = NULL;
-    bool seen[8] = {false};
+    bool seen[9] = {false};
+    uint32_t learning_schema = 1u; /* absent section means pre-section-8 v5 */
 
     /* Sections may appear in any order; unknown tags are skipped. */
     while (reader.size - reader.position > 8u) {
@@ -594,10 +612,10 @@ static atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status
         if (!atp_reader_section(&reader, &section)) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
-        if (section.tag != 0u && section.tag <= 7u && seen[section.tag]) {
+        if (section.tag != 0u && section.tag <= 8u && seen[section.tag]) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
-        if (section.tag != 0u && section.tag <= 7u) {
+        if (section.tag != 0u && section.tag <= 8u) {
             seen[section.tag] = true;
         }
         const size_t payload_end = reader.position + (size_t)section.length;
@@ -647,6 +665,18 @@ static atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status
         case ATP_SECTION_EPISODES:
             ok = graph && atp_decode_episodes(&reader, graph);
             break;
+        case ATP_SECTION_SCHEMA: {
+            /* The learning schema that produced this state. Refuse foreign
+             * schemas: extending a graph trained under one algorithm with
+             * another would ambiguously mix models. Rebuild from the
+             * ledger (or start a new generation) instead. */
+            uint32_t schema = 0u;
+            ok = atp_reader_u32(&reader, &schema) && schema > 0u;
+            if (ok) {
+                learning_schema = schema;
+            }
+            break;
+        }
         case ATP_SECTION_FAMILIARITY: {
             /* v5 kept familiarity inside NODES; a separate section would be
              * a later extension. Skip it. */
@@ -673,6 +703,13 @@ static atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status
         !seen[ATP_SECTION_NODES] || !seen[ATP_SECTION_EDGES] || !seen[ATP_SECTION_LEDGER] ||
         !seen[ATP_SECTION_EPISODES]) {
         return atp_load_failure(graph, status, ATP_ERR_FORMAT);
+    }
+
+    /* A snapshot trained under a learning schema this core cannot replay
+     * must not be extended by the current algorithm: the state is intact,
+     * the model generation is the mismatch. */
+    if (!atp_schema_can_replay(learning_schema)) {
+        return atp_load_failure(graph, status, ATP_ERR_SCHEMA);
     }
 
     /* Trailing digest over everything before it. */

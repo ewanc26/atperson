@@ -878,6 +878,8 @@ const char *atp_status_string(atp_status status) {
         return "invalid snapshot format";
     case ATP_ERR_NOT_FOUND:
         return "not found";
+    case ATP_ERR_SCHEMA:
+        return "learning schema not replayable by this build";
     }
     return "unknown error";
 }

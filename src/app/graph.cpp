@@ -4,6 +4,7 @@
 #include "atperson/ledger.hpp"
 
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace atperson {
@@ -48,6 +49,12 @@ LanguageGraph LanguageGraph::load(const std::filesystem::path &path) {
     atp_status status = ATP_OK;
     atp_graph *graph = atp_graph_load(path.string().c_str(), &status);
     if (!graph) {
+        if (status == ATP_ERR_SCHEMA) {
+            throw std::runtime_error(
+                "load language graph: the snapshot was trained under a learning schema "
+                "this build cannot extend; rebuild from the ledger with `atperson rebuild` "
+                "or start a new model generation");
+        }
         require(status, "load language graph");
         throw std::runtime_error("load language graph: unknown failure");
     }
@@ -188,7 +195,15 @@ float LanguageGraph::familiarity(std::string_view token) const noexcept {
 
 atp_replay_report LanguageGraph::replay(const Ledger &ledger) {
     atp_replay_report report = {};
-    require(atp_replay_ledger(ledger.handle(), graph_, &report), "replay ledger");
+    const atp_status status = atp_replay_ledger(ledger.handle(), graph_, &report);
+    if (status == ATP_ERR_SCHEMA) {
+        throw std::runtime_error(
+            "replay ledger: entry " + std::to_string(report.failed_at_id) +
+            " was recorded under learning schema " + std::to_string(report.failed_schema) +
+            ", which this build cannot replay; start a new model generation or compact "
+            "the ledger under the current schema");
+    }
+    require(status, "replay ledger");
     return report;
 }
 

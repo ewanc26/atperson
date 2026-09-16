@@ -28,9 +28,34 @@
  * A LEARNED entry without a retained payload (a v1-migrated ledger) cannot
  * be replayed — the training input is gone — and fails the whole rebuild
  * rather than silently producing a graph that never saw those bytes. The
- * same applies to schema versions the core does not implement: they fail
- * clearly instead of being reinterpreted.
+ * same applies to schema versions the core cannot replay: they fail with
+ * ATP_ERR_SCHEMA instead of being reinterpreted.
  */
+
+/*
+ * Learning-schema compatibility table.
+ *
+ * Every entry replay consults atp_schema_can_replay. When a learning
+ * change bumps ATPERSON_SCHEMA_VERSION, the same change records its
+ * compatibility decision here:
+ *
+ * - Replay-compatible: add the old version below. Replay re-applies the
+ *   entry through the current observe path, which reproduces the old
+ *   learning effect.
+ * - Adapter migration: add the old version below and dispatch on it in the
+ *   replay loop to a versioned handler that reproduces the old behaviour.
+ * - Incompatible: do not add it. Replay fails with ATP_ERR_SCHEMA naming
+ *   the entry; the operator starts a fresh model generation.
+ */
+bool atp_schema_can_replay(uint32_t version) {
+    switch (version) {
+    case 1u:
+        /* Schema 1: the current learning algorithm. */
+        return true;
+    default:
+        return false;
+    }
+}
 
 atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
                              atp_replay_report *report) {
@@ -56,12 +81,16 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
             break;
         }
 
-        if (entry.schema_version != ATPERSON_SCHEMA_VERSION) {
-            /* Future schema versions must not be silently reinterpreted. */
+        if (!atp_schema_can_replay(entry.schema_version)) {
+            /* Entries recorded under a schema this core cannot replay are
+             * intact data under the wrong algorithm: refuse with a
+             * schema-specific status and name the entry, so the operator
+             * knows exactly where the model-generation boundary is. */
             if (report) {
                 report->failed_at_id = entry.id;
+                report->failed_schema = entry.schema_version;
             }
-            status = ATP_ERR_FORMAT;
+            status = ATP_ERR_SCHEMA;
             break;
         }
 

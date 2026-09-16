@@ -272,8 +272,7 @@ Outcome semantics are explicit:
 A LEARNED entry without a retained payload (a v1-migrated ledger) cannot be
 replayed — the training input is gone — and fails the whole rebuild with
 `ATP_ERR_FORMAT` and `report->failed_at_id` set, rather than silently
-producing a graph that never saw those bytes. Schema versions the core does
-not implement fail the same way instead of being reinterpreted.
+producing a graph that never saw those bytes.
 
 The CLI surfaces this as `atperson rebuild`: it takes the writer lock,
 replays the ledger into a fresh graph, and saves the result atomically
@@ -281,6 +280,45 @@ replays the ledger into a fresh graph, and saves the result atomically
 failure at any point — unreplayable entry, digest mismatch — leaves the
 previous snapshot untouched; the rebuilt snapshot replaces it only on
 success. Two rebuilds of the same ledger produce byte-identical snapshots.
+
+### Learning-schema compatibility
+
+Every ledger entry records the learning schema it was observed under
+(`schema_version`): the identity of the tokenisation, negative sampling,
+memory selection, familiarity, and training equations that gave the
+observation its learning meaning. Replay consults one compatibility
+predicate, `atp_schema_can_replay(version)`, for every entry. Snapshots
+record the schema that produced their state (section 8) and load refuses
+foreign ones. The data being intact but the algorithm being the mismatch
+is reported as `ATP_ERR_SCHEMA` — distinct from `ATP_ERR_FORMAT`
+(corruption) — with `report->failed_at_id` and `report->failed_schema`
+naming exactly where a mixed ledger broke.
+
+When a change to the learning algorithm bumps `ATPERSON_SCHEMA_VERSION`,
+the same change records its compatibility decision in the table. Three
+classes:
+
+| Class | Table entry | Replay behaviour |
+|-------|-------------|------------------|
+| Replay-compatible | version listed | Entry re-applied through the current observe path, which reproduces the old learning effect |
+| Adapter migration | version listed, handler dispatched on it | Versioned handler reproduces the old behaviour for those entries |
+| Incompatible | version absent | Replay fails with `ATP_ERR_SCHEMA` naming the entry; start a fresh model generation |
+
+Mixed-schema ledgers accumulated across upgrades replay deterministically
+in id order and fail at the first unreplayable entry — old and new
+algorithms are never ambiguously mixed in one graph. A snapshot written
+under schema N is refused by code that cannot replay N: extend it via
+`atperson rebuild` from the ledger, or start a new generation. The
+model-generation boundary is therefore explicit: a schema bump that
+changes training semantics invalidates the old snapshot as a continuation
+point, never silently.
+
+Review guidance: any PR touching tokenisation, sampling, memory selection,
+familiarity, or the training equations must include a schema-version
+decision — bump plus a table entry (or a deliberate absence) — and a test
+demonstrating the transition. Fixtures cover both directions: a compatible
+transition (schema-1 entries replaying under a bumped core via the table)
+and an incompatible one (foreign schema refused with `ATP_ERR_SCHEMA`).
 
 ## Source withdrawal and unlearning
 

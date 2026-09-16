@@ -122,6 +122,61 @@ static void test_v5_magic_and_layout(void) {
     remove(SNAPSHOT_PATH);
 }
 
+static void test_learning_schema_section(void) {
+    /* The schema section records which learning algorithm produced the
+     * state. A compatible schema loads; a foreign one is refused with the
+     * schema-specific status rather than silently extended. */
+    atp_graph *graph = build_sample_graph();
+    assert(atp_graph_save(graph, SNAPSHOT_PATH) == ATP_OK);
+    atp_graph_destroy(graph);
+
+    size_t size = 0u;
+    unsigned char *data = read_file(SNAPSHOT_PATH, &size);
+
+    /* Find the schema section (tag 8) and verify it records schema 1. */
+    size_t position = 12u;
+    bool found = false;
+    while (position + 12u <= size - 8u) {
+        uint32_t tag = 0u;
+        uint64_t length = 0u;
+        for (unsigned i = 0u; i < 4u; ++i) {
+            tag |= (uint32_t)data[position + i] << (8u * i);
+        }
+        for (unsigned i = 0u; i < 8u; ++i) {
+            length |= (uint64_t)data[position + 4u + i] << (8u * i);
+        }
+        if (tag == 8u) {
+            found = true;
+            assert(length == 4u);
+            assert(data[position + 12u] == 1u); /* schema 1, u32le */
+            break;
+        }
+        position += 12u + (size_t)length;
+    }
+    assert(found);
+
+    /* Rewrite the schema section with a foreign version and fix the
+     * digest: the load must fail with ATP_ERR_SCHEMA. */
+    data[position + 12u] = ATPERSON_SCHEMA_VERSION + 1u;
+    uint64_t digest = 1469598103934665603u;
+    for (size_t i = 0u; i < size - 8u; ++i) {
+        digest ^= data[i];
+        digest *= 1099511628211u;
+    }
+    for (unsigned i = 0u; i < 8u; ++i) {
+        data[size - 8u + i] = (unsigned char)((digest >> (8u * i)) & 0xffu);
+    }
+    write_file(CORRUPT_PATH, data, size);
+    atp_status status = ATP_OK;
+    atp_graph *loaded = atp_graph_load(CORRUPT_PATH, &status);
+    assert(loaded == NULL);
+    assert(status == ATP_ERR_SCHEMA);
+
+    free(data);
+    remove(SNAPSHOT_PATH);
+    remove(CORRUPT_PATH);
+}
+
 static void test_roundtrip_stability(void) {
     /* Save, load, save again: the second image must be byte-identical.
      * This pins the encoding (little-endian, section order, digest). */
@@ -423,6 +478,7 @@ static void test_bad_magic_rejected(void) {
 int main(void) {
     assert(ATPERSON_SNAPSHOT_VERSION == 5u);
     test_v5_magic_and_layout();
+    test_learning_schema_section();
     test_roundtrip_stability();
     test_truncated_rejected();
     test_digest_rejects_bitrot();
