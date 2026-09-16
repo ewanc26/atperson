@@ -302,6 +302,8 @@ static void test_ceiling_replay_equivalence(void) {
     atp_graph_destroy(tight);
     atp_ledger_destroy(ledger);
     remove(LEDGER_PATH);
+    remove("atperson-growth-test-ledger.bin.off");
+    remove("atperson-growth-test-ledger.bin.off.tmp");
 }
 
 int main(int argc, char **argv) {

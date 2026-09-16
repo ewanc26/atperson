@@ -96,6 +96,29 @@ extern "C" {
 #define ATPERSON_EPISODE_SUMMARY_SIZE 8u
 #define ATPERSON_EPISODE_DEFAULT_CAPACITY 4096u
 
+/*
+ * Concurrency contract.
+ *
+ * The C23 core is single-threaded by design. No core object (atp_graph,
+ * atp_ledger) contains internal locking; every function assumes it owns
+ * its arguments exclusively for the duration of the call. Callers own
+ * serialisation: either confine each object to one thread, or serialise
+ * every access through an explicit lock in the runtime layer.
+ *
+ * Const-qualified read paths are safe to call concurrently with each
+ * other only while no writer is active — the core does not use
+ * atomics, so concurrent read+write on one object is undefined
+ * behaviour even for "read-only" calls (recall mutates recall
+ * counters; lookup consults derived indexes).
+ *
+ * The C++23 runtime parallelises around this contract, not through
+ * it: ingestion, I/O and orchestration may run on worker threads, but
+ * every touch of a core object passes through one owner thread or an
+ * explicit serialisation point. Learning stays deterministic —
+ * parallel work must not change what an observation learns, ledger
+ * commit order, or replay results.
+ */
+
 typedef enum atp_status {
     ATP_OK = 0,
     ATP_ERR_INVALID_ARGUMENT = 1,
