@@ -1,6 +1,7 @@
 #include "atperson/graph.hpp"
 
 #include "atperson/action.h"
+#include "atperson/ledger.hpp"
 
 #include <stdexcept>
 #include <utility>
@@ -183,6 +184,12 @@ std::vector<atp_episode> LanguageGraph::episodes() const {
 float LanguageGraph::familiarity(std::string_view token) const noexcept {
     const std::string owned_token(token);
     return atp_graph_familiarity(graph_, owned_token.c_str());
+}
+
+atp_replay_report LanguageGraph::replay(const Ledger &ledger) {
+    atp_replay_report report = {};
+    require(atp_replay_ledger(ledger.handle(), graph_, &report), "replay ledger");
+    return report;
 }
 
 } // namespace atperson

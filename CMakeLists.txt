@@ -24,6 +24,7 @@ add_library(
   src/core/bootstrap.c
   src/core/neural.c
   src/core/ledger.c
+  src/core/replay.c
   src/core/persistence.c)
 target_include_directories(
   atperson_core
@@ -185,6 +186,17 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson_ledger_migration
     COMMAND atperson_ledger_test migration
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-migration)
+
+  # Deterministic replay/rebuild from the ledger; pure core, no network.
+  add_executable(atperson_replay_test tests/replay_test.c)
+  target_link_libraries(atperson_replay_test PRIVATE atperson_core)
+  add_test(
+    NAME atperson_replay
+    COMMAND atperson_replay_test replay ${CMAKE_CURRENT_BINARY_DIR}/replay)
+  add_test(
+    NAME atperson_replay_rebuild_safety
+    COMMAND atperson_replay_test rebuild-safety
+            ${CMAKE_CURRENT_BINARY_DIR}/replay-safety)
 
   add_executable(atperson_cpp_test tests/cpp_test.cpp)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)

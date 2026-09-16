@@ -36,6 +36,7 @@ stages, with later stages intentionally incomplete:
 | Action model | First pass implemented | Deterministic, read-only continuation candidates with inspectable score components |
 | Network behaviour | Not enabled | Wolfram-backed ingestion exists; autonomous likes, replies, follows, reposts, and posts do not |
 | Ingestion policy | Implemented | Explicit public-data policy: skip classes with machine-readable reasons, self-observation excluded, skipped items ledgered as `SKIPPED` |
+| Deterministic replay | Implemented | `atp_replay_ledger` + `atperson rebuild`: rebuild learned state from the ledger alone, explicit outcome semantics, atomic snapshot replacement, byte-identical rebuilds |
 | Long-running runtime | Future work | `sync` is an explicitly-invoked bounded run with persistent catch-up state rather than a continuously operating agent |
 
 The model begins with **zero words and zero relationships**. Neural parameters
@@ -243,6 +244,25 @@ Inspect or reset the catch-up position:
 ./build/atperson cursor status
 ./build/atperson cursor reset
 ```
+
+### Rebuild
+
+Reconstruct learned state from the observation ledger alone — no network
+access, no snapshot required:
+
+```sh
+./build/atperson rebuild
+```
+
+Entries replay in ledger id order through the same observe path `sync`
+uses, so the rebuilt graph is what the original run would have produced from
+the same bytes. `LEARNED` entries re-train from their retained payloads;
+`SKIPPED` entries mirror only; `PENDING`/`FAILED` are excluded. The new
+snapshot replaces the old one atomically — a failure at any point leaves the
+previous snapshot untouched, and two rebuilds of the same ledger produce
+byte-identical snapshots. A payload-less `LEARNED` entry (v1-migrated
+ledger) or an unimplemented schema version fails the rebuild rather than
+silently producing a graph that never saw those bytes.
 
 `sync` records each fetched post in the durable ledger before learning from it.
 Already committed `(source id + digest)` pairs are skipped on later runs. Empty

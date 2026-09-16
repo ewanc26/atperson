@@ -13,6 +13,8 @@
 
 namespace atperson {
 
+class Ledger;
+
 struct Association {
     std::string token;
     float score{};
@@ -74,6 +76,16 @@ class LanguageGraph {
      */
     void record_ledger_entry(const atp_ledger_entry &entry);
     [[nodiscard]] std::vector<atp_ledger_entry> ledger_entries() const;
+
+    /**
+     * Deterministic replay: re-apply every committed observation in `ledger`
+     * to this graph in ledger id order. Pass a freshly constructed graph
+     * for a rebuild. Throws on the first entry that cannot be replayed
+     * (payload-less LEARNED entry, incompatible schema version, digest
+     * mismatch); the graph is left partially trained, so callers discard it
+     * on failure. No network access.
+     */
+    atp_replay_report replay(const Ledger &ledger);
 
   private:
     explicit LanguageGraph(atp_graph *graph) noexcept;

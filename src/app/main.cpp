@@ -99,6 +99,7 @@ void usage(std::ostream &out) {
         << "  atperson familiarity <token>\n"
         << "  atperson recall <query> [limit]\n"
         << "  atperson sync [max-pages]\n"
+        << "  atperson rebuild\n"
         << "  atperson cursor [status|reset]\n\n"
         << "environment:\n"
         << "  ATPERSON_STATE            model snapshot path "
@@ -306,6 +307,36 @@ int main(int argc, char **argv) {
                       << result.skipped << ", duplicate " << result.duplicates
                       << ") public timeline posts\n";
             print_stats(graph);
+            return 0;
+        }
+
+        if (command == "rebuild") {
+            /* Rebuild learned state from the observation ledger alone: no
+             * network access, and the existing snapshot is only replaced
+             * after the replayed graph has been written atomically. A
+             * failure at any point leaves the previous snapshot untouched. */
+            const atperson::StateLock writer_lock(data_dir());
+            const std::filesystem::path ledger_file = ledger_path();
+            if (!std::filesystem::exists(ledger_file)) {
+                throw std::runtime_error("no ledger at " + ledger_file.string() +
+                                         "; nothing to rebuild from");
+            }
+            atperson::Ledger ledger(ledger_file);
+
+            /* Replay into a fresh graph: same default config, so the PRNG
+             * stream and every training decision reproduce the original
+             * run from the same bytes. */
+            atperson::LanguageGraph rebuilt;
+            const auto report = rebuilt.replay(ledger);
+
+            /* atp_graph_save writes to <path>.tmp, fsyncs, and renames —
+             * the previous snapshot survives any failure here. */
+            rebuilt.save(path);
+            std::cout << "replayed " << report.replayed << " observation(s) from the ledger"
+                      << " (mirrored " << report.mirrored << " skipped, excluded "
+                      << report.excluded_pending << " pending and " << report.excluded_failed
+                      << " failed)\n";
+            print_stats(rebuilt);
             return 0;
         }
 

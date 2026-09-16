@@ -249,6 +249,37 @@ replayable; the ledger remains authoritative for rebuilds.
 Deleting a learned contribution is still an open problem; the preferred model
 remains rebuild-from-ledger rather than approximate inverse gradient steps.
 
+### Deterministic rebuild
+
+`atp_replay_ledger(ledger, graph, report)` reconstructs learned state from
+the ledger alone — no network access, no snapshot required. Entries are
+re-applied in ledger id order (the order they were originally observed in)
+through the same observe path sync uses, so a rebuilt graph is what the
+original run would have produced from the same bytes: same config seed, same
+PRNG stream, same training decisions.
+
+Outcome semantics are explicit:
+
+| Outcome | Replay behaviour |
+|---------|------------------|
+| `LEARNED` | Payload re-observed (training, episodic memory, familiarity), entry mirrored |
+| `SKIPPED` | Mirrored only — observed but deliberately not learned, as the original run decided |
+| `PENDING` | Excluded — retryable reservation, not committed experience |
+| `FAILED` | Excluded — examined but untrainable, retryable |
+
+A LEARNED entry without a retained payload (a v1-migrated ledger) cannot be
+replayed — the training input is gone — and fails the whole rebuild with
+`ATP_ERR_FORMAT` and `report->failed_at_id` set, rather than silently
+producing a graph that never saw those bytes. Schema versions the core does
+not implement fail the same way instead of being reinterpreted.
+
+The CLI surfaces this as `atperson rebuild`: it takes the writer lock,
+replays the ledger into a fresh graph, and saves the result atomically
+(tmp + fsync + rename, the same path `atp_graph_save` always uses). A
+failure at any point — unreplayable entry, digest mismatch — leaves the
+previous snapshot untouched; the rebuilt snapshot replaces it only on
+success. Two rebuilds of the same ledger produce byte-identical snapshots.
+
 ## Episodic memory
 
 The ledger is the durable, complete record; memory is a curated facet of it.

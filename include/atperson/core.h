@@ -282,6 +282,49 @@ atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void 
                                      size_t capacity, size_t *out_len);
 
 /*
+ * Deterministic replay.
+ *
+ * Rebuild learned state by re-applying the ledger's committed observations
+ * to a fresh graph in ledger id order (the order they were originally
+ * observed in). Replay uses the same observe path as live sync, so the
+ * rebuilt state is what the original run produced from the same bytes.
+ *
+ * Outcome semantics:
+ * - LEARNED   -> re-observed (training, episodic memory, familiarity) and
+ *   mirrored into the snapshot; requires a retained payload.
+ * - SKIPPED   -> mirrored only, never trained on.
+ * - PENDING / FAILED -> excluded entirely: retryable reservations, not
+ *   committed experience.
+ *
+ * A LEARNED entry without a retained payload (v1-migrated ledger) fails the
+ * rebuild with ATP_ERR_FORMAT — the training input is gone, and a graph that
+ * silently never saw those bytes would be a lie. Schema versions other than
+ * the one this core implements fail the same way.
+ */
+
+/** Replay counters; zeroed on entry, filled on success. */
+typedef struct atp_replay_report {
+    /** LEARNED entries re-observed. */
+    size_t replayed;
+    /** SKIPPED entries mirrored without training. */
+    size_t mirrored;
+    /** PENDING entries excluded. */
+    size_t excluded_pending;
+    /** FAILED entries excluded. */
+    size_t excluded_failed;
+    /** Ledger id of the entry that failed (0 when none did). */
+    uint64_t failed_at_id;
+} atp_replay_report;
+
+/**
+ * Re-apply every committed observation in `ledger` to `graph` in id order.
+ * `report` may be NULL. The graph is not cleared: callers pass a freshly
+ * created graph for a rebuild.
+ */
+atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
+                             atp_replay_report *report);
+
+/*
  * Graph-side ledger mirror.
  *
  * The graph snapshot stores a versioned mirror of the ledger entries the

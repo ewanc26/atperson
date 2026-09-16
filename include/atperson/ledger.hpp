@@ -64,6 +64,9 @@ class Ledger {
      */
     [[nodiscard]] std::string payload(std::uint64_t id) const;
 
+    /** Borrowed C handle (for core functions that take a ledger). */
+    [[nodiscard]] const atp_ledger *handle() const noexcept { return ledger_; }
+
   private:
     atp_ledger *ledger_{};
 };
