@@ -778,7 +778,6 @@ void atp_ledger_destroy(atp_ledger *ledger) {
     }
     if (ledger->log) {
         atp_fsync(ledger->log);
-        fclose(ledger->log);
     }
     atp_ledger_release(ledger);
 }
