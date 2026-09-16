@@ -192,6 +192,18 @@ ingestion cursor (`ingestion-state.json`). Override individual paths with
 `ATPERSON_STATE`, `ATPERSON_LEDGER`, and `ATPERSON_INGESTION_STATE`, or the
 whole directory with `ATPERSON_HOME`.
 
+On first run atperson bootstraps the data directory (mode `0700`) and writes
+a `.env` template (mode `0600`) documenting every environment variable it
+reads — fill in `ATPERSON_IDENTIFIER` and `ATPERSON_APP_PASSWORD` there and
+source it before running `sync`:
+
+```sh
+set -a; . ~/.ewanc26/atperson/.env; set +a
+```
+
+The bootstrap is idempotent and never touches an existing directory or
+`.env`.
+
 ```sh
 ./build/atperson stats
 ./build/atperson ingest "hello world" local:first-observation
@@ -241,6 +253,13 @@ tokens.
 continuously operating runtime should come only after replay/unlearning
 semantics, explicit action policy, rate limiting, operator controls, and
 stronger recovery behaviour are in place.
+
+Mutating commands (`ingest`, `ingest-file`, `sync`, `cursor reset`) take an
+exclusive writer lock on the data directory before touching durable state, so
+two processes cannot mutate the same state concurrently. A lock left behind
+by a dead process is detected and reclaimed automatically. Read-only commands
+run without the lock and see state as of their own read — a concurrent writer
+may commit after the reader started.
 
 ## Current boundaries
 

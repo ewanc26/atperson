@@ -57,11 +57,50 @@ The C++ layer owns concerns that should not become part of the model itself:
 - protocol event translation; the C++ sync path feeds the ledger, which owns
   the deduplication;
 - the runtime ingestion cursor (see below);
+- the state-directory writer lock (see below);
 - future network-action policy, rate limiting, and presentation. Learned
   candidate scoring remains in C23.
 
 `LanguageGraph` is intentionally a thin RAII wrapper over the C API; the
 `Ledger` wrapper is the same for the C23 observation ledger.
+
+## First-run bootstrap
+
+`atp_bootstrap_home` (C23 core, `src/core/bootstrap.c`) runs before any
+command: when the data directory or `.env` file does not exist it creates
+both — the directory at mode `0700`, the `.env` template at mode `0600`. The
+template documents every environment variable atperson reads; the operator
+fills in credentials and sources it. atperson never parses `.env` itself —
+it reads the environment, the file is operator convenience only.
+
+The bootstrap is idempotent: existing files and directories are never
+modified, and a run that creates nothing reports nothing. It contains no
+learning logic and no network access; it is environment preparation, so it
+lives in the core layer where it can be tested without the runtime.
+
+## State-directory writer lock
+
+The snapshot, ledger, commit marker, and ingestion cursor form one logical
+state set. Every mutating command (`ingest`, `ingest-file`, `sync`,
+`cursor reset`) acquires an exclusive lock on the data directory before
+touching durable state: a `.writer-lock` file created with `O_CREAT|O_EXCL`,
+recording the owner's pid, a boot marker, and the acquisition time. Release
+removes the file; RAII guarantees release on normal exit, exception, or
+stack unwind.
+
+Stale detection: a lockfile whose owner pid is dead, or whose boot marker
+differs from the current boot (the machine rebooted), is provably stale and
+reclaimed. A lockfile owned by a live process is respected — acquisition
+fails with a diagnostic naming the holder. An empty lockfile (the
+microsecond window between create and metadata write) is given a short
+grace period, then treated as abandoned.
+
+Consistency model for readers: read-only commands (`stats`, `assoc`,
+`candidates`, `familiarity`, `recall`, `cursor status`) run without the lock
+and observe the snapshot and ledger as of their own read. A concurrent
+writer may commit after a reader started; readers never block writers and
+writers never wait for readers. This is the documented trade-off until a
+shared-lock reader path is needed.
 
 ## Wolfram boundary
 
