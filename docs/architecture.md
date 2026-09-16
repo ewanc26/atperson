@@ -56,6 +56,7 @@ The C++ layer owns concerns that should not become part of the model itself:
 - scheduling;
 - protocol event translation; the C++ sync path feeds the ledger, which owns
   the deduplication;
+- the runtime ingestion cursor (see below);
 - future network-action policy, rate limiting, and presentation. Learned
   candidate scoring remains in C23.
 
@@ -175,6 +176,44 @@ PENDING)` -> `remember(...)` -> `set_outcome(id, LEARNED)` (or `SKIPPED` for
 empty text), then the entry is mirrored into the graph snapshot (v2) and the
 episode (if selected) is stored in memory (v3). The ledger remains
 authoritative for rebuilds; memory is linked to it by ledger id.
+
+### Ingestion cursor
+
+`sync` consumes bounded timeline pages through Wolfram's cursor-aware
+`wf_agent_get_timeline` and persists an **interrupted catch-up checkpoint** in
+`~/.ewanc26/atperson/ingestion-state.json` (versioned JSON format
+`atperson-ingestion-state`, override with `ATPERSON_INGESTION_STATE`). The
+cursor is C++ runtime metadata, never learned C23 state: it is not part of
+the model snapshot and cannot influence the graph.
+
+The authority hierarchy is explicit:
+
+```text
+observation ledger = authority for what has been committed
+model snapshot     = durable learned state
+ingestion state    = fetching optimisation/checkpoint only
+```
+
+The AT Protocol cursor is opaque — it is read, persisted, and passed back to
+Wolfram, never parsed or compared. Ordering invariant: every observation in a
+page is durably processed before that page's cursor is checkpointed, so a
+crash mid-page refetches the same page on restart and ledger deduplication
+suppresses anything already committed. A failed run advances nothing.
+
+When a traversal reaches exhaustion the cursor is cleared; the next
+independent sync starts at the current timeline head again and the ledger
+filters already-seen `(source id, digest)` pairs, so an expired cursor can
+never cause new head posts to be skipped. A cursor the service rejects is
+reported, discarded, and the run restarts from the head — a fetching-state
+failure, never a model-state failure. The cursor is bound to the
+authenticated account DID, service URL, and endpoint, so a cursor from
+another account or service is never reused.
+
+`checkpoint.generation` (monotonic), `saved_at` (RFC 3339 UTC),
+`pages_completed`, and `observations_seen` are operational telemetry only.
+`atperson cursor status` inspects the checkpoint; `atperson cursor reset`
+explicitly clears it. Persistence is atomic (temp file + rename), and a
+leftover `.tmp` file never takes precedence over the committed state.
 
 ## Internal state
 

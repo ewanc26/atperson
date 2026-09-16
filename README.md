@@ -35,7 +35,7 @@ stages, with later stages intentionally incomplete:
 | Internal state | First pass implemented | Per-token familiarity learned purely from repeated exposure |
 | Action model | First pass implemented | Deterministic, read-only continuation candidates with inspectable score components |
 | Network behaviour | Not enabled | Wolfram-backed ingestion exists; autonomous likes, replies, follows, reposts, and posts do not |
-| Long-running runtime | Future work | `sync` is currently one-shot rather than a continuously operating agent |
+| Long-running runtime | Future work | `sync` is an explicitly-invoked bounded run with persistent catch-up state rather than a continuously operating agent |
 
 The model begins with **zero words and zero relationships**. Neural parameters
 have small deterministic random initial values so learning can start, but there
@@ -186,9 +186,11 @@ each job verifies.
 
 ## Runtime
 
-State defaults to `.atperson/model.bin`; the observation ledger defaults to
-`.atperson/ledger.bin`. Override them with `ATPERSON_STATE` and
-`ATPERSON_LEDGER`.
+All atperson data lives under `~/.ewanc26/atperson/` by default: the model
+snapshot (`model.bin`), the observation ledger (`ledger.bin`), and the
+ingestion cursor (`ingestion-state.json`). Override individual paths with
+`ATPERSON_STATE`, `ATPERSON_LEDGER`, and `ATPERSON_INGESTION_STATE`, or the
+whole directory with `ATPERSON_HOME`.
 
 ```sh
 ./build/atperson stats
@@ -207,11 +209,27 @@ export ATPERSON_IDENTIFIER="handle.example"
 export ATPERSON_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
 export ATPERSON_SERVICE="https://bsky.social" # optional
 
-./build/atperson sync 50
+./build/atperson sync 5
 ```
 
 Credentials are read from environment variables rather than command-line
 arguments. Do not commit them.
+
+`sync` consumes up to `max-pages` bounded timeline pages per run through
+Wolfram's cursor-aware timeline API. Each page is processed durably before
+its cursor is checkpointed, so a crash mid-page refetches the same page and
+ledger deduplication suppresses anything already committed. An interrupted
+traversal is resumed on the next run from the persisted cursor; once the
+timeline is exhausted the cursor is cleared and the next sync starts at the
+current head again. A cursor the service rejects is reported and discarded —
+the ledger, not the cursor, is the authority for what has been learned.
+
+Inspect or reset the catch-up position:
+
+```sh
+./build/atperson cursor status
+./build/atperson cursor reset
+```
 
 `sync` records each fetched post in the durable ledger before learning from it.
 Already committed `(source id + digest)` pairs are skipped on later runs. Empty
@@ -219,10 +237,10 @@ records remain represented in the ledger but are not trained. Trainable posts
 flow through the episodic-memory path and can be recalled by overlapping known
 tokens.
 
-`sync` is intentionally one-shot at this stage. A continuously operating
-runtime should come only after replay/unlearning semantics, explicit action
-policy, rate limiting, operator controls, and stronger recovery behaviour are
-in place.
+`sync` is still an explicitly-invoked, bounded run at this stage. A
+continuously operating runtime should come only after replay/unlearning
+semantics, explicit action policy, rate limiting, operator controls, and
+stronger recovery behaviour are in place.
 
 ## Current boundaries
 
