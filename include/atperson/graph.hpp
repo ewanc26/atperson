@@ -1,6 +1,7 @@
 #ifndef ATPERSON_GRAPH_HPP
 #define ATPERSON_GRAPH_HPP
 
+#include "atperson/action.hpp"
 #include "atperson/core.h"
 
 #include <cstddef>
@@ -37,6 +38,8 @@ class LanguageGraph {
     [[nodiscard]] atp_graph_stats stats() const noexcept;
     [[nodiscard]] std::vector<Association> associations(std::string_view token,
                                                         std::size_t limit = 10) const;
+    [[nodiscard]] std::vector<ActionCandidate> action_candidates(std::string_view context,
+                                                                 std::size_t limit = 10) const;
     void save(const std::filesystem::path &path) const;
 
     /**
