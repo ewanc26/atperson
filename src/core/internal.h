@@ -33,6 +33,10 @@ atp_status atp_graph_query_nodes(const atp_graph *graph, const char *query, uint
  * Snapshot loaders call this after restoring nodes and edges; the
  * indexes are derived state and never persisted.
  */
+bool atp_node_index_maybe_grow(atp_graph *graph);
+void atp_node_index_insert(atp_graph *graph, uint32_t node_index);
+bool atp_edge_index_maybe_grow(atp_graph *graph);
+void atp_edge_index_insert(atp_graph *graph, uint32_t edge_index);
 bool atp_graph_rebuild_indexes(atp_graph *graph);
 
 typedef struct atp_node {

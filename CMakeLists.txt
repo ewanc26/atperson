@@ -20,6 +20,10 @@ option(ATPERSON_BUILD_TESTS "Build atperson tests" ON)
 add_library(
   atperson_core
   src/core/graph.c
+  src/core/graph_index.c
+  src/core/graph_store.c
+  src/core/graph_observe.c
+  src/core/graph_query.c
   src/core/memory.c
   src/core/action.c
   src/core/decision.c
