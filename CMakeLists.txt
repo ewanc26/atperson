@@ -198,5 +198,8 @@ if(ATPERSON_BUILD_TESTS)
 
   add_executable(atperson_bootstrap_test tests/bootstrap_test.c)
   target_link_libraries(atperson_bootstrap_test PRIVATE atperson_core)
+  if(UNIX)
+    target_compile_definitions(atperson_bootstrap_test PRIVATE _POSIX_C_SOURCE=200809L)
+  endif()
   add_test(NAME atperson_bootstrap COMMAND atperson_bootstrap_test)
 endif()
