@@ -1,7 +1,9 @@
 #ifndef ATPERSON_GRAPH_HPP
 #define ATPERSON_GRAPH_HPP
 
+#include "atperson/action.h"
 #include "atperson/action.hpp"
+#include "atperson/context.h"
 #include "atperson/core.h"
 
 #include <cstddef>
@@ -42,6 +44,18 @@ class LanguageGraph {
                                                         std::size_t limit = 10) const;
     [[nodiscard]] std::vector<ActionCandidate> action_candidates(std::string_view context,
                                                                  std::size_t limit = 10) const;
+
+    /** Thin read-only wrappers over the authoritative C23 planning APIs. */
+    [[nodiscard]] std::vector<atp_action_plan>
+    action_plans(std::string_view context,
+                 atp_action_plan_config config = atp_action_plan_default_config()) const;
+    [[nodiscard]] atp_action_decision
+    action_decide(std::string_view context,
+                  atp_action_decision_config config = atp_action_decision_default_config()) const;
+    [[nodiscard]] atp_context_selection
+    select_context(const atp_context_request &request,
+                   atp_context_config config = atp_context_default_config()) const;
+
     void save(const std::filesystem::path &path) const;
 
     /**
