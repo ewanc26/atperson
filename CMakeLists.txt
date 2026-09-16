@@ -31,6 +31,7 @@ target_include_directories(
 target_compile_features(atperson_core PUBLIC c_std_23)
 
 if(UNIX)
+  target_compile_definitions(atperson_core PRIVATE _POSIX_C_SOURCE=200809L)
   target_link_libraries(atperson_core PRIVATE m)
 endif()
 
