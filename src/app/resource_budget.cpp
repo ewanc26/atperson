@@ -77,13 +77,16 @@ std::size_t saturating_add(std::size_t current, std::uint64_t extra) {
 }
 
 int automatic_sync_page_size(const SystemResources &system, const ResourceBudget &budget) {
+    /* Page size is a transport/work-batching policy, not learned semantics.
+     * Let fractional CPU quotas and severe memory pressure reduce it all the
+     * way to one instead of preserving a desktop-oriented floor. */
     const double cpu_capacity = std::max(0.01, system.effective_cpu_capacity);
     const int cpu_bound = std::clamp(
-        static_cast<int>(std::lround(12.0 + cpu_capacity * 12.0)), 10, 100);
+        static_cast<int>(std::ceil(cpu_capacity * 12.0)), 1, 100);
 
     const std::uint64_t memory_steps = budget.memory_growth_budget_bytes / (8u * MIB);
     const int memory_bound = static_cast<int>(
-        std::min<std::uint64_t>(100u, 10u + std::min<std::uint64_t>(90u, memory_steps)));
+        std::clamp<std::uint64_t>(1u + memory_steps, 1u, 100u));
 
     const std::uint64_t disk_items =
         budget.disk_write_budget_bytes / OBSERVATION_DISK_RESERVE_BYTES;
