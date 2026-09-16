@@ -20,6 +20,7 @@ option(ATPERSON_BUILD_TESTS "Build atperson tests" ON)
 add_library(
   atperson_core
   src/core/graph.c
+  src/core/action.c
   src/core/neural.c
   src/core/ledger.c
   src/core/persistence.c)
@@ -100,6 +101,10 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson_familiarity_test tests/familiarity_test.c)
   target_link_libraries(atperson_familiarity_test PRIVATE atperson_core)
   add_test(NAME atperson_familiarity COMMAND atperson_familiarity_test)
+
+  add_executable(atperson_action_test tests/action_test.c)
+  target_link_libraries(atperson_action_test PRIVATE atperson_core)
+  add_test(NAME atperson_action COMMAND atperson_action_test)
 
   # The ledger test binary is re-invoked as *separate OS processes* so the
   # cross-run dedup test exercises a genuinely restarted process. Phase 1
