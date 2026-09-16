@@ -12,7 +12,7 @@ jobs:
   core:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure core-only build
         run: cmake -S . -B build -DATPERSON_BUILD_NETWORK=OFF -DCMAKE_BUILD_TYPE=Debug
       - name: Build
@@ -23,7 +23,7 @@ jobs:
   network:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Wolfram system dependencies
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev pkg-config
       - name: Configure full build
