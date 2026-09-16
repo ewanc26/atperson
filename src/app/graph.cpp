@@ -137,6 +137,11 @@ void LanguageGraph::save(const std::filesystem::path &path) const {
     require(atp_graph_save(graph_, path.string().c_str()), "save language graph");
 }
 
+void LanguageGraph::set_capacity(std::size_t node_capacity_max,
+                                 std::size_t edge_capacity_max) noexcept {
+    atp_graph_set_capacity(graph_, node_capacity_max, edge_capacity_max);
+}
+
 void LanguageGraph::record_ledger_entry(const atp_ledger_entry &entry) {
     require(atp_graph_add_ledger_entry(graph_, &entry), "record ledger entry");
 }

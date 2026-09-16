@@ -1,0 +1,118 @@
+# Dynamic resource budgeting
+
+atperson derives runtime resource limits from the machine it is actually
+running on. The policy is runtime-only: it does not become learned state and it
+is not persisted in model snapshots.
+
+The goals are:
+
+- scale down safely on constrained machines and containers;
+- use more headroom on larger hosts without a source-code profile change;
+- preserve deterministic learning and planning semantics;
+- refuse or bound new work under pressure rather than evicting existing learned
+  state or partially learning an observation.
+
+## What is detected
+
+The C++23 runtime probes:
+
+- effective CPU capacity, including fractional CPU quotas;
+- total and currently available memory;
+- capacity and available bytes for every filesystem that can receive durable
+  atperson state.
+
+On Linux, cgroup v2 and v1 memory/CPU limits are folded into the effective
+values when they are tighter than the host. `memory.max`/`memory.high`,
+`memory.current`, `cpu.max`, legacy v1 quota files and cpuset restrictions are
+considered where present. This prevents a container with a 1 GiB memory limit
+from behaving as if it owned all RAM on the host.
+
+macOS uses `hw.memsize` plus Mach VM statistics. Windows uses
+`GlobalMemoryStatusEx`. Filesystem capacity uses `std::filesystem::space`.
+`ATPERSON_HOME`, `ATPERSON_STATE`, `ATPERSON_LEDGER`, and
+`ATPERSON_INGESTION_STATE` are all probed; when those paths span multiple
+filesystems, budget derivation uses the destination with the least headroom
+after its safety reserve.
+
+Use:
+
+```sh
+atperson resources
+```
+
+to see both the detected resources and the currently derived budget, including
+the durable path that is limiting writes.
+
+## Budget derivation
+
+Memory keeps a host/container safety reserve first. atperson then permits graph
+growth from only part of the remaining currently available memory. The growth
+budget is split between future nodes and edges using conservative per-item
+reservations that are intentionally above the measured issue #9 benchmark
+footprints.
+
+The resulting node/edge values are passed directly to #9's
+`atp_graph_set_capacity`. They are always at least the graph's current counts.
+If available memory falls, existing learned state remains untouched; only new
+structural growth becomes more restricted. A zero-growth situation is never
+translated to the C core's `0 = unlimited` capacity convention.
+
+Before a command loads an existing model snapshot, the runtime performs a
+conservative memory preflight using the snapshot's file size and current memory
+headroom. It reserves twice the serialized size as a minimum load allowance;
+if that no longer fits after the safety reserve, loading is refused rather than
+letting the process drift into an out-of-memory failure.
+
+Commands that do not use learned graph state (`rebuild`, `compact`, `withdraw`
+and `cursor`) do not load the existing snapshot at all. In particular, rebuild
+starts from a fresh graph instead of keeping the previous model resident while
+constructing its replacement.
+
+Each durable filesystem keeps a dynamic free-space reserve. The tightest
+filesystem controls the process-wide write budget, and one run may consume only
+a portion of the headroom above that reserve. If any destination is inside its
+safety reserve, durable mutating commands fail before doing new work. Sync page
+size and the per-run observation budget also shrink with disk, memory and
+effective CPU capacity. A sufficiently small fractional CPU quota or memory
+budget can reduce a timeline page all the way to one item.
+
+Longer multi-page syncs re-probe before each page. This allows cgroup limits,
+memory pressure and disk headroom to change while a process is running without
+requiring a restart.
+
+One-shot inputs and result allocations are bounded too. `ingest-file` checks
+file size before reading it into memory, and inspection commands reject result
+limits larger than the current memory-derived allowance.
+
+## What is deliberately not dynamic
+
+Machine size does **not** change learning or decision semantics. In particular,
+resource detection does not alter:
+
+- tokenization or learning equations;
+- familiarity or episodic-memory retention rules;
+- planner scoring, beam semantics or stop thresholds;
+- replay ordering or schema compatibility;
+- any persona, preference or social state.
+
+Those are model semantics. A faster machine may admit more bounded work, but it
+must not make the same learned state mean something different.
+
+## Overrides
+
+Automatic budgeting is the default. Operators may override individual limits
+with environment variables; empty values or `0` mean automatic:
+
+- `ATPERSON_MEMORY_BUDGET_BYTES` — graph-growth memory budget after the safety
+  reserve. Values larger than currently available headroom are rejected.
+- `ATPERSON_DISK_RESERVE_BYTES` — free-space reserve that atperson must leave
+  untouched on each durable filesystem.
+- `ATPERSON_NODE_CAPACITY` — explicit graph node ceiling.
+- `ATPERSON_EDGE_CAPACITY` — explicit graph edge ceiling.
+- `ATPERSON_SYNC_PAGE_SIZE` — explicit timeline page size, 1–100. Without an
+  override the page size is derived from effective CPU, memory and disk.
+- `ATPERSON_SYNC_MAX_OBSERVATIONS` — explicit per-run sync observation budget.
+
+Explicit node/edge ceilings can be lower than the graph's current size; the
+runtime raises them to the current counts rather than evicting state. This
+matches #9's fail-closed growth semantics.

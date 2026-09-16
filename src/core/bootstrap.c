@@ -54,8 +54,14 @@ static const char *const atp_env_template =
     "ATPERSON_LEDGER=\n"
     "ATPERSON_INGESTION_STATE=\n"
     "\n"
-    "# Timeline page size for sync (optional, default 50).\n"
-    "ATPERSON_SYNC_PAGE_SIZE=\n";
+    "# Runtime resource overrides. Empty or 0 keeps automatic host/container\n"
+    "# budgeting; see `atperson resources` and docs/resources.md.\n"
+    "ATPERSON_MEMORY_BUDGET_BYTES=\n"
+    "ATPERSON_DISK_RESERVE_BYTES=\n"
+    "ATPERSON_NODE_CAPACITY=\n"
+    "ATPERSON_EDGE_CAPACITY=\n"
+    "ATPERSON_SYNC_PAGE_SIZE=\n"
+    "ATPERSON_SYNC_MAX_OBSERVATIONS=\n";
 
 static int atp_mkdir_p(const char *path) {
     /* mkdir -p in C. Walk the path creating each missing component. */

@@ -22,11 +22,14 @@ add_library(
   src/core/graph.c
   src/core/memory.c
   src/core/action.c
-  src/core/decision.c
   src/core/context.c
   src/core/bootstrap.c
   src/core/neural.c
   src/core/ledger.c
+  src/core/ledger_format.c
+  src/core/ledger_off.c
+  src/core/ledger_index.c
+  src/core/ledger_recover.c
   src/core/replay.c
   src/core/tokenize.c
   src/core/portable_io.c
@@ -42,8 +45,18 @@ if(UNIX)
   target_link_libraries(atperson_core PRIVATE m)
 endif()
 
-add_library(atperson_cpp src/app/graph.cpp src/app/ledger.cpp)
-target_include_directories(atperson_cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_library(
+  atperson_cpp
+  src/app/graph.cpp
+  src/app/ledger.cpp
+  src/app/system_resources.cpp
+  src/app/system_filesystems.cpp
+  src/app/resource_budget.cpp
+  src/app/resource_runtime.cpp)
+target_include_directories(
+  atperson_cpp
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
 target_link_libraries(atperson_cpp PUBLIC atperson_core)
 target_compile_features(atperson_cpp PUBLIC cxx_std_23)
 
@@ -167,10 +180,6 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson_action_test PRIVATE atperson_core)
   add_test(NAME atperson_action COMMAND atperson_action_test)
 
-  add_executable(atperson_action_decision_test tests/action_decision_test.c)
-  target_link_libraries(atperson_action_decision_test PRIVATE atperson_core)
-  add_test(NAME atperson_action_decision COMMAND atperson_action_decision_test)
-
   add_executable(atperson_context_test tests/context_test.c)
   target_link_libraries(atperson_context_test PRIVATE atperson_core)
   add_test(NAME atperson_context COMMAND atperson_context_test)
@@ -267,9 +276,6 @@ if(ATPERSON_BUILD_TESTS)
   # runs via label; invoke with: ctest -L bench
   add_executable(atperson_bench tests/bench.c)
   target_link_libraries(atperson_bench PRIVATE atperson_core)
-  if(UNIX)
-    target_compile_definitions(atperson_bench PRIVATE _POSIX_C_SOURCE=200809L)
-  endif()
   add_test(
     NAME atperson_bench
     COMMAND atperson_bench bench)
@@ -284,6 +290,12 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson_cpp_test tests/cpp_test.cpp)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)
   add_test(NAME atperson_cpp COMMAND atperson_cpp_test)
+
+  # Dynamic host/container resource probing and deterministic budget policy.
+  add_executable(atperson_resource_test tests/resource_test.cpp)
+  target_link_libraries(atperson_resource_test PRIVATE atperson_cpp)
+  target_include_directories(atperson_resource_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
+  add_test(NAME atperson_resource COMMAND atperson_resource_test)
 
   # Ingestion-state format and sync-engine restart semantics; offline
   # (fixture page fetchers, no live network).

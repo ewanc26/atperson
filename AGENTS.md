@@ -124,15 +124,8 @@ behaviour in a parallel C++ prompt/context heuristic. Selected memories,
 interaction state and later preference signals should carry provenance and an
 inspectable selection reason/score.
 
-Keep the raw bounded planner available for inspection. Normal action decisions
-should pass through the guarded C23 decision layer: weak first-step evidence
-may explicitly abstain, while later low evidence, score collapse, repetition or
-cycles may terminate a useful prefix with inspectable threshold evidence. Do
-not make the guarded layer less conservative merely to produce fluent output.
-
-An accepted core plan is evidence for later policy, not permission to publish.
-Do not put AT Protocol permissions, moderation choices or outbound rate policy
-inside C23 termination rules.
+Fluent output is not sufficient reason to act. The action layer must eventually
+be able to abstain and explain why no supported action was selected.
 
 ## Network and safety boundary
 
@@ -153,6 +146,48 @@ lifetime in memory.
 
 AT Protocol policy belongs in the C++ runtime; learned scoring/state belongs in
 C23; protocol mechanics belong in Wolfram.
+
+## Modular, atomic files
+
+Files must be modular and atomic. This is a hard requirement, not a
+preference.
+
+- One file owns one concern. A reader should be able to hold the file's
+  purpose, its collaborators and its failure modes in mind at once.
+- Keep source files small. When a file grows past roughly 500 lines,
+  split it by concern before extending it further. `ledger.c` and
+  `graph.c` predate this rule; new work must not add to the problem, and
+  touching a large file for other reasons is a good moment to extract a
+  coherent module.
+- Every file must build and test independently of unrelated changes.
+  A commit that touches a file must leave every configured build
+  (`ATPERSON_BUILD_NETWORK=OFF` and `ON`) green.
+- Extract, don't entangle: shared helpers get their own translation
+  unit and a header comment stating the contract, rather than being
+  copied or wedged into an unrelated file. The tokenizer duplication
+  that produced five byte-scanner copies is the cautionary example.
+- Headers document ownership: which functions a module exports, who
+  allocates, who frees, and what the failure modes are.
+
+## Concurrency
+
+Multithreading is C++23 runtime territory unless the C23 core API
+explicitly documents thread safety.
+
+- The C23 core is single-threaded by contract. `atp_graph` and
+  `atp_ledger` have no internal locking; callers own serialisation.
+  Do not add locks inside core objects — instead expose a documented
+  concurrency model when a real need arrives.
+- The C++23 runtime may parallelise ingestion, I/O and orchestration,
+  but every touch of a core object must go through one owner thread or
+  an explicit serialisation point. Prefer message passing
+  (queues, staged batches) over shared mutable state.
+- Learning stays deterministic: parallel work must not change what an
+  observation learns, the order of ledger commits, or replay results.
+  If parallelising changes learned state, the design is wrong.
+- Fail-closed applies to concurrency: on any error, leave core state
+  untouched and report; never half-apply a batch because one worker
+  failed.
 
 ## C23 core
 
