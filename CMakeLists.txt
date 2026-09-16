@@ -253,6 +253,25 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson_tokenize_graph
     COMMAND atperson_tokenize_test tokenize-graph)
 
+  # Graph growth bounds and pathological input; pure core, no network.
+  add_executable(atperson_growth_test tests/growth_test.c)
+  target_link_libraries(atperson_growth_test PRIVATE atperson_core)
+  add_test(
+    NAME atperson_growth
+    COMMAND atperson_growth_test growth)
+  add_test(
+    NAME atperson_growth_pathology
+    COMMAND atperson_growth_test growth-pathology)
+
+  # Scale benchmarks (issue #9). Explicit suite, excluded from default
+  # runs via label; invoke with: ctest -L bench
+  add_executable(atperson_bench tests/bench.c)
+  target_link_libraries(atperson_bench PRIVATE atperson_core)
+  add_test(
+    NAME atperson_bench
+    COMMAND atperson_bench bench)
+  set_tests_properties(atperson_bench PROPERTIES LABELS "bench")
+
   add_executable(atperson_snapshot_test tests/snapshot_test.c)
   target_link_libraries(atperson_snapshot_test PRIVATE atperson_core)
   add_test(

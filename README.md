@@ -41,6 +41,7 @@ stages, with later stages intentionally incomplete:
 | Schema compatibility | Implemented | Per-entry learning schema + `atp_schema_can_replay` compatibility table; replay and snapshot load refuse foreign schemas with `ATP_ERR_SCHEMA`, never silently reinterpret |
 | Ledger compaction | Implemented | `atp_ledger_compact` + `atperson compact`: patches flatten to final outcomes, withdrawn payloads drop, ids stay stable; atomic and crash-safe, rebuild-equivalent |
 | Tokenization contract | Implemented | Schema-versioned Unicode tokenizer (utf8proc): NFKC_Casefold equivalence, category-based boundaries, UTF-8 sanitization; one implementation behind observation, action context, recall, and lookup |
+| Growth bounds | Implemented | O(1) hash indexes for node and edge lookup, configurable node/edge ceilings with whole-observation `ATP_ERR_CAPACITY` rejection, scale benchmarks (`ctest -L bench`) |
 | Long-running runtime | Future work | `sync` is an explicitly-invoked bounded run with persistent catch-up state rather than a continuously operating agent |
 
 The model begins with **zero words and zero relationships**. Neural parameters

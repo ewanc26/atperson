@@ -106,7 +106,12 @@ typedef enum atp_status {
     /** A ledger entry or snapshot was recorded under a learning schema this
      * core cannot replay. Distinct from ATP_ERR_FORMAT (corruption): the
      * data is intact, the algorithm is the mismatch. */
-    ATP_ERR_SCHEMA = 6
+    ATP_ERR_SCHEMA = 6,
+    /** A configured resource ceiling (node or edge capacity max) was
+     * reached. The observation is rejected whole — never partially
+     * learned. Distinct from ATP_ERR_OUT_OF_MEMORY: the allocator is
+     * fine, the budget is the limit. */
+    ATP_ERR_CAPACITY = 7
 } atp_status;
 
 typedef struct atp_graph atp_graph;
@@ -124,6 +129,15 @@ typedef struct atp_graph_config {
     float familiarity_decay;
     /* Episode capacity (0 selects ATPERSON_EPISODE_DEFAULT_CAPACITY). */
     size_t episode_capacity;
+    /*
+     * Resource ceilings for the semantic graph (issue #9). 0 = unlimited.
+     * These are a resource budget, not a retention policy: reaching a
+     * ceiling rejects the whole observation with ATP_ERR_CAPACITY rather
+     * than silently dropping vocabulary. Pruning with provenance is a
+     * separate, future decision.
+     */
+    size_t node_capacity_max;
+    size_t edge_capacity_max;
 } atp_graph_config;
 
 typedef struct atp_graph_stats {
@@ -136,6 +150,8 @@ typedef struct atp_graph_stats {
     size_t episode_count;
     size_t episode_capacity;
     uint64_t episode_evictions;
+    /* Observations rejected whole by a resource ceiling (issue #9). */
+    uint64_t capacity_rejections;
 } atp_graph_stats;
 
 typedef struct atp_association {
@@ -221,6 +237,18 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path);
 
 /** Load a graph snapshot. Returns NULL and writes status on failure. */
 atp_graph *atp_graph_load(const char *path, atp_status *status);
+
+/**
+ * Update the resource ceilings on a live graph (issue #9). 0 = unlimited.
+ *
+ * Ceilings are deployment policy, not graph data: atp_graph_load restores
+ * the graph with unlimited ceilings regardless of what the saving process
+ * had configured. Apply the budget after loading with this call. Lowering
+ * a ceiling below the current count does not evict anything — existing
+ * nodes and edges stay, further growth is rejected.
+ */
+void atp_graph_set_capacity(atp_graph *graph, size_t node_capacity_max,
+                            size_t edge_capacity_max);
 
 const char *atp_status_string(atp_status status);
 

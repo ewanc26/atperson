@@ -28,6 +28,13 @@ void atp_tokenize(const char *text, uint32_t schema_version,
 atp_status atp_graph_query_nodes(const atp_graph *graph, const char *query, uint32_t **out_nodes,
                                  size_t *out_count);
 
+/*
+ * Rebuild the node and edge hash indexes from the canonical arrays.
+ * Snapshot loaders call this after restoring nodes and edges; the
+ * indexes are derived state and never persisted.
+ */
+bool atp_graph_rebuild_indexes(atp_graph *graph);
+
 typedef struct atp_node {
     char *token;
     uint64_t observations;
@@ -63,6 +70,19 @@ struct atp_graph {
     size_t edge_count;
     size_t edge_capacity;
 
+    /*
+     * Hash indexes over the canonical arrays (issue #9). The arrays stay
+     * the source of truth — snapshots and replay never see the indexes —
+     * so these are rebuildable derived state. Open addressing, power-of-two
+     * capacity, slot value UINT32_MAX means empty. Node index maps token
+     * hash -> node index; edge index maps (source, target) -> edge index.
+     */
+    uint32_t *node_index_slots;
+    size_t node_index_capacity; /* power of two, or 0 */
+
+    uint32_t *edge_index_slots;
+    size_t edge_index_capacity; /* power of two, or 0 */
+
     atp_network network;
 
     atp_ledger_entry *ledger_entries;
@@ -79,6 +99,7 @@ struct atp_graph {
     uint64_t token_observations;
     uint64_t training_steps;
     double loss_total;
+    uint64_t capacity_rejections;
 };
 
 uint64_t atp_rng_next(atp_graph *graph);
@@ -95,6 +116,13 @@ bool atp_reserve_ledger_entries(atp_graph *graph, size_t needed);
 bool atp_reserve_episodes(atp_graph *graph, size_t needed);
 int32_t atp_find_node(const atp_graph *graph, const char *token);
 int32_t atp_intern_node(atp_graph *graph, const char *token);
+/*
+ * Intern with explicit failure status. Returns the node index, or -1 with
+ * *status set to ATP_ERR_CAPACITY (ceiling), ATP_ERR_OUT_OF_MEMORY, or
+ * ATP_ERR_INVALID_ARGUMENT. The plain atp_intern_node cannot distinguish
+ * capacity rejection from allocation failure.
+ */
+int32_t atp_intern_node_checked(atp_graph *graph, const char *token, atp_status *status);
 int32_t atp_find_edge(const atp_graph *graph, uint32_t source, uint32_t target);
 atp_status atp_observe_pair(atp_graph *graph, uint32_t source, uint32_t target,
                             uint64_t source_hash);

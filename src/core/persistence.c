@@ -719,6 +719,11 @@ static atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status
         return atp_load_failure(graph, status, ATP_ERR_FORMAT);
     }
 
+    /* Indexes are derived state; rebuild after the arrays are complete. */
+    if (!atp_graph_rebuild_indexes(graph)) {
+        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
+    }
+
     if (status) {
         *status = ATP_OK;
     }
@@ -920,6 +925,12 @@ static atp_graph *atp_load_v4(const unsigned char *data, size_t size, atp_status
 
     /* v4 did not persist episode_evictions; it starts at zero and resumes
      * counting on the migrated graph. */
+
+    /* Indexes are derived state; rebuild after the arrays are complete. */
+    if (!atp_graph_rebuild_indexes(graph)) {
+        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
+    }
+
     if (status) {
         *status = ATP_OK;
     }

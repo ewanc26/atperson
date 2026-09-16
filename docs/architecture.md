@@ -584,6 +584,78 @@ The intended order is:
 
 No stage should skip observability just to make the entity appear more human.
 
+## Growth bounds
+
+The semantic graph grows with observed vocabulary. Two mechanisms keep
+that growth bounded and fast; both are derived from the same principle:
+the canonical arrays are the source of truth, everything else is derived
+state that can be rebuilt.
+
+### Hash indexes
+
+Node lookup (`token -> index`) and edge lookup (`(source, target) ->
+index`) are open-addressing hash tables over the canonical arrays:
+power-of-two capacity, linear probing, load factor kept at or below 0.5,
+`UINT32_MAX` as the empty marker. They are maintained incrementally on
+intern and edge creation, rebuilt wholesale by the snapshot loaders
+(`atp_graph_rebuild_indexes`), and never persisted — a snapshot contains
+only the arrays.
+
+The edge key hash runs the packed `(source << 32 | target)` key through a
+splitmix64-style finalizer. The raw packed key is dense and sequential —
+intern indices grow together — so identity hashing packs linear-probe
+runs into contiguous spans and degrades toward O(n) probes. Before the
+finalizer, a 76k-edge snapshot loaded in 1.8s; after, 16ms.
+
+With the indexes, `atp_find_node` and `atp_find_edge` are O(1) expected
+regardless of graph size. Benchmarks (below) confirm observe cost scales
+linearly with history size, not quadratically.
+
+### Resource ceilings
+
+`atp_graph_config.node_capacity_max` and `edge_capacity_max` (0 =
+unlimited) are a **resource budget, not a retention policy**. When an
+observation would cross a ceiling, the whole observation is rejected with
+`ATP_ERR_CAPACITY` — never partially learned. A dry-run pass counts the
+new nodes and edges a text would create before any mutation, so a
+rejected observation leaves no half-learned state behind. Rejections are
+counted in `atp_graph_stats.capacity_rejections`.
+
+Ceilings are deployment policy, not graph data: `atp_graph_load` restores
+the graph with unlimited ceilings regardless of what the saving process
+had configured. Apply the budget after loading with
+`atp_graph_set_capacity`. Lowering a ceiling below the current count
+evicts nothing — existing nodes and edges stay, further growth is
+rejected.
+
+Pruning vocabulary with provenance is deliberately out of scope here:
+episodes reference nodes by index, so deleting nodes invalidates episode
+summaries. The fail-closed ceiling is the safe bound; retention is a
+separate, future decision.
+
+### Benchmarks
+
+`tests/bench.c` (run via `ctest -L bench`) measures deterministic
+synthetic histories — fixed seeds, skewed vocabulary for hub pressure —
+at small (1k observations / 500 vocab), medium (10k / 5k), and large
+(50k / 25k) scales: observe throughput, association lookup, recall,
+snapshot save/load, and a memory footprint estimate. Timing is reported,
+never asserted, so CI variance cannot flake.
+
+Representative figures (M2, -O2, September 2026):
+
+| Profile | Nodes | Edges | Observe µs/obs | Lookup µs/query | Snapshot save/load |
+|---------|-------|-------|----------------|-----------------|--------------------|
+| small   | 500   | 1.6k  | 20             | 6.3             | 0.9ms / 0.8ms      |
+| medium  | 4.9k  | 15.8k | 27             | 28              | 4.3ms / 4.5ms      |
+| large   | 24.7k | 78.2k | 44             | 128             | 13.7ms / 16.1ms    |
+
+Observe cost grows with per-observation pair count (larger histories
+train more edges per observation), not with graph size: the index keeps
+intern and pair lookup constant. Association lookup cost grows with the
+queried token's out-degree — hub nodes have more candidates to rank —
+not with total graph size.
+
 ## Tokenization contract
 
 Token identity is durable learning state: interned vocabulary, edges,
