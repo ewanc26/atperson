@@ -24,6 +24,7 @@ runtime.
 - source hashes attached to learned edges;
 - episodic memory;
 - internal state (per-token familiarity);
+- inspectable action-candidate scoring over learned state;
 - PRNG state;
 - the observation ledger;
 - persistence format.
@@ -55,7 +56,8 @@ The C++ layer owns concerns that should not become part of the model itself:
 - scheduling;
 - protocol event translation; the C++ sync path feeds the ledger, which owns
   the deduplication;
-- future action selection and publishing policy.
+- future network-action policy, rate limiting, and presentation. Learned
+  candidate scoring remains in C23.
 
 `LanguageGraph` is intentionally a thin RAII wrapper over the C API; the
 `Ledger` wrapper is the same for the C23 observation ledger.
@@ -190,8 +192,41 @@ state derived from repetition — there is no value, polarity, sentiment, or
 topic judgment attached, so it cannot encode a hidden opinion. It is updated
 in the same C23 intern path as every observation, is queryable read-only via
 `atp_graph_familiarity` (and the CLI `familiarity <token>`), and is persisted
-as the snapshot v4 familiarity block. This score is intended to later inform
-recall ordering and action scoring as a purely behavioural signal.
+as the snapshot v4 familiarity block. This score can inform recall and action
+scoring as a purely behavioural signal.
+
+## Action model
+
+Stage 5 begins with a deliberately read-only continuation-candidate scorer in
+C23. It does **not** generate a post, choose a Bluesky operation, or perform any
+network side effect. Its job is to expose a deterministic planning surface over
+state the entity has actually learned.
+
+`atp_graph_action_candidates` (declared in `include/atperson/action.h`) tokenises
+the supplied context without mutating the vocabulary, keeps the distinct known
+context nodes, and considers only existing outgoing association edges from
+those nodes. Targets supported by multiple context nodes are aggregated into a
+single candidate.
+
+Every returned candidate exposes the inputs used for ranking:
+
+```text
+association_score = mean(0.7 * learned_edge_strength + 0.3 * neural_score)
+familiarity_score = familiarity * (1 - familiarity_decay), clamped to 0..1
+support_score     = supporting_observations / (supporting_observations + 1)
+score             = mean(association_score, familiarity_score, support_score)
+```
+
+The result also carries the summed supporting edge observations and the number
+of distinct context nodes that support the target. Ties are resolved
+predictably by association score, familiarity, support count, then token text.
+An entirely unknown context yields no candidates. Querying never changes graph
+state, so this stage requires no new snapshot block or version bump.
+
+This is intentionally a small primitive. A later planner can combine candidate
+sequences, episodic recall, timing, conversational context, and explicit
+network policy, but those layers should consume inspectable C23 scores rather
+than replace them with hidden prompt logic.
 
 ## Persistence
 
@@ -223,8 +258,11 @@ The intended order is:
    experience, not hard-coded personality text. The first pass is implemented:
    per-token familiarity (exponentially weighted exposure, snapshot v4, CLI
    `familiarity` accessor). Later passes may feed familiarity into recall
-   ordering and action scoring.
-5. **Action model** — candidate generation and inspectable scoring.
+   ordering and richer action scoring.
+5. **Action model** — candidate generation and inspectable scoring. The first
+   pass is implemented as read-only C23 continuation candidates with explicit
+   association, familiarity, support, exposure, and context-match evidence.
+   Higher-level sequence planning and network-action policy remain future work.
 6. **Network behaviour** — carefully rate-limited output through Wolfram.
 7. **Long-running runtime** — event-driven or scheduled learning with crash
    recovery and explicit operator controls.

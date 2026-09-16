@@ -9,7 +9,8 @@ The project is deliberately split between **C23** and **C++23**:
 
 - **C23 is authoritative for learned state.** It owns the language graph,
   vocabulary, trainable embeddings, neural association scorer, online updates,
-  statistics, and snapshot persistence.
+  statistics, memory, internal state, inspectable action scoring, and snapshot
+  persistence.
 - **C++23 owns the application/runtime boundary.** It provides RAII around the
   C core, configuration, command-line orchestration, JSON extraction, and
   AT Protocol connectivity.
@@ -25,7 +26,7 @@ character prompt.
 
 ## What exists now
 
-The first scaffold provides:
+The current scaffold provides:
 
 - an initially empty directed token graph;
 - 16-dimensional trainable embeddings created only when a token is observed;
@@ -43,13 +44,18 @@ The first scaffold provides:
 - **internal state** (C23): a per-token familiarity score — an exponentially
   weighted exposure count that slowly rises with repeated experience and
   decays when exposure stops, with no value judgment baked in;
+- a first **action-model primitive** (C23): read-only continuation candidates
+  derived only from learned outgoing associations, with association,
+  familiarity, support, exposure, context-match, and final score components
+  exposed for inspection;
 - versioned binary snapshots (v4 adds the familiarity block) containing
   the complete mutable learning state;
 - a C++23 RAII wrapper around the C23 graph, memory, and the ledger;
 - a Wolfram-backed read-only timeline ingestion path running through the
   ledger for cross-run deduplication, where trainable posts are remembered;
-- offline C and C++ tests including crash-safety, cross-process dedup, and
-  memory selection/eviction/round-trip coverage.
+- offline C and C++ tests including crash-safety, cross-process dedup, memory
+  selection/eviction/round-trip coverage, familiarity persistence, and
+  read-only action scoring.
 
 The model starts with **zero words and zero relationships**. Neural weights have
 small deterministic random initial values so learning can begin, but there is
@@ -66,7 +72,7 @@ AT Protocol network
 | - Wolfram session         |
 | - feed/event extraction   |
 | - lifecycle/config        |
-| - future action policy    |
+| - future network policy   |
 +-------------+-------------+
               |
               | observations
@@ -80,6 +86,7 @@ AT Protocol network
 | - observation ledger      |
 | - episodic memory         |
 | - internal state          |
+| - action candidate scores |
 | - persistence             |
 +-------------+-------------+
               |
@@ -151,6 +158,11 @@ source deduplication (the ledger) is paired with replay/unlearning semantics
 for the snapshot; the ledger's pending -> committed outcome fencing is what a
 future ingestion loop will rely on.
 
+The first action-model API is currently core-only: include
+`<atperson/action.h>` and call `atp_graph_action_candidates`. It does not emit
+text or perform an AT Protocol action. It only returns ranked learned token
+candidates plus the full score breakdown that a later planner can consume.
+
 ## Current boundaries
 
 The scaffold intentionally does not:
@@ -162,12 +174,13 @@ The scaffold intentionally does not:
 - treat a generated response as evidence of consciousness;
 - pretend that source deletion/unlearning is solved.
 
-Before autonomous output is enabled, the project needs replay/unlearning
-semantics over the observation ledger, inspectable action selection, rate
-limiting, and a way to rebuild or remove learned contributions when source
-material is withdrawn. Episodic memory and per-token familiarity now exist as
-first, counter-based passes; later stages will layer richer internal state and
-action selection on top of them.
+Before autonomous output is enabled, the project still needs replay/unlearning
+semantics over the observation ledger, higher-level action composition and
+policy on top of the inspectable candidate scorer, rate limiting, and a way to
+rebuild or remove learned contributions when source material is withdrawn.
+Episodic memory, familiarity, and the first read-only action candidate model now
+exist as explicit, counter/score-based passes; later stages can build behaviour
+on those primitives without hiding where a decision came from.
 
 ## Licence
 
