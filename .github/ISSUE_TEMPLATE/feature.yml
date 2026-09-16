@@ -1,0 +1,111 @@
+name: Feature request
+description: Propose a concrete capability or improvement that fits atperson's architecture.
+title: "[feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        atperson starts without a seeded persona. New behaviour should emerge from inspectable learned state rather than hard-coded biography, opinions, relationships, or a hidden LLM personality layer.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Choose the primary subsystem that should own the feature. See docs/issue-scopes.md.
+      options:
+        - core/graph
+        - core/learning
+        - core/memory
+        - core/state
+        - core/action
+        - persistence
+        - runtime
+        - network
+        - build
+        - docs
+        - cross-cutting
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What limitation or missing capability does this address?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: Describe the smallest useful version of the feature and how it should behave.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: owner
+    attributes:
+      label: Architectural owner
+      description: Where should the authoritative behaviour live?
+      options:
+        - C23 learned-state/core logic
+        - C++23 runtime/integration logic
+        - Wolfram / AT Protocol dependency
+        - Documentation or tooling only
+        - Cross-cutting / needs an explicit boundary decision
+    validations:
+      required: true
+
+  - type: dropdown
+    id: persistence
+    attributes:
+      label: Persistence impact
+      description: Does the feature change authoritative persisted state?
+      options:
+        - No persisted-state change
+        - Existing snapshot/ledger representation is sufficient
+        - Snapshot format decision required
+        - Ledger/replay/unlearning semantics affected
+        - Not yet known
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network_writes
+    attributes:
+      label: Network side effects
+      description: Does the proposal require autonomous writes to AT Protocol?
+      options:
+        - No; read-only or offline behaviour
+        - Future network-write policy is relevant, but this issue should not enable writes yet
+        - Yes; this specifically proposes network-write behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: inspection
+    attributes:
+      label: Inspectability and evidence
+      description: What counters, scores, provenance, traces, or tests should make this behaviour explainable?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that would make the feature complete.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Project invariants
+      options:
+        - label: This proposal does not require seeding a fixed persona, biography, ideology, preference set, or learned vocabulary.
+          required: true
+        - label: Any AT Protocol mechanics will use Wolfram rather than duplicating its APIs inside atperson.
+          required: true

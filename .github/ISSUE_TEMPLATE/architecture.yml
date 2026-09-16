@@ -1,0 +1,95 @@
+name: Architecture proposal
+description: Propose a boundary, persistence, learning-model, or runtime design change.
+title: "[architecture] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for changes that alter subsystem ownership, persisted representation, replay semantics, long-running runtime design, or the path from learned state to behaviour.
+
+  - type: dropdown
+    id: scopes
+    attributes:
+      label: Scopes
+      description: Select every subsystem materially affected. See docs/issue-scopes.md.
+      multiple: true
+      options:
+        - core/graph
+        - core/learning
+        - core/memory
+        - core/state
+        - core/action
+        - persistence
+        - runtime
+        - network
+        - build
+        - docs
+        - cross-cutting
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraint
+    attributes:
+      label: Current constraint
+      description: What architectural limitation, ambiguity, or upcoming requirement makes a design decision necessary?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the proposed ownership boundaries, data flow, and public API changes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What simpler or competing designs were considered, and why are they insufficient?
+
+  - type: textarea
+    id: state
+    attributes:
+      label: Learned-state and persistence impact
+      description: Explain effects on snapshots, ledger records, replay/unlearning, determinism, provenance, migrations, and compatibility.
+    validations:
+      required: true
+
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: C23 / C++23 / Wolfram boundary
+      description: State which layer owns each part of the design and why.
+    validations:
+      required: true
+
+  - type: textarea
+    id: observability
+    attributes:
+      label: Inspectability
+      description: How will decisions and learned changes remain attributable to explicit state, scores, counters, or provenance?
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan
+      description: Describe tests, migration/round-trip coverage, deterministic fixtures, and network-build verification required.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Guardrails
+      options:
+        - label: The design preserves the empty-start/no-seeded-persona invariant.
+          required: true
+        - label: Network-write behaviour, if relevant, is explicit policy rather than a side effect of learning.
+          required: true
+        - label: Wolfram remains the owner of AT Protocol mechanics.
+          required: true

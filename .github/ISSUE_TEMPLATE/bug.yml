@@ -1,0 +1,98 @@
+name: Bug report
+description: Report incorrect, unsafe, non-deterministic, or regressed behaviour.
+title: "[bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Keep the C23/C++23 boundary in mind: C23 owns authoritative learned state, C++23 owns runtime/integration concerns, and Wolfram owns AT Protocol mechanics.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Choose the primary subsystem affected. See docs/issue-scopes.md.
+      options:
+        - core/graph
+        - core/learning
+        - core/memory
+        - core/state
+        - core/action
+        - persistence
+        - runtime
+        - network
+        - build
+        - docs
+        - cross-cutting
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behaviour
+      description: What happened? Include exact errors, assertions, or incorrect state where useful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Give the smallest reliable sequence of commands, observations, or network inputs that reproduces the problem.
+      placeholder: |
+        1. Configure with ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network build
+      description: Does this reproduce with the Wolfram-backed network runtime enabled?
+      options:
+        - Core-only build is sufficient
+        - Network build is required
+        - Reproduces in both
+        - Not yet determined
+    validations:
+      required: true
+
+  - type: input
+    id: revision
+    attributes:
+      label: Revision
+      description: Commit SHA, tag, or branch where you observed the problem.
+      placeholder: e.g. main @ abc1234
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, compiler, CMake version, architecture, and other relevant build/runtime details.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional evidence
+      description: Logs, snapshot details, ledger state, screenshots, or other context. Do not include credentials or private data.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I have removed app passwords, tokens, private messages, and other sensitive data from this report.
+          required: true
