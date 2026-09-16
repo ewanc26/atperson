@@ -11,16 +11,14 @@ void require(atp_status status, std::string_view operation) {
     if (status == ATP_OK) {
         return;
     }
-    throw std::runtime_error(std::string(operation) + ": " +
-                             atp_status_string(status));
+    throw std::runtime_error(std::string(operation) + ": " + atp_status_string(status));
 }
 
 } // namespace
 
 LanguageGraph::LanguageGraph() : LanguageGraph(atp_graph_default_config()) {}
 
-LanguageGraph::LanguageGraph(atp_graph_config config)
-    : graph_(atp_graph_create(&config)) {
+LanguageGraph::LanguageGraph(atp_graph_config config) : graph_(atp_graph_create(&config)) {
     if (!graph_) {
         throw std::bad_alloc();
     }
@@ -56,8 +54,7 @@ LanguageGraph LanguageGraph::load(const std::filesystem::path &path) {
 void LanguageGraph::observe(std::string_view text, std::string_view source_id) {
     const std::string owned_text(text);
     const std::string owned_source(source_id);
-    require(atp_graph_observe_text(graph_, owned_text.c_str(),
-                                   owned_source.c_str()),
+    require(atp_graph_observe_text(graph_, owned_text.c_str(), owned_source.c_str()),
             "observe text");
 }
 
@@ -65,8 +62,8 @@ atp_graph_stats LanguageGraph::stats() const noexcept {
     return atp_graph_get_stats(graph_);
 }
 
-std::vector<Association>
-LanguageGraph::associations(std::string_view token, std::size_t limit) const {
+std::vector<Association> LanguageGraph::associations(std::string_view token,
+                                                     std::size_t limit) const {
     if (limit == 0u) {
         return {};
     }
@@ -75,8 +72,7 @@ LanguageGraph::associations(std::string_view token, std::size_t limit) const {
     std::size_t count = 0u;
     const std::string owned_token(token);
     const atp_status status =
-        atp_graph_associations(graph_, owned_token.c_str(), raw.data(),
-                               raw.size(), &count);
+        atp_graph_associations(graph_, owned_token.c_str(), raw.data(), raw.size(), &count);
     if (status == ATP_ERR_NOT_FOUND) {
         return {};
     }
@@ -99,8 +95,19 @@ void LanguageGraph::save(const std::filesystem::path &path) const {
     if (const auto parent = path.parent_path(); !parent.empty()) {
         std::filesystem::create_directories(parent);
     }
-    require(atp_graph_save(graph_, path.string().c_str()),
-            "save language graph");
+    require(atp_graph_save(graph_, path.string().c_str()), "save language graph");
+}
+
+void LanguageGraph::record_ledger_entry(const atp_ledger_entry &entry) {
+    require(atp_graph_add_ledger_entry(graph_, &entry), "record ledger entry");
+}
+
+std::vector<atp_ledger_entry> LanguageGraph::ledger_entries() const {
+    std::vector<atp_ledger_entry> result(atp_graph_ledger_count(graph_));
+    for (std::size_t i = 0; i < result.size(); ++i) {
+        require(atp_graph_ledger_entry(graph_, i, &result[i]), "read ledger mirror");
+    }
+    return result;
 }
 
 } // namespace atperson

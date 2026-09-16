@@ -31,8 +31,7 @@ atp_graph *atp_graph_create(const atp_graph_config *config) {
     if (effective.seed == 0u) {
         effective.seed = atp_graph_default_config().seed;
     }
-    if (!(effective.learning_rate > 0.0f) ||
-        !isfinite(effective.learning_rate)) {
+    if (!(effective.learning_rate > 0.0f) || !isfinite(effective.learning_rate)) {
         effective.learning_rate = atp_graph_default_config().learning_rate;
     }
 
@@ -57,6 +56,7 @@ void atp_graph_destroy(atp_graph *graph) {
     }
     free(graph->nodes);
     free(graph->edges);
+    free(graph->ledger_entries);
     free(graph);
 }
 
@@ -76,8 +76,7 @@ float atp_rng_signed(atp_graph *graph) {
 }
 
 uint64_t atp_hash_source(const char *source_id) {
-    const unsigned char *cursor =
-        (const unsigned char *)(source_id ? source_id : "");
+    const unsigned char *cursor = (const unsigned char *)(source_id ? source_id : "");
     uint64_t hash = UINT64_C(1469598103934665603);
     while (*cursor) {
         hash ^= (uint64_t)*cursor++;
@@ -132,6 +131,29 @@ bool atp_reserve_edges(atp_graph *graph, size_t needed) {
     return true;
 }
 
+bool atp_reserve_ledger_entries(atp_graph *graph, size_t needed) {
+    if (needed <= graph->ledger_capacity) {
+        return true;
+    }
+
+    size_t capacity = graph->ledger_capacity ? graph->ledger_capacity : 16u;
+    while (capacity < needed) {
+        if (capacity > SIZE_MAX / 2u) {
+            return false;
+        }
+        capacity *= 2u;
+    }
+
+    atp_ledger_entry *entries = realloc(graph->ledger_entries, capacity * sizeof(*entries));
+    if (!entries) {
+        return false;
+    }
+
+    graph->ledger_entries = entries;
+    graph->ledger_capacity = capacity;
+    return true;
+}
+
 int32_t atp_find_node(const atp_graph *graph, const char *token) {
     if (!graph || !token) {
         return -1;
@@ -154,8 +176,7 @@ int32_t atp_intern_node(atp_graph *graph, const char *token) {
         return existing;
     }
 
-    if (graph->node_count >= UINT32_MAX ||
-        !atp_reserve_nodes(graph, graph->node_count + 1u)) {
+    if (graph->node_count >= UINT32_MAX || !atp_reserve_nodes(graph, graph->node_count + 1u)) {
         return -1;
     }
 
@@ -175,11 +196,9 @@ int32_t atp_intern_node(atp_graph *graph, const char *token) {
     return index;
 }
 
-int32_t atp_find_edge(const atp_graph *graph, uint32_t source,
-                      uint32_t target) {
+int32_t atp_find_edge(const atp_graph *graph, uint32_t source, uint32_t target) {
     for (size_t i = 0; i < graph->edge_count; ++i) {
-        if (graph->edges[i].source == source &&
-            graph->edges[i].target == target) {
+        if (graph->edges[i].source == source && graph->edges[i].target == target) {
             if (i > INT32_MAX) {
                 return -1;
             }
@@ -223,8 +242,7 @@ atp_status atp_observe_pair(atp_graph *graph, uint32_t source, uint32_t target,
             }
         }
         if (negative != source && negative != target) {
-            const float negative_loss =
-                atp_network_train(graph, source, negative, 0.0f);
+            const float negative_loss = atp_network_train(graph, source, negative, 0.0f);
             graph->loss_total += negative_loss;
             graph->training_steps++;
         }
@@ -232,24 +250,21 @@ atp_status atp_observe_pair(atp_graph *graph, uint32_t source, uint32_t target,
 
     atp_edge *edge = &graph->edges[edge_index];
     const float score = atp_network_score(graph, source, target);
-    edge->strength =
-        edge->observations == 0u ? score : (edge->strength * 0.90f + score * 0.10f);
+    edge->strength = edge->observations == 0u ? score : (edge->strength * 0.90f + score * 0.10f);
     edge->observations++;
     edge->last_source_hash = source_hash;
     return ATP_OK;
 }
 
 static bool atp_is_token_byte(unsigned char byte) {
-    return byte >= 0x80u || isalnum(byte) || byte == '\'' || byte == '-' ||
-           byte == '_';
+    return byte >= 0x80u || isalnum(byte) || byte == '\'' || byte == '-' || byte == '_';
 }
 
 static unsigned char atp_normalize_ascii(unsigned char byte) {
     return byte < 0x80u ? (unsigned char)tolower(byte) : byte;
 }
 
-atp_status atp_graph_observe_text(atp_graph *graph, const char *text,
-                                  const char *source_id) {
+atp_status atp_graph_observe_text(atp_graph *graph, const char *text, const char *source_id) {
     if (!graph || !text) {
         return ATP_ERR_INVALID_ARGUMENT;
     }
@@ -281,8 +296,7 @@ atp_status atp_graph_observe_text(atp_graph *graph, const char *text,
             saw_token = true;
             if (previous >= 0) {
                 const atp_status status =
-                    atp_observe_pair(graph, (uint32_t)previous,
-                                     (uint32_t)current, source_hash);
+                    atp_observe_pair(graph, (uint32_t)previous, (uint32_t)current, source_hash);
                 if (status != ATP_OK) {
                     return status;
                 }
@@ -312,9 +326,8 @@ atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {
         .observations = graph->observations,
         .token_observations = graph->token_observations,
         .training_steps = graph->training_steps,
-        .mean_loss = graph->training_steps
-                         ? graph->loss_total / (double)graph->training_steps
-                         : 0.0,
+        .mean_loss =
+            graph->training_steps ? graph->loss_total / (double)graph->training_steps : 0.0,
     };
 }
 
@@ -335,8 +348,7 @@ static int atp_ranked_edge_compare(const void *left, const void *right) {
     return 0;
 }
 
-static void atp_normalize_lookup(const char *input,
-                                 char output[ATPERSON_TOKEN_BYTES]) {
+static void atp_normalize_lookup(const char *input, char output[ATPERSON_TOKEN_BYTES]) {
     size_t len = 0u;
     for (const unsigned char *cursor = (const unsigned char *)input;
          *cursor && len + 1u < ATPERSON_TOKEN_BYTES; ++cursor) {
@@ -347,9 +359,8 @@ static void atp_normalize_lookup(const char *input,
     output[len] = '\0';
 }
 
-atp_status atp_graph_associations(const atp_graph *graph, const char *token,
-                                  atp_association *out, size_t capacity,
-                                  size_t *out_count) {
+atp_status atp_graph_associations(const atp_graph *graph, const char *token, atp_association *out,
+                                  size_t capacity, size_t *out_count) {
     if (out_count) {
         *out_count = 0u;
     }
@@ -385,8 +396,7 @@ atp_status atp_graph_associations(const atp_graph *graph, const char *token,
         if (edge->source != (uint32_t)source) {
             continue;
         }
-        const float neural =
-            atp_network_score(graph, edge->source, edge->target);
+        const float neural = atp_network_score(graph, edge->source, edge->target);
         ranked[next++] = (atp_ranked_edge){
             .edge = edge,
             .score = edge->strength * 0.7f + neural * 0.3f,
@@ -394,8 +404,7 @@ atp_status atp_graph_associations(const atp_graph *graph, const char *token,
     }
 
     qsort(ranked, candidate_count, sizeof(*ranked), atp_ranked_edge_compare);
-    const size_t written =
-        candidate_count < capacity ? candidate_count : capacity;
+    const size_t written = candidate_count < capacity ? candidate_count : capacity;
     for (size_t i = 0; i < written; ++i) {
         const atp_edge *edge = ranked[i].edge;
         const atp_node *target = &graph->nodes[edge->target];
@@ -410,6 +419,42 @@ atp_status atp_graph_associations(const atp_graph *graph, const char *token,
     if (out_count) {
         *out_count = written;
     }
+    return ATP_OK;
+}
+
+atp_status atp_graph_add_ledger_entry(atp_graph *graph, const atp_ledger_entry *entry) {
+    if (!graph || !entry) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    const size_t source_len = strlen(entry->source_id);
+    if (source_len == 0u || source_len >= ATPERSON_LEDGER_SOURCE_BYTES) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    const size_t author_len = strlen(entry->author_did);
+    if (author_len >= ATPERSON_LEDGER_AUTHOR_BYTES) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (!atp_reserve_ledger_entries(graph, graph->ledger_count + 1u)) {
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
+    graph->ledger_entries[graph->ledger_count] = *entry;
+    graph->ledger_count++;
+    return ATP_OK;
+}
+
+size_t atp_graph_ledger_count(const atp_graph *graph) {
+    return graph ? graph->ledger_count : 0u;
+}
+
+atp_status atp_graph_ledger_entry(const atp_graph *graph, size_t index,
+                                  atp_ledger_entry *out_entry) {
+    if (!graph || !out_entry) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (index >= graph->ledger_count) {
+        return ATP_ERR_NOT_FOUND;
+    }
+    *out_entry = graph->ledger_entries[index];
     return ATP_OK;
 }
 

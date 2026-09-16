@@ -7,7 +7,7 @@
 static const unsigned char ATP_SNAPSHOT_MAGIC[8] = {
     'A', 'T', 'P', 'E', 'R', 'S', 'N', '1',
 };
-static const uint32_t ATP_SNAPSHOT_VERSION = 1u;
+static const uint32_t ATP_SNAPSHOT_VERSION = ATPERSON_SNAPSHOT_VERSION;
 
 static bool atp_write(FILE *file, const void *data, size_t size) {
     return fwrite(data, 1u, size, file) == size;
@@ -54,21 +54,17 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
 
     const uint64_t node_count = (uint64_t)graph->node_count;
     const uint64_t edge_count = (uint64_t)graph->edge_count;
-    bool ok =
-        atp_write(file, ATP_SNAPSHOT_MAGIC, sizeof(ATP_SNAPSHOT_MAGIC)) &&
-        atp_write_u32(file, ATP_SNAPSHOT_VERSION) &&
-        atp_write_u32(file, ATPERSON_EMBEDDING_DIM) &&
-        atp_write_u32(file, ATPERSON_HIDDEN_DIM) &&
-        atp_write_u64(file, graph->config.seed) &&
-        atp_write(file, &graph->config.learning_rate,
-                  sizeof(graph->config.learning_rate)) &&
-        atp_write_u64(file, graph->rng_state) &&
-        atp_write_u64(file, graph->observations) &&
-        atp_write_u64(file, graph->token_observations) &&
-        atp_write_u64(file, graph->training_steps) &&
-        atp_write(file, &graph->loss_total, sizeof(graph->loss_total)) &&
-        atp_write_u64(file, node_count) && atp_write_u64(file, edge_count) &&
-        atp_write(file, &graph->network, sizeof(graph->network));
+    bool ok = atp_write(file, ATP_SNAPSHOT_MAGIC, sizeof(ATP_SNAPSHOT_MAGIC)) &&
+              atp_write_u32(file, ATP_SNAPSHOT_VERSION) &&
+              atp_write_u32(file, ATPERSON_EMBEDDING_DIM) &&
+              atp_write_u32(file, ATPERSON_HIDDEN_DIM) && atp_write_u64(file, graph->config.seed) &&
+              atp_write(file, &graph->config.learning_rate, sizeof(graph->config.learning_rate)) &&
+              atp_write_u64(file, graph->rng_state) && atp_write_u64(file, graph->observations) &&
+              atp_write_u64(file, graph->token_observations) &&
+              atp_write_u64(file, graph->training_steps) &&
+              atp_write(file, &graph->loss_total, sizeof(graph->loss_total)) &&
+              atp_write_u64(file, node_count) && atp_write_u64(file, edge_count) &&
+              atp_write(file, &graph->network, sizeof(graph->network));
 
     for (size_t i = 0; ok && i < graph->node_count; ++i) {
         const atp_node *node = &graph->nodes[i];
@@ -77,19 +73,36 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
             ok = false;
             break;
         }
-        ok = atp_write_u32(file, (uint32_t)length) &&
-             atp_write_u64(file, node->observations) &&
+        ok = atp_write_u32(file, (uint32_t)length) && atp_write_u64(file, node->observations) &&
              atp_write(file, node->embedding, sizeof(node->embedding)) &&
              atp_write(file, node->token, length);
     }
 
     for (size_t i = 0; ok && i < graph->edge_count; ++i) {
         const atp_edge *edge = &graph->edges[i];
-        ok = atp_write_u32(file, edge->source) &&
-             atp_write_u32(file, edge->target) &&
+        ok = atp_write_u32(file, edge->source) && atp_write_u32(file, edge->target) &&
              atp_write_u64(file, edge->observations) &&
              atp_write_u64(file, edge->last_source_hash) &&
              atp_write(file, &edge->strength, sizeof(edge->strength));
+    }
+
+    /* Mirrored observation ledger: the entries the graph was trained from, so
+     * state can be rebuilt from either the ledger or the snapshot alone. */
+    ok = ok && atp_write_u64(file, (uint64_t)graph->ledger_count);
+    for (size_t i = 0; ok && i < graph->ledger_count; ++i) {
+        const atp_ledger_entry *entry = &graph->ledger_entries[i];
+        const size_t source_len = strlen(entry->source_id);
+        const size_t author_len = strlen(entry->author_did);
+        ok = source_len < ATPERSON_LEDGER_SOURCE_BYTES &&
+             author_len < ATPERSON_LEDGER_AUTHOR_BYTES &&
+             atp_write_u32(file, (uint32_t)source_len) &&
+             atp_write(file, entry->source_id, source_len) &&
+             atp_write_u32(file, (uint32_t)author_len) &&
+             atp_write(file, entry->author_did, author_len) &&
+             atp_write_u64(file, entry->observed_at) &&
+             atp_write_u64(file, entry->content_digest) &&
+             atp_write_u32(file, entry->schema_version) &&
+             atp_write_u32(file, (uint32_t)entry->outcome) && atp_write_u64(file, entry->id);
     }
 
     if (fflush(file) != 0) {
@@ -115,8 +128,8 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
     return ATP_OK;
 }
 
-static atp_graph *atp_load_failure(FILE *file, atp_graph *graph,
-                                   atp_status *status, atp_status failure) {
+static atp_graph *atp_load_failure(FILE *file, atp_graph *graph, atp_status *status,
+                                   atp_status failure) {
     if (file) {
         fclose(file);
     }
@@ -153,13 +166,10 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
     atp_graph_config config = {0};
 
     if (!atp_read(file, magic, sizeof(magic)) ||
-        memcmp(magic, ATP_SNAPSHOT_MAGIC, sizeof(magic)) != 0 ||
-        !atp_read_u32(file, &version) || version != ATP_SNAPSHOT_VERSION ||
-        !atp_read_u32(file, &embedding_dim) ||
-        embedding_dim != ATPERSON_EMBEDDING_DIM ||
-        !atp_read_u32(file, &hidden_dim) ||
-        hidden_dim != ATPERSON_HIDDEN_DIM ||
-        !atp_read_u64(file, &config.seed) ||
+        memcmp(magic, ATP_SNAPSHOT_MAGIC, sizeof(magic)) != 0 || !atp_read_u32(file, &version) ||
+        version != ATP_SNAPSHOT_VERSION || !atp_read_u32(file, &embedding_dim) ||
+        embedding_dim != ATPERSON_EMBEDDING_DIM || !atp_read_u32(file, &hidden_dim) ||
+        hidden_dim != ATPERSON_HIDDEN_DIM || !atp_read_u64(file, &config.seed) ||
         !atp_read(file, &config.learning_rate, sizeof(config.learning_rate))) {
         return atp_load_failure(file, NULL, status, ATP_ERR_FORMAT);
     }
@@ -171,26 +181,22 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
 
     uint64_t node_count_u64 = 0u;
     uint64_t edge_count_u64 = 0u;
-    if (!atp_read_u64(file, &graph->rng_state) ||
-        !atp_read_u64(file, &graph->observations) ||
+    if (!atp_read_u64(file, &graph->rng_state) || !atp_read_u64(file, &graph->observations) ||
         !atp_read_u64(file, &graph->token_observations) ||
         !atp_read_u64(file, &graph->training_steps) ||
         !atp_read(file, &graph->loss_total, sizeof(graph->loss_total)) ||
-        !atp_read_u64(file, &node_count_u64) ||
-        !atp_read_u64(file, &edge_count_u64) ||
+        !atp_read_u64(file, &node_count_u64) || !atp_read_u64(file, &edge_count_u64) ||
         !atp_read(file, &graph->network, sizeof(graph->network))) {
         return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
     }
 
-    if (node_count_u64 > UINT32_MAX || node_count_u64 > SIZE_MAX ||
-        edge_count_u64 > SIZE_MAX) {
+    if (node_count_u64 > UINT32_MAX || node_count_u64 > SIZE_MAX || edge_count_u64 > SIZE_MAX) {
         return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
     }
 
     const size_t node_count = (size_t)node_count_u64;
     const size_t edge_count = (size_t)edge_count_u64;
-    if (!atp_reserve_nodes(graph, node_count) ||
-        !atp_reserve_edges(graph, edge_count)) {
+    if (!atp_reserve_nodes(graph, node_count) || !atp_reserve_edges(graph, edge_count)) {
         return atp_load_failure(file, graph, status, ATP_ERR_OUT_OF_MEMORY);
     }
 
@@ -199,8 +205,7 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
         atp_node *node = &graph->nodes[i];
         memset(node, 0, sizeof(*node));
 
-        if (!atp_read_u32(file, &length) || length == 0u ||
-            length >= ATPERSON_TOKEN_BYTES ||
+        if (!atp_read_u32(file, &length) || length == 0u || length >= ATPERSON_TOKEN_BYTES ||
             !atp_read_u64(file, &node->observations) ||
             !atp_read(file, node->embedding, sizeof(node->embedding))) {
             return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
@@ -219,16 +224,41 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
 
     for (size_t i = 0; i < edge_count; ++i) {
         atp_edge *edge = &graph->edges[i];
-        if (!atp_read_u32(file, &edge->source) ||
-            !atp_read_u32(file, &edge->target) ||
+        if (!atp_read_u32(file, &edge->source) || !atp_read_u32(file, &edge->target) ||
             !atp_read_u64(file, &edge->observations) ||
             !atp_read_u64(file, &edge->last_source_hash) ||
             !atp_read(file, &edge->strength, sizeof(edge->strength)) ||
-            edge->source >= graph->node_count ||
-            edge->target >= graph->node_count) {
+            edge->source >= graph->node_count || edge->target >= graph->node_count) {
             return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
         }
         graph->edge_count++;
+    }
+
+    uint64_t ledger_count_u64 = 0u;
+    if (!atp_read_u64(file, &ledger_count_u64) || ledger_count_u64 > SIZE_MAX ||
+        !atp_reserve_ledger_entries(graph, (size_t)ledger_count_u64)) {
+        return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
+    }
+    for (size_t i = 0; i < ledger_count_u64; ++i) {
+        atp_ledger_entry entry = {0};
+        uint32_t source_len = 0u;
+        uint32_t author_len = 0u;
+        uint32_t outcome = 0u;
+        if (!atp_read_u32(file, &source_len) || source_len == 0u ||
+            source_len >= ATPERSON_LEDGER_SOURCE_BYTES ||
+            !atp_read(file, entry.source_id, source_len) || !atp_read_u32(file, &author_len) ||
+            author_len >= ATPERSON_LEDGER_AUTHOR_BYTES ||
+            !atp_read(file, entry.author_did, author_len) ||
+            !atp_read_u64(file, &entry.observed_at) || !atp_read_u64(file, &entry.content_digest) ||
+            !atp_read_u32(file, &entry.schema_version) || !atp_read_u32(file, &outcome) ||
+            outcome > ATP_LEDGER_OUTCOME_FAILED || !atp_read_u64(file, &entry.id)) {
+            return atp_load_failure(file, graph, status, ATP_ERR_FORMAT);
+        }
+        entry.source_id[source_len] = '\0';
+        entry.author_did[author_len] = '\0';
+        entry.outcome = (atp_ledger_outcome)outcome;
+        graph->ledger_entries[graph->ledger_count] = entry;
+        graph->ledger_count++;
     }
 
     if (fclose(file) != 0) {

@@ -32,11 +32,16 @@ The first scaffold provides:
 - a small online neural scorer trained from observed bigrams with negative
   sampling;
 - edge strength, exposure counts, and hashed source provenance;
-- deterministic initialisation from a configurable seed;
-- versioned binary snapshots containing the complete mutable learning state;
-- a C++23 RAII wrapper around the C23 graph;
-- a Wolfram-backed read-only timeline ingestion path;
-- offline C and C++ tests.
+- a **durable observation ledger** (C23 append-only log) that keeps every
+  observation fed to the core, with an in-memory unique `(source id + digest)`
+  index rebuilt on open and a crash-safe offset marker written via
+  temp-file + rename;
+- versioned binary snapshots (v2 mirrors the ledger) containing the complete
+  mutable learning state;
+- a C++23 RAII wrapper around the C23 graph and the ledger;
+- a Wolfram-backed read-only timeline ingestion path running through the
+  ledger for cross-run deduplication;
+- offline C and C++ tests including crash-safety and cross-process dedup.
 
 The model starts with **zero words and zero relationships**. Neural weights have
 small deterministic random initial values so learning can begin, but there is
@@ -64,6 +69,7 @@ AT Protocol network
 | - embeddings              |
 | - online neural training  |
 | - learned statistics      |
+| - observation ledger      |
 | - persistence             |
 +-------------+-------------+
               |
@@ -98,7 +104,8 @@ The Wolfram dependency is currently pinned to commit
 
 ## Runtime
 
-State defaults to `.atperson/model.bin`. Override it with `ATPERSON_STATE`.
+State defaults to `.atperson/model.bin`; the observation ledger defaults to
+`.atperson/ledger.bin`. Override with `ATPERSON_STATE` and `ATPERSON_LEDGER`.
 
 ```sh
 ./build/atperson stats
@@ -120,10 +127,12 @@ export ATPERSON_SERVICE="https://bsky.social" # optional
 Credentials are read from environment variables rather than command-line
 arguments. Do not commit them.
 
-`sync` is intentionally one-shot at this stage. A continuous daemon comes after
-persistent event deduplication and replay/unlearning semantics exist; repeatedly
-training on the same fetched posts would otherwise distort the entity's
-experience.
+Each fetched post is recorded in the ledger before training, so a restarted
+process cannot re-train on already-committed observations; empty posts are
+recorded but skipped. `sync` is intentionally one-shot at this stage. A
+continuous daemon comes after durable source deduplication (the ledger) is
+paired with replay/unlearning semantics for the snapshot; the ledger's pending
+-> committed outcome fencing is what a future ingestion loop will rely on.
 
 ## Current boundaries
 
@@ -136,10 +145,10 @@ The scaffold intentionally does not:
 - treat a generated response as evidence of consciousness;
 - pretend that source deletion/unlearning is solved.
 
-Before autonomous output is enabled, the project needs a durable observation
-ledger, cross-run deduplication, inspectable action selection, rate limiting,
-and a way to rebuild or remove learned contributions when source material is
-withdrawn.
+Before autonomous output is enabled, the project needs managed long-term memory
+(the next growth stage), replay/unlearning semantics over the observation
+ledger, inspectable action selection, rate limiting, and a way to rebuild or
+remove learned contributions when source material is withdrawn.
 
 ## Licence
 

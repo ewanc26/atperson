@@ -1,16 +1,19 @@
 #include "atperson/graph.hpp"
+#include "atperson/ledger.hpp"
 #include "atproto_client.hpp"
 
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <unordered_set>
 
 namespace {
 
@@ -32,6 +35,113 @@ std::string required_env(const char *name) {
 
 std::filesystem::path state_path() {
     return env_or("ATPERSON_STATE", ".atperson/model.bin");
+}
+
+std::filesystem::path ledger_path() {
+    return env_or("ATPERSON_LEDGER", ".atperson/ledger.bin");
+}
+
+/* Parse an RFC 3339 timestamp ("YYYY-MM-DDTHH:MM:SS[.frac][Z|±HH:MM]") to Unix
+ * epoch seconds. Returns nullopt for anything that is not a full, valid
+ * instant so callers can fall back to an explicit "unknown" value.
+ *
+ * Parsed by hand rather than std::chrono::parse, which is not yet implemented
+ * by the platform's standard library. The day-of-month conversion uses the
+ * days-from-civil algorithm so it stays pure C++ with no time-zone
+ * dependencies. */
+std::optional<std::uint64_t> parse_rfc3339_epoch(std::string_view value) {
+    if (value.size() < 19u) {
+        return std::nullopt;
+    }
+    for (std::size_t i = 0u; i < 19u; ++i) {
+        const bool digit = value[i] >= '0' && value[i] <= '9';
+        const bool separator = i == 4u || i == 7u || i == 13u || i == 16u;
+        if (!digit && !(separator && value[i] == '-') && !(i == 10u && value[i] == 'T')) {
+            return std::nullopt;
+        }
+    }
+
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+    if (std::sscanf(std::string(value.substr(0u, 19u)).c_str(),
+                    "%4d-%2d-%2dT%2d:%2d:%2d", &year, &month, &day, &hour,
+                    &minute, &second) != 6) {
+        return std::nullopt;
+    }
+    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 ||
+        minute > 59 || second > 60) {
+        return std::nullopt;
+    }
+
+    std::size_t position = 19u;
+    if (position < value.size() && value[position] == '.') {
+        ++position;
+        while (position < value.size() && value[position] >= '0' &&
+               value[position] <= '9') {
+            ++position;
+        }
+    }
+
+    long offset_seconds = 0;
+    if (position < value.size()) {
+        const char zone = value[position];
+        if (zone == 'Z' || zone == 'z') {
+            ++position;
+        } else if (zone == '+' || zone == '-') {
+            if (position + 6u > value.size() ||
+                value[position + 3u] != ':') {
+                return std::nullopt;
+            }
+            long hours = 0;
+            long minutes = 0;
+            try {
+                hours = std::stol(std::string(value.substr(position + 1u, 2u)));
+                minutes = std::stol(std::string(value.substr(position + 4u, 2u)));
+            } catch (const std::exception &) {
+                return std::nullopt;
+            }
+            if (hours > 23 || minutes > 59) {
+                return std::nullopt;
+            }
+            offset_seconds = hours * 3600 + minutes * 60;
+            if (zone == '-') {
+                offset_seconds = -offset_seconds;
+            }
+            position += 6u;
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (position != value.size()) {
+        return std::nullopt;
+    }
+
+    const std::int64_t adjusted_month = month > 2 ? static_cast<std::int64_t>(month)
+                                                  : static_cast<std::int64_t>(month + 12);
+    const std::int64_t adjusted_year = year - (month > 2 ? 0 : 1);
+    const std::int64_t era = adjusted_year >= 0 ? adjusted_year / 400
+                                                : (adjusted_year - 399) / 400;
+    const std::int64_t year_of_era = adjusted_year - era * 400;
+    const std::int64_t day_of_year =
+        (153 * (adjusted_month > 2 ? adjusted_month - 3 : adjusted_month + 9) +
+         2) /
+            5 +
+        day - 1;
+    const std::int64_t day_of_era =
+        year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    const std::int64_t epoch_days = era * 146097 + day_of_era - 719468;
+    const std::int64_t local_seconds =
+        epoch_days * 86400 + static_cast<std::int64_t>(hour) * 3600 +
+        static_cast<std::int64_t>(minute) * 60 + second;
+    const std::int64_t epoch = local_seconds - offset_seconds;
+    if (epoch < 0) {
+        return std::nullopt;
+    }
+    return static_cast<std::uint64_t>(epoch);
 }
 
 atperson::LanguageGraph load_or_create(const std::filesystem::path &path) {
@@ -62,6 +172,8 @@ void usage(std::ostream &out) {
         << "environment:\n"
         << "  ATPERSON_STATE         model snapshot path "
            "(default .atperson/model.bin)\n"
+        << "  ATPERSON_LEDGER        observation ledger path "
+           "(default .atperson/ledger.bin)\n"
         << "  ATPERSON_SERVICE       PDS/service URL "
            "(default https://bsky.social)\n"
         << "  ATPERSON_IDENTIFIER    handle or email for sync\n"
@@ -155,19 +267,68 @@ int main(int argc, char **argv) {
                 required_env("ATPERSON_IDENTIFIER"),
                 required_env("ATPERSON_APP_PASSWORD"));
 
+            const std::filesystem::path ledger_dir = ledger_path();
+            if (const auto parent = ledger_dir.parent_path(); !parent.empty()) {
+                std::filesystem::create_directories(parent);
+            }
+            atperson::Ledger ledger(ledger_dir);
+
             const auto observations = client.fetch_timeline(limit);
-            std::unordered_set<std::string> seen;
             std::size_t learned = 0u;
+            std::size_t skipped = 0u;
+            std::size_t duplicates = 0u;
             for (const auto &observation : observations) {
-                if (!seen.insert(observation.source_uri).second) {
+                const auto source_id = static_cast<std::string>(observation.source_uri);
+                const std::uint64_t digest =
+                    atperson::Ledger::digest(observation.text);
+                const std::uint64_t observed_at =
+                    parse_rfc3339_epoch(observation.created_at).value_or(0u);
+
+                // Record the post durably before training so a restarted
+                // process can never re-train on it: on restart the ledger is
+                // the authority for what has already been committed.
+                std::uint64_t id = 0u;
+                const auto result = ledger.append(
+                    source_id, observation.author_did, observed_at, digest,
+                    ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_PENDING, &id);
+                if (result == atperson::LedgerResult::ExistsCommitted) {
+                    duplicates++;
                     continue;
                 }
-                graph.observe(observation.text, observation.source_uri);
-                learned++;
+
+                const bool trainable = !observation.text.empty();
+                const auto outcome = trainable ? ATP_LEDGER_OUTCOME_LEARNED
+                                               : ATP_LEDGER_OUTCOME_SKIPPED;
+                if (trainable) {
+                    graph.observe(observation.text, source_id);
+                    learned++;
+                } else {
+                    skipped++;
+                }
+                ledger.set_outcome(id, outcome);
+
+                atp_ledger_entry entry = {};
+                entry.id = id;
+                entry.observed_at = observed_at;
+                entry.content_digest = digest;
+                entry.schema_version = ATPERSON_SCHEMA_VERSION;
+                entry.outcome = outcome;
+                std::memcpy(entry.source_id, source_id.data(), source_id.size());
+                entry.source_id[source_id.size()] = '\0';
+                const std::size_t author_len = observation.author_did.size() <
+                                                       sizeof(entry.author_did) - 1u
+                                                   ? observation.author_did.size()
+                                                   : sizeof(entry.author_did) - 1u;
+                std::memcpy(entry.author_did, observation.author_did.data(),
+                            author_len);
+                entry.author_did[author_len] = '\0';
+                graph.record_ledger_entry(entry);
             }
+
             graph.save(path);
             std::cout << "learned from " << learned
-                      << " public timeline posts\n";
+                      << " (skipped " << skipped << ", duplicate "
+                      << duplicates << ") public timeline posts\n";
             print_stats(graph);
             return 0;
         }

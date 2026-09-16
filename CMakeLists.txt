@@ -21,6 +21,7 @@ add_library(
   atperson_core
   src/core/graph.c
   src/core/neural.c
+  src/core/ledger.c
   src/core/persistence.c)
 target_include_directories(
   atperson_core
@@ -32,7 +33,7 @@ if(UNIX)
   target_link_libraries(atperson_core PRIVATE m)
 endif()
 
-add_library(atperson_cpp src/app/graph.cpp)
+add_library(atperson_cpp src/app/graph.cpp src/app/ledger.cpp)
 target_include_directories(atperson_cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(atperson_cpp PUBLIC atperson_core)
 target_compile_features(atperson_cpp PUBLIC cxx_std_23)
@@ -91,6 +92,32 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson_core_test tests/core_test.c)
   target_link_libraries(atperson_core_test PRIVATE atperson_core)
   add_test(NAME atperson_core COMMAND atperson_core_test)
+
+  # The ledger test binary is re-invoked as *separate OS processes* so the
+  # cross-run dedup test exercises a genuinely restarted process. Phase 1
+  # commits entries for several posts; phase 2 (which CTest runs afterwards)
+  # re-opens the same files and asserts the unique (source id + digest) index
+  # blocks every already-committed post.
+  add_executable(atperson_ledger_test tests/ledger_test.c)
+  target_link_libraries(atperson_ledger_test PRIVATE atperson_core)
+  add_test(
+    NAME atperson_ledger_dedup_phase1
+    COMMAND atperson_ledger_test dedup-phase1
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-runs)
+  add_test(
+    NAME atperson_ledger_dedup_phase2
+    COMMAND atperson_ledger_test dedup-phase2
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-runs)
+  set_tests_properties(atperson_ledger_dedup_phase2
+                       PROPERTIES DEPENDS atperson_ledger_dedup_phase1)
+  add_test(
+    NAME atperson_ledger_roundtrip
+    COMMAND atperson_ledger_test roundtrip
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-roundtrip)
+  add_test(
+    NAME atperson_ledger_crash_safety
+    COMMAND atperson_ledger_test crash-safety
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-crash)
 
   add_executable(atperson_cpp_test tests/cpp_test.cpp)
   target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)

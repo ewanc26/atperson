@@ -45,6 +45,10 @@ struct atp_graph {
 
     atp_network network;
 
+    atp_ledger_entry *ledger_entries;
+    size_t ledger_count;
+    size_t ledger_capacity;
+
     uint64_t observations;
     uint64_t token_observations;
     uint64_t training_steps;
@@ -56,13 +60,12 @@ float atp_rng_signed(atp_graph *graph);
 uint64_t atp_hash_source(const char *source_id);
 
 void atp_network_init(atp_graph *graph);
-float atp_network_score(const atp_graph *graph, uint32_t source,
-                        uint32_t target);
-float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target,
-                        float expected);
+float atp_network_score(const atp_graph *graph, uint32_t source, uint32_t target);
+float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target, float expected);
 
 bool atp_reserve_nodes(atp_graph *graph, size_t needed);
 bool atp_reserve_edges(atp_graph *graph, size_t needed);
+bool atp_reserve_ledger_entries(atp_graph *graph, size_t needed);
 int32_t atp_find_node(const atp_graph *graph, const char *token);
 int32_t atp_intern_node(atp_graph *graph, const char *token);
 int32_t atp_find_edge(const atp_graph *graph, uint32_t source, uint32_t target);

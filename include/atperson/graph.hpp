@@ -35,9 +35,17 @@ class LanguageGraph {
 
     void observe(std::string_view text, std::string_view source_id = {});
     [[nodiscard]] atp_graph_stats stats() const noexcept;
-    [[nodiscard]] std::vector<Association>
-    associations(std::string_view token, std::size_t limit = 10) const;
+    [[nodiscard]] std::vector<Association> associations(std::string_view token,
+                                                        std::size_t limit = 10) const;
     void save(const std::filesystem::path &path) const;
+
+    /**
+     * Mirrored observation ledger: the entries the graph was trained from.
+     * Mirrors are persisted in the snapshot so state can be rebuilt from
+     * either the ledger or the snapshot alone.
+     */
+    void record_ledger_entry(const atp_ledger_entry &entry);
+    [[nodiscard]] std::vector<atp_ledger_entry> ledger_entries() const;
 
   private:
     explicit LanguageGraph(atp_graph *graph) noexcept;

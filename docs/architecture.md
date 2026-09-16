@@ -23,6 +23,7 @@ runtime.
 - exposure and training counters;
 - source hashes attached to learned edges;
 - PRNG state;
+- the observation ledger;
 - persistence format.
 
 A new graph contains no tokens or edges. Tokens are interned only when an
@@ -50,10 +51,12 @@ The C++ layer owns concerns that should not become part of the model itself:
 - AT Protocol sessions;
 - JSON extraction;
 - scheduling;
-- future event deduplication;
+- protocol event translation; the C++ sync path feeds the ledger, which owns
+  the deduplication;
 - future action selection and publishing policy.
 
-`LanguageGraph` is intentionally a thin RAII wrapper over the C API.
+`LanguageGraph` is intentionally a thin RAII wrapper over the C API; the
+`Ledger` wrapper is the same for the C23 observation ledger.
 
 ## Wolfram boundary
 
@@ -68,25 +71,10 @@ The first network path uses `wf_agent_login` and `wf_agent_get_timeline`, then
 extracts public post text and passes each post to the learning core with its AT
 URI as the source identifier.
 
-## Persistence
+## Observation ledger
 
-Snapshots are versioned and contain the complete mutable graph, neural
-parameters, counters, and PRNG state. Saving is performed through a temporary
-file and rename so a partially written snapshot does not replace the previous
-state.
-
-Version 1 is deliberately host-oriented and writes fixed-width integers and
-IEEE-754 floats directly. A future portable format should define byte order and
-migration rules before snapshots become a long-term public interchange format.
-
-## Provenance and replay
-
-The core currently stores a stable 64-bit hash of the most recent source that
-reinforced each edge. That is enough to make provenance visible during early
-experiments, but it is not enough for reliable unlearning.
-
-Before continuous unattended ingestion is enabled, add a durable observation
-ledger containing at least:
+The ledger is a durable, append-only C23 log of every observation fed to the
+learning core. It records, per observation:
 
 - AT URI / stable source identifier;
 - author DID where applicable;
@@ -95,8 +83,65 @@ ledger containing at least:
 - model/schema version;
 - processing outcome.
 
-The ledger must support cross-run deduplication. The preferred deletion model is
-rebuild-from-ledger rather than attempting approximate inverse gradient steps.
+The log is the authority for what the entity has seen. A committed observation
+(`LEARNED` or `SKIPPED`) is never trained on again across process restarts;
+outcome changes append a small patch record rather than rewriting log bytes.
+
+### Files and layout
+
+- `path` is the record log: `"ATPLDG01"` then a little-endian version u32.
+- Each record is `len u32 | crc u32 (FNV-1a 32) | type u8 | payload`, where
+  type 1 is an observation entry and type 2 is an outcome patch.
+- `<path>.off` is the durable commit marker: `"ATPLOF01"`, version, committed
+  count, and the byte offset of the committed prefix (28 bytes total).
+
+Multi-octet integers are little-endian, a deliberate format decision: snapshot
+v1 stays host-oriented, and the two files may migrate independently in a future
+version bump.
+
+### Crash safety
+
+Write ordering is the correctness argument:
+
+1. write the record bytes to the log and `fsync`;
+2. stage the new marker in `<path>.off.tmp` and `fsync` it;
+3. rename the temp marker over `.off`.
+
+A crash at any point leaves the previous committed prefix intact. Recovery
+truncates a torn tail beyond the committed offset, removes stale staging files,
+and heals a missing marker from the longest valid log prefix. A marker pointing
+beyond the log, or checksum damage inside the committed prefix, is refused as a
+format error rather than silently truncated.
+
+### Deduplication
+
+The unique `(source id + content digest)` index is rebuilt in memory on open
+and maintained on append. Reservations are made (outcome `PENDING`) before any
+training happens; the sync path flips them to `LEARNED` only after an
+observation reaches the graph. `FAILED` and `PENDING` reservations are
+retryable, so a crash mid-observe never silently drops an observation.
+
+### Runtime flow and snapshot mirror
+
+Each synced post: `append(source, author, observed_at, digest, schema,
+PENDING)` -> observe -> `set_outcome(id, LEARNED)` (or `SKIPPED` for empty
+text), then mirror the entry into the graph snapshot (v2) so recent provenance
+is inspectable in one file. The ledger remains authoritative for rebuilds.
+
+Deleting a learned contribution is still an open problem; the preferred model
+remains rebuild-from-ledger rather than approximate inverse gradient steps.
+
+## Persistence
+
+Snapshots are versioned and contain the complete mutable graph, neural
+parameters, counters, PRNG state, and a mirrored ledger block (snapshot v2).
+Saving is performed through a temporary file and rename so a partially written
+snapshot does not replace the previous state.
+
+Version 1 was host-oriented and wrote fixed-width integers and IEEE-754 floats
+directly. Snapshots are not yet a long-term public interchange format; ledger
+format version 1 is already byte-order explicit (little-endian) so it can be
+migrated independently when needed.
 
 ## Growth path
 
@@ -104,6 +149,8 @@ The intended order is:
 
 1. **Language graph** — vocabulary, embeddings, associations, persistence.
 2. **Observation ledger** — durable dedupe, replay, provenance, deletion.
+   Core ledger, snapshot mirror, and sync-through-ledger are implemented; the
+   snapshot rebuild/replay semantics that consume it are part of stage 3+.
 3. **Memory** — episodic and semantic structures linked to sources.
 4. **Internal state** — slowly learned preferences/values derived from repeated
    experience, not hard-coded personality text.
