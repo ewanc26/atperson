@@ -26,34 +26,62 @@ void print_bytes(std::ostream &out, std::uint64_t bytes) {
 
 } // namespace
 
+RuntimeResourceStatus inspect_runtime_resources(
+    const atp_graph_stats &graph_stats,
+    const std::vector<std::filesystem::path> &durable_paths,
+    const ResourceOverrides &overrides) {
+    RuntimeResourceStatus status;
+    status.system = probe_system_resources(durable_paths);
+    status.budget = derive_resource_budget(status.system, graph_stats, overrides);
+    return status;
+}
+
 RuntimeResourceStatus inspect_runtime_resources(const atp_graph_stats &graph_stats,
                                                 const std::filesystem::path &data_path,
                                                 const ResourceOverrides &overrides) {
-    RuntimeResourceStatus status;
-    status.system = probe_system_resources(data_path);
-    status.budget = derive_resource_budget(status.system, graph_stats, overrides);
-    return status;
+    return inspect_runtime_resources(
+        graph_stats, std::vector<std::filesystem::path>{data_path}, overrides);
+}
+
+RuntimeResourceStatus inspect_runtime_resources(
+    const LanguageGraph &graph,
+    const std::vector<std::filesystem::path> &durable_paths,
+    const ResourceOverrides &overrides) {
+    return inspect_runtime_resources(graph.stats(), durable_paths, overrides);
 }
 
 RuntimeResourceStatus inspect_runtime_resources(const LanguageGraph &graph,
                                                 const std::filesystem::path &data_path,
                                                 const ResourceOverrides &overrides) {
-    return inspect_runtime_resources(graph.stats(), data_path, overrides);
+    return inspect_runtime_resources(
+        graph, std::vector<std::filesystem::path>{data_path}, overrides);
+}
+
+RuntimeResourceStatus refresh_runtime_resources(
+    LanguageGraph &graph, const std::vector<std::filesystem::path> &durable_paths,
+    const ResourceOverrides &overrides) {
+    RuntimeResourceStatus status = inspect_runtime_resources(graph, durable_paths, overrides);
+    graph.set_capacity(status.budget.node_capacity_max, status.budget.edge_capacity_max);
+    return status;
 }
 
 RuntimeResourceStatus refresh_runtime_resources(LanguageGraph &graph,
                                                 const std::filesystem::path &data_path,
                                                 const ResourceOverrides &overrides) {
-    RuntimeResourceStatus status = inspect_runtime_resources(graph, data_path, overrides);
-    graph.set_capacity(status.budget.node_capacity_max, status.budget.edge_capacity_max);
-    return status;
+    return refresh_runtime_resources(
+        graph, std::vector<std::filesystem::path>{data_path}, overrides);
 }
 
 void require_runtime_write_headroom(const RuntimeResourceStatus &status) {
     if (status.budget.disk_pressure) {
+        const std::string destination = status.budget.limiting_disk_path.empty()
+                                            ? std::string("durable storage")
+                                            : status.budget.limiting_disk_path.string();
         throw std::runtime_error(
-            "filesystem is inside atperson's dynamic safety reserve; refusing durable mutation "
-            "until more space is available or ATPERSON_DISK_RESERVE_BYTES is explicitly adjusted");
+            destination +
+            " is inside atperson's dynamic filesystem safety reserve; refusing durable "
+            "mutation until more space is available or ATPERSON_DISK_RESERVE_BYTES is "
+            "explicitly adjusted");
     }
 }
 
@@ -118,10 +146,14 @@ void print_runtime_resources(std::ostream &out, const RuntimeResourceStatus &sta
     print_bytes(out, status.budget.memory_growth_budget_bytes);
     out << (status.budget.memory_pressure ? " (pressure)" : "") << '\n';
 
-    out << "disk: ";
-    print_bytes(out, status.system.disk_available_bytes);
+    out << "limiting disk";
+    if (!status.budget.limiting_disk_path.empty()) {
+        out << " (" << status.budget.limiting_disk_path.string() << ')';
+    }
+    out << ": ";
+    print_bytes(out, status.budget.limiting_disk_available_bytes);
     out << " available / ";
-    print_bytes(out, status.system.disk_capacity_bytes);
+    print_bytes(out, status.budget.limiting_disk_capacity_bytes);
     out << "; reserve ";
     print_bytes(out, status.budget.disk_reserve_bytes);
     out << "; per-run write budget ";
