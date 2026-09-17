@@ -5,6 +5,7 @@
 
 #include <atperson/core.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -21,6 +22,35 @@ struct ResourceOverrides {
     std::optional<int> sync_page_size;
     std::optional<std::uint64_t> sync_max_observations;
 };
+
+/*
+ * Versioned runtime recommendation for the future variable-shape neural core
+ * tracked by issue #63. This is deliberately operational metadata: it does not
+ * mutate the current fixed learned architecture. Once variable dimensions land,
+ * the selected durable architecture must be persisted separately and must not
+ * be silently reshaped merely because this recommendation changes.
+ */
+enum class NeuralCapacityClass {
+    constrained,
+    baseline,
+    capable,
+    large,
+    expansive,
+};
+
+struct NeuralCapacityRecommendation {
+    std::uint32_t policy_version{1u};
+    NeuralCapacityClass capacity_class{NeuralCapacityClass::constrained};
+    std::uint64_t memory_budget_bytes{};
+    std::size_t embedding_dim{32u};
+    std::size_t hidden_layer_count{1u};
+    std::array<std::size_t, 3u> hidden_widths{64u, 0u, 0u};
+    std::uint64_t shared_parameter_count{};
+    std::uint64_t shared_parameter_bytes{};
+    std::size_t runtime_batch_observations{1u};
+};
+
+const char *neural_capacity_class_name(NeuralCapacityClass capacity_class) noexcept;
 
 /*
  * Runtime-only resource policy derived from a system snapshot. None of these
@@ -43,6 +73,8 @@ struct ResourceBudget {
     std::size_t inspection_item_limit{};
     int sync_page_size{1};
     std::uint64_t sync_max_observations{1u};
+
+    NeuralCapacityRecommendation neural;
 
     bool memory_pressure{};
     bool disk_pressure{};

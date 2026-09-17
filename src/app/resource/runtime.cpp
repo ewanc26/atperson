@@ -146,6 +146,22 @@ void print_runtime_resources(std::ostream &out, const RuntimeResourceStatus &sta
     print_bytes(out, status.budget.memory_growth_budget_bytes);
     out << (status.budget.memory_pressure ? " (pressure)" : "") << '\n';
 
+    const auto &neural = status.budget.neural;
+    out << "neural recommendation: " << neural_capacity_class_name(neural.capacity_class)
+        << " (policy v" << neural.policy_version << "), budget ";
+    print_bytes(out, neural.memory_budget_bytes);
+    out << "; embedding " << neural.embedding_dim << "; hidden ";
+    for (std::size_t layer = 0u; layer < neural.hidden_layer_count; ++layer) {
+        if (layer != 0u) {
+            out << 'x';
+        }
+        out << neural.hidden_widths[layer];
+    }
+    out << "; shared params " << neural.shared_parameter_count << " / ";
+    print_bytes(out, neural.shared_parameter_bytes);
+    out << "; runtime batch " << neural.runtime_batch_observations
+        << " observations (recommendation only; durable neural shape unchanged)\n";
+
     out << "limiting disk";
     if (!status.budget.limiting_disk_path.empty()) {
         out << " (" << status.budget.limiting_disk_path.string() << ')';
