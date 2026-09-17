@@ -22,6 +22,7 @@ set(ATPERSON_APP_PRIVATE_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/action
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/atproto
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/audit
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/cli
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/ingestion
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/state
@@ -175,6 +176,13 @@ if(ATPERSON_BUILD_NETWORK)
   add_executable(
     atperson
     src/app/main.cpp
+    src/app/cli/config.cpp
+    src/app/cli/usage.cpp
+    src/app/cli/ledger_maintenance.cpp
+    src/app/cli/graph_inspection.cpp
+    src/app/cli/ingest.cpp
+    src/app/cli/cursor.cpp
+    src/app/cli/sync.cpp
     src/app/atproto/client.cpp
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
