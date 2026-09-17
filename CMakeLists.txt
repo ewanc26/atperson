@@ -21,6 +21,7 @@ set(ATPERSON_APP_PRIVATE_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/action
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/atproto
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/audit
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/ingestion
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/state
@@ -73,6 +74,9 @@ add_library(
   src/app/graph.cpp
   src/app/ledger.cpp
   src/app/action/inspection.cpp
+  src/app/audit/evidence.cpp
+  src/app/audit/questions.cpp
+  src/app/audit/verdict.cpp
   src/app/resource/system.cpp
   src/app/resource/filesystems.cpp
   src/app/resource/budget.cpp
@@ -170,6 +174,8 @@ if(ATPERSON_BUILD_NETWORK)
     atperson
     src/app/main.cpp
     src/app/atproto/client.cpp
+    src/app/audit/command.cpp
+    src/app/audit/transport.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/state/lock.cpp
@@ -325,6 +331,14 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson_action_inspection_test PRIVATE atperson_cpp)
   target_include_directories(atperson_action_inspection_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson_action_inspection COMMAND atperson_action_inspection_test)
+
+  # Advisory audit: evidence/state marshalling, question schema, and response
+  # parsing/rendering are offline-testable; only the transport is excluded
+  # from the ATPERSON_BUILD_NETWORK=OFF configuration.
+  add_executable(atperson_audit_test tests/audit_test.cpp)
+  target_link_libraries(atperson_audit_test PRIVATE atperson_cpp)
+  target_include_directories(atperson_audit_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson_audit COMMAND atperson_audit_test)
 
   # Dynamic host/container resource probing and deterministic budget policy.
   add_executable(atperson_resource_test tests/resource_test.cpp)

@@ -3,6 +3,7 @@
 #include "atperson/ledger.hpp"
 #include "action_inspection.hpp"
 #include "atproto_client.hpp"
+#include "audit/command.hpp"
 #include "ingestion_state.hpp"
 #include "resource_runtime.hpp"
 #include "state_lock.hpp"
@@ -102,6 +103,7 @@ void usage(std::ostream &out) {
         << "  atperson candidates <context> [limit]\n"
         << "  atperson plans <context> [max-tokens] [beam-width]\n"
         << "  atperson decide <context> [max-tokens] [beam-width]\n"
+        << "  atperson audit <context> [max-tokens] [beam-width]\n"
         << "  atperson context <text> [source-id] [author-did]\n"
         << "  atperson familiarity <token>\n"
         << "  atperson recall <query> [limit]\n"
@@ -128,6 +130,9 @@ void usage(std::ostream &out) {
         << "  ATPERSON_SERVICE       PDS/service URL (default https://bsky.social)\n"
         << "  ATPERSON_IDENTIFIER    handle or email for sync\n"
         << "  ATPERSON_APP_PASSWORD  app password for sync\n\n"
+        << "  ATPERSON_TYPESAFE_API_KEY   opt-in key for the advisory `audit` command\n"
+        << "  ATPERSON_TYPESAFE_ENDPOINT  advisory audit endpoint "
+           "(default https://api.typesafe.ai/v1/systemone)\n\n"
         << "mutating commands take an exclusive lock on the data directory;\n"
         << "read-only commands run without it and see state as of their read\n";
 }
@@ -307,6 +312,15 @@ int main(int argc, char **argv) {
             return atperson::run_action_inspection_command(
                 std::cout, graph, command, arguments,
                 static_cast<std::uint64_t>(std::time(nullptr)));
+        }
+
+        if (command == "audit") {
+            std::vector<std::string_view> arguments;
+            arguments.reserve(argc > 2 ? static_cast<std::size_t>(argc - 2) : 0u);
+            for (int i = 2; i < argc; ++i) {
+                arguments.emplace_back(argv[i]);
+            }
+            return atperson::audit::run_audit_command(std::cout, graph, command, arguments);
         }
 
         if (command == "ingest") {

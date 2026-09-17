@@ -61,7 +61,12 @@ static const char *const atp_env_template =
     "ATPERSON_NODE_CAPACITY=\n"
     "ATPERSON_EDGE_CAPACITY=\n"
     "ATPERSON_SYNC_PAGE_SIZE=\n"
-    "ATPERSON_SYNC_MAX_OBSERVATIONS=\n";
+    "ATPERSON_SYNC_MAX_OBSERVATIONS=\n"
+    "\n"
+    "# Advisory audit (optional): sends a bounded decision trace to\n"
+    "# api.typesafe.ai for a non-authoritative judgement when `atperson audit`\n"
+    "# is run. Learning, planning and network policy are never affected.\n"
+    "ATPERSON_TYPESAFE_API_KEY=\n";
 
 static int atp_mkdir_p(const char *path) {
     /* mkdir -p in C. Walk the path creating each missing component. */

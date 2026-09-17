@@ -228,6 +228,11 @@ The bootstrap is idempotent and never touches an existing directory or
 ./build/atperson recall "hello world" 5
 ```
 
+`atperson audit "hello world"` optionally sends the same bounded decision
+trace to TypeSafe System One for a non-authoritative, operator-facing advisory
+judgment (see `docs/audit.md`). It requires `ATPERSON_TYPESAFE_API_KEY`, is
+opt-in, and never affects learned state or outbound policy.
+
 To learn from the authenticated account's public home timeline:
 
 ```sh
