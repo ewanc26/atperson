@@ -437,6 +437,23 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson-daemon-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-daemon COMMAND atperson-daemon-test)
 
+  # Outbound action policy and rate budgets (#23): default-deny, per-window
+  # limits, cooldowns, duplicate suppression, restart persistence and the
+  # inspectable CLI surface. Offline, no network.
+  add_executable(
+    atperson-outbound-test
+    tests/outbound/outbound.cpp
+    src/app/cli/outbound.cpp
+    src/app/control/state.cpp
+    src/app/outbound/actions.cpp
+    src/app/outbound/budget.cpp
+    src/app/outbound/config.cpp
+    src/app/outbound/evaluate.cpp)
+  target_compile_features(atperson-outbound-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-outbound-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-outbound-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-outbound COMMAND atperson-outbound-test)
+
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay
   # convergence, over reproducible pseudo-random inputs. Offline.
