@@ -5,7 +5,7 @@
  * commit marker. The previous marker remains authoritative on failure.
  */
 
-#include "ledger_internal.h"
+#include "internal.h"
 
 #include <stdio.h>
 

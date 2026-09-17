@@ -6,7 +6,7 @@
  * ledger state.
  */
 
-#include "ledger_internal.h"
+#include "internal.h"
 
 #include <stdint.h>
 #include <string.h>

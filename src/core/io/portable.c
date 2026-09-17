@@ -1,9 +1,9 @@
-#include "portable_io.h"
+#include "io/portable.h"
 
 #include <string.h>
 
 /*
- * Portable binary IO primitives. See portable_io.h for the format contract.
+ * Portable binary IO primitives. See io/portable.h for the format contract.
  *
  * Floats: C23 does not guarantee IEEE 754, but every platform this project
  * targets (CI matrix: x86_64/arm64 GCC and Clang) uses IEEE 754 floats, and

@@ -1,6 +1,6 @@
 #include "persistence/decode.h"
 #include "persistence/format.h"
-#include "portable_io.h"
+#include "io/portable.h"
 
 #include <stdlib.h>
 #include <string.h>

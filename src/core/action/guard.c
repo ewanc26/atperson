@@ -1,5 +1,5 @@
 #include "atperson/action.h"
-#include "action_internal.h"
+#include "internal.h"
 
 #include <math.h>
 #include <stdlib.h>

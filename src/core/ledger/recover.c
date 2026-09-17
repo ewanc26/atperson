@@ -17,7 +17,7 @@
  * documented behaviour.
  */
 
-#include "ledger_internal.h"
+#include "internal.h"
 
 #include <stdbool.h>
 #include <stddef.h>

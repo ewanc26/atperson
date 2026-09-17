@@ -1,6 +1,6 @@
+#include "../internal.h"
 #include "atperson/action.h"
 #include "internal.h"
-#include "action_internal.h"
 
 #include <stdlib.h>
 #include <string.h>

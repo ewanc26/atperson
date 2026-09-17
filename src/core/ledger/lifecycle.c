@@ -6,7 +6,7 @@
  * append ordering itself belongs to commit.c.
  */
 
-#include "ledger_internal.h"
+#include "internal.h"
 
 #include <stdbool.h>
 #include <stddef.h>

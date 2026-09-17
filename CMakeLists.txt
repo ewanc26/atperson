@@ -29,7 +29,7 @@ set(ATPERSON_APP_PRIVATE_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/sync)
 
 add_library(
-  atperson_core
+  atperson-core
   src/core/graph/lifecycle.c
   src/core/graph/index.c
   src/core/graph/store.c
@@ -56,25 +56,25 @@ add_library(
   src/core/ledger/recover.c
   src/core/replay.c
   src/core/tokenize.c
-  src/core/portable_io.c
+  src/core/io/portable.c
   src/core/persistence/encode.c
   src/core/persistence/reader.c
   src/core/persistence/decode.c
   src/core/persistence/migration.c
   src/core/persistence/load.c)
 target_include_directories(
-  atperson_core
+  atperson-core
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
-target_compile_features(atperson_core PUBLIC c_std_23)
+target_compile_features(atperson-core PUBLIC c_std_23)
 
 if(UNIX)
-  target_compile_definitions(atperson_core PRIVATE _POSIX_C_SOURCE=200809L)
-  target_link_libraries(atperson_core PRIVATE m)
+  target_compile_definitions(atperson-core PRIVATE _POSIX_C_SOURCE=200809L)
+  target_link_libraries(atperson-core PRIVATE m)
 endif()
 
 add_library(
-  atperson_cpp
+  atperson-cpp
   src/app/graph.cpp
   src/app/ledger.cpp
   src/app/action/inspection.cpp
@@ -86,11 +86,11 @@ add_library(
   src/app/resource/budget.cpp
   src/app/resource/runtime.cpp)
 target_include_directories(
-  atperson_cpp
+  atperson-cpp
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
   PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-target_link_libraries(atperson_cpp PUBLIC atperson_core)
-target_compile_features(atperson_cpp PUBLIC cxx_std_23)
+target_link_libraries(atperson-cpp PUBLIC atperson-core)
+target_compile_features(atperson-cpp PUBLIC cxx_std_23)
 
 # Runtime ingestion state is JSON; cJSON is the same parser Wolfram uses.
 # Fetch it unconditionally so the runtime layer builds and tests without the
@@ -118,9 +118,9 @@ FetchContent_MakeAvailable(cjson)
 target_compile_options(cjson PRIVATE -Wno-keyword-macro)
 # cJSON's own CMakeLists does not declare target include directories; the
 # header lives at the top of its source tree (same as Wolfram's build).
-target_include_directories(atperson_cpp PUBLIC ${cjson_SOURCE_DIR})
+target_include_directories(atperson-cpp PUBLIC ${cjson_SOURCE_DIR})
 if(NOT WOLFRAM_CJSON_OVERRIDDEN)
-  target_link_libraries(atperson_cpp PUBLIC cjson)
+  target_link_libraries(atperson-cpp PUBLIC cjson)
 endif()
 
 # Token identity is durable learning state (issue #8): the core needs a
@@ -134,14 +134,14 @@ FetchContent_Declare(
   GIT_TAG v2.11.0)
 set(UTF8PROC_INSTALL OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(utf8proc)
-target_link_libraries(atperson_core PUBLIC utf8proc)
+target_link_libraries(atperson-core PUBLIC utf8proc)
 
 if(MSVC)
-  target_compile_options(atperson_core PRIVATE /W4)
-  target_compile_options(atperson_cpp PRIVATE /W4)
+  target_compile_options(atperson-core PRIVATE /W4)
+  target_compile_options(atperson-cpp PRIVATE /W4)
 else()
-  target_compile_options(atperson_core PRIVATE -Wall -Wextra -Wpedantic)
-  target_compile_options(atperson_cpp PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(atperson-core PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(atperson-cpp PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if(ATPERSON_BUILD_NETWORK)
@@ -179,8 +179,8 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/main.cpp
     src/app/cli/config.cpp
     src/app/cli/usage.cpp
-    src/app/cli/ledger_maintenance.cpp
-    src/app/cli/graph_inspection.cpp
+    src/app/cli/maintenance.cpp
+    src/app/cli/inspection.cpp
     src/app/cli/ingest.cpp
     src/app/cli/cursor.cpp
     src/app/cli/sync.cpp
@@ -193,7 +193,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/state/lock.cpp
     src/app/sync/engine.cpp)
   target_include_directories(atperson PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  target_link_libraries(atperson PRIVATE atperson_cpp wolfram-cpp)
+  target_link_libraries(atperson PRIVATE atperson-cpp wolfram-cpp)
   target_compile_features(atperson PRIVATE cxx_std_23)
 
   if(MSVC)
@@ -207,231 +207,231 @@ if(ATPERSON_BUILD_TESTS)
   include(CTest)
   enable_testing()
 
-  add_executable(atperson_core_test tests/core_test.c)
-  target_link_libraries(atperson_core_test PRIVATE atperson_core)
-  add_test(NAME atperson_core COMMAND atperson_core_test)
+  add_executable(atperson-core-test tests/core/core.c)
+  target_link_libraries(atperson-core-test PRIVATE atperson-core)
+  add_test(NAME atperson-core COMMAND atperson-core-test)
 
-  add_executable(atperson_memory_test tests/memory_test.c)
-  target_link_libraries(atperson_memory_test PRIVATE atperson_core)
-  add_test(NAME atperson_memory COMMAND atperson_memory_test)
+  add_executable(atperson-memory-test tests/memory/memory.c)
+  target_link_libraries(atperson-memory-test PRIVATE atperson-core)
+  add_test(NAME atperson-memory COMMAND atperson-memory-test)
 
-  add_executable(atperson_familiarity_test tests/familiarity_test.c)
-  target_link_libraries(atperson_familiarity_test PRIVATE atperson_core)
-  add_test(NAME atperson_familiarity COMMAND atperson_familiarity_test)
+  add_executable(atperson-familiarity-test tests/familiarity/familiarity.c)
+  target_link_libraries(atperson-familiarity-test PRIVATE atperson-core)
+  add_test(NAME atperson-familiarity COMMAND atperson-familiarity-test)
 
-  add_executable(atperson_valence_test tests/valence_test.c)
-  target_link_libraries(atperson_valence_test PRIVATE atperson_core)
-  add_test(NAME atperson_valence COMMAND atperson_valence_test)
+  add_executable(atperson-valence-test tests/valence/valence.c)
+  target_link_libraries(atperson-valence-test PRIVATE atperson-core)
+  add_test(NAME atperson-valence COMMAND atperson-valence-test)
 
-  add_executable(atperson_action_test tests/action_test.c)
-  target_link_libraries(atperson_action_test PRIVATE atperson_core)
-  add_test(NAME atperson_action COMMAND atperson_action_test)
+  add_executable(atperson-action-test tests/action/action.c)
+  target_link_libraries(atperson-action-test PRIVATE atperson-core)
+  add_test(NAME atperson-action COMMAND atperson-action-test)
 
-  add_executable(atperson_action_decision_test tests/action_decision_test.c)
-  target_link_libraries(atperson_action_decision_test PRIVATE atperson_core)
-  add_test(NAME atperson_action_decision COMMAND atperson_action_decision_test)
+  add_executable(atperson-action-decision-test tests/action/decision.c)
+  target_link_libraries(atperson-action-decision-test PRIVATE atperson-core)
+  add_test(NAME atperson-action-decision COMMAND atperson-action-decision-test)
 
-  add_executable(atperson_context_test tests/context_test.c)
-  target_link_libraries(atperson_context_test PRIVATE atperson_core)
-  add_test(NAME atperson_context COMMAND atperson_context_test)
+  add_executable(atperson-context-test tests/context/context.c)
+  target_link_libraries(atperson-context-test PRIVATE atperson-core)
+  add_test(NAME atperson-context COMMAND atperson-context-test)
 
   # The ledger test binary is re-invoked as *separate OS processes* so the
   # cross-run dedup test exercises a genuinely restarted process. Phase 1
   # commits entries for several posts; phase 2 (which CTest runs afterwards)
   # re-opens the same files and asserts the unique (source id + digest) index
   # blocks every already-committed post.
-  add_executable(atperson_ledger_test tests/ledger_test.c)
-  target_link_libraries(atperson_ledger_test PRIVATE atperson_core)
+  add_executable(atperson-ledger-test tests/ledger/ledger.c)
+  target_link_libraries(atperson-ledger-test PRIVATE atperson-core)
   add_test(
-    NAME atperson_ledger_dedup_phase1
-    COMMAND atperson_ledger_test dedup-phase1
+    NAME atperson-ledger_dedup_phase1
+    COMMAND atperson-ledger-test dedup-phase1
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-runs)
   add_test(
-    NAME atperson_ledger_dedup_phase2
-    COMMAND atperson_ledger_test dedup-phase2
+    NAME atperson-ledger_dedup_phase2
+    COMMAND atperson-ledger-test dedup-phase2
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-runs)
-  set_tests_properties(atperson_ledger_dedup_phase2
-                       PROPERTIES DEPENDS atperson_ledger_dedup_phase1)
+  set_tests_properties(atperson-ledger_dedup_phase2
+                       PROPERTIES DEPENDS atperson-ledger_dedup_phase1)
   add_test(
-    NAME atperson_ledger_roundtrip
-    COMMAND atperson_ledger_test roundtrip
+    NAME atperson-ledger_roundtrip
+    COMMAND atperson-ledger-test roundtrip
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-roundtrip)
   add_test(
-    NAME atperson_ledger_crash_safety
-    COMMAND atperson_ledger_test crash-safety
+    NAME atperson-ledger_crash_safety
+    COMMAND atperson-ledger-test crash-safety
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-crash)
   add_test(
-    NAME atperson_ledger_payloads
-    COMMAND atperson_ledger_test payloads
+    NAME atperson-ledger_payloads
+    COMMAND atperson-ledger-test payloads
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-payloads)
   add_test(
-    NAME atperson_ledger_payload_corruption
-    COMMAND atperson_ledger_test payload-corruption
+    NAME atperson-ledger_payload_corruption
+    COMMAND atperson-ledger-test payload-corruption
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-payload-corruption)
   add_test(
-    NAME atperson_ledger_migration
-    COMMAND atperson_ledger_test migration
+    NAME atperson-ledger_migration
+    COMMAND atperson-ledger-test migration
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-migration)
 
   # Deterministic replay/rebuild from the ledger; pure core, no network.
-  add_executable(atperson_replay_test tests/replay_test.c)
-  target_link_libraries(atperson_replay_test PRIVATE atperson_core)
+  add_executable(atperson-replay-test tests/replay/replay.c)
+  target_link_libraries(atperson-replay-test PRIVATE atperson-core)
   add_test(
-    NAME atperson_replay
-    COMMAND atperson_replay_test replay ${CMAKE_CURRENT_BINARY_DIR}/replay)
+    NAME atperson-replay
+    COMMAND atperson-replay-test replay ${CMAKE_CURRENT_BINARY_DIR}/replay)
   add_test(
-    NAME atperson_replay_rebuild_safety
-    COMMAND atperson_replay_test rebuild-safety
+    NAME atperson-replay_rebuild_safety
+    COMMAND atperson-replay-test rebuild-safety
             ${CMAKE_CURRENT_BINARY_DIR}/replay-safety)
 
   # Source withdrawal/unlearning semantics; pure core, no network.
-  add_executable(atperson_withdraw_test tests/withdraw_test.c)
-  target_link_libraries(atperson_withdraw_test PRIVATE atperson_core)
+  add_executable(atperson-withdraw-test tests/withdraw/withdraw.c)
+  target_link_libraries(atperson-withdraw-test PRIVATE atperson-core)
   add_test(
-    NAME atperson_withdraw
-    COMMAND atperson_withdraw_test withdraw ${CMAKE_CURRENT_BINARY_DIR}/withdraw)
+    NAME atperson-withdraw
+    COMMAND atperson-withdraw-test withdraw ${CMAKE_CURRENT_BINARY_DIR}/withdraw)
 
   # Safe ledger compaction and checkpointing; pure core, no network.
-  add_executable(atperson_compact_test tests/compact_test.c)
-  target_link_libraries(atperson_compact_test PRIVATE atperson_core)
+  add_executable(atperson-compact-test tests/compact/compact.c)
+  target_link_libraries(atperson-compact-test PRIVATE atperson-core)
   add_test(
-    NAME atperson_compact
-    COMMAND atperson_compact_test compact ${CMAKE_CURRENT_BINARY_DIR}/compact)
+    NAME atperson-compact
+    COMMAND atperson-compact-test compact ${CMAKE_CURRENT_BINARY_DIR}/compact)
   add_test(
-    NAME atperson_compact_rebuild_equivalence
-    COMMAND atperson_compact_test rebuild-equivalence
+    NAME atperson-compact_rebuild_equivalence
+    COMMAND atperson-compact-test rebuild-equivalence
             ${CMAKE_CURRENT_BINARY_DIR}/compact-rebuild)
 
   # Unicode tokenization contract; pure core, no network.
-  add_executable(atperson_tokenize_test tests/tokenize_test.c)
-  target_link_libraries(atperson_tokenize_test PRIVATE atperson_core)
-  target_include_directories(atperson_tokenize_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  add_executable(atperson-tokenize-test tests/tokenize/tokenize.c)
+  target_link_libraries(atperson-tokenize-test PRIVATE atperson-core)
+  target_include_directories(atperson-tokenize-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
   add_test(
-    NAME atperson_tokenize
-    COMMAND atperson_tokenize_test tokenize)
+    NAME atperson-tokenize
+    COMMAND atperson-tokenize-test tokenize)
   add_test(
-    NAME atperson_tokenize_graph
-    COMMAND atperson_tokenize_test tokenize-graph)
+    NAME atperson-tokenize_graph
+    COMMAND atperson-tokenize-test tokenize-graph)
 
   # Graph growth bounds and pathological input; pure core, no network.
-  add_executable(atperson_growth_test tests/growth_test.c)
-  target_link_libraries(atperson_growth_test PRIVATE atperson_core)
+  add_executable(atperson-growth-test tests/growth/growth.c)
+  target_link_libraries(atperson-growth-test PRIVATE atperson-core)
   add_test(
-    NAME atperson_growth
-    COMMAND atperson_growth_test growth)
+    NAME atperson-growth
+    COMMAND atperson-growth-test growth)
   add_test(
-    NAME atperson_growth_pathology
-    COMMAND atperson_growth_test growth-pathology)
+    NAME atperson-growth_pathology
+    COMMAND atperson-growth-test growth-pathology)
 
   # Scale benchmarks (issue #9). Explicit suite, excluded from default
   # runs via label; invoke with: ctest -L bench
-  add_executable(atperson_bench tests/bench.c)
-  target_link_libraries(atperson_bench PRIVATE atperson_core)
+  add_executable(atperson-bench tests/core/bench.c)
+  target_link_libraries(atperson-bench PRIVATE atperson-core)
   add_test(
-    NAME atperson_bench
-    COMMAND atperson_bench bench)
-  set_tests_properties(atperson_bench PROPERTIES LABELS "bench")
+    NAME atperson-bench
+    COMMAND atperson-bench bench)
+  set_tests_properties(atperson-bench PROPERTIES LABELS "bench")
 
-  add_executable(atperson_snapshot_test tests/snapshot_test.c)
-  target_link_libraries(atperson_snapshot_test PRIVATE atperson_core)
+  add_executable(atperson-snapshot-test tests/snapshot/snapshot.c)
+  target_link_libraries(atperson-snapshot-test PRIVATE atperson-core)
   add_test(
-    NAME atperson_snapshot
-    COMMAND atperson_snapshot_test)
+    NAME atperson-snapshot
+    COMMAND atperson-snapshot-test)
 
-  add_executable(atperson_cpp_test tests/cpp_test.cpp)
-  target_link_libraries(atperson_cpp_test PRIVATE atperson_cpp)
-  add_test(NAME atperson_cpp COMMAND atperson_cpp_test)
+  add_executable(atperson-cpp-test tests/cpp/graph.cpp)
+  target_link_libraries(atperson-cpp-test PRIVATE atperson-cpp)
+  add_test(NAME atperson-cpp COMMAND atperson-cpp-test)
 
   # Read-only rendering of authoritative C23 plan/context/decision traces.
-  add_executable(atperson_action_inspection_test tests/action_inspection_test.cpp)
-  target_link_libraries(atperson_action_inspection_test PRIVATE atperson_cpp)
-  target_include_directories(atperson_action_inspection_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  add_test(NAME atperson_action_inspection COMMAND atperson_action_inspection_test)
+  add_executable(atperson-action_inspection_test tests/action/inspection.cpp)
+  target_link_libraries(atperson-action_inspection_test PRIVATE atperson-cpp)
+  target_include_directories(atperson-action_inspection_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-action_inspection COMMAND atperson-action_inspection_test)
 
   # Advisory audit: evidence/state marshalling, question schema, and response
   # parsing/rendering are offline-testable; only the transport is excluded
   # from the ATPERSON_BUILD_NETWORK=OFF configuration.
-  add_executable(atperson_audit_test tests/audit_test.cpp)
-  target_link_libraries(atperson_audit_test PRIVATE atperson_cpp)
-  target_include_directories(atperson_audit_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  add_test(NAME atperson_audit COMMAND atperson_audit_test)
+  add_executable(atperson-audit-test tests/audit/audit.cpp)
+  target_link_libraries(atperson-audit-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-audit-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-audit COMMAND atperson-audit-test)
 
   # Dynamic host/container resource probing and deterministic budget policy.
-  add_executable(atperson_resource_test tests/resource_test.cpp)
-  target_link_libraries(atperson_resource_test PRIVATE atperson_cpp)
-  target_include_directories(atperson_resource_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  add_test(NAME atperson_resource COMMAND atperson_resource_test)
+  add_executable(atperson-resource-test tests/resource/resource.cpp)
+  target_link_libraries(atperson-resource-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-resource-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-resource COMMAND atperson-resource-test)
 
   # Ingestion-state format and sync-engine restart semantics; offline
   # (fixture page fetchers, no live network).
   add_executable(
-    atperson_sync_test
-    tests/sync_test.cpp
+    atperson-sync-test
+    tests/sync/sync.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/sync/engine.cpp)
-  target_link_libraries(atperson_sync_test PRIVATE atperson_cpp)
-  target_include_directories(atperson_sync_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  add_test(NAME atperson_sync COMMAND atperson_sync_test)
+  target_link_libraries(atperson-sync-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-sync-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-sync COMMAND atperson-sync-test)
 
   # Deterministic end-to-end lifecycle harness (issue #28): multi-run
   # scenarios over the real ledger/snapshot/state files with a scripted
   # feed fixture — restarts, crash recovery, withdrawal flows, planning
   # abstention, and cross-run determinism. Offline, no network.
   add_executable(
-    atperson_e2e_test
-    tests/e2e_harness.cpp
+    atperson-e2e-test
+    tests/sync/lifecycle.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/sync/engine.cpp)
-  target_link_libraries(atperson_e2e_test PRIVATE atperson_cpp)
-  target_include_directories(atperson_e2e_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  add_test(NAME atperson_e2e COMMAND atperson_e2e_test)
+  target_link_libraries(atperson-e2e-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-e2e-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-e2e COMMAND atperson-e2e-test)
 
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay
   # convergence, over reproducible pseudo-random inputs. Offline.
-  add_executable(atperson_property_test tests/property_test.cpp)
-  target_link_libraries(atperson_property_test PRIVATE atperson_cpp)
-  add_test(NAME atperson_property COMMAND atperson_property_test)
+  add_executable(atperson-property-test tests/property/property.cpp)
+  target_link_libraries(atperson-property-test PRIVATE atperson-cpp)
+  add_test(NAME atperson-property COMMAND atperson-property-test)
 
   # Ingestion policy: every skip class produces the documented reason and
   # eligible classes are tagged (repost/reply). Offline, no network.
   add_executable(
-    atperson_policy_test
-    tests/policy_test.cpp
+    atperson-policy-test
+    tests/policy/policy.cpp
     src/app/ingestion/policy.cpp)
-  target_compile_features(atperson_policy_test PRIVATE cxx_std_23)
-  target_include_directories(atperson_policy_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  add_test(NAME atperson_policy COMMAND atperson_policy_test)
+  target_compile_features(atperson-policy-test PRIVATE cxx_std_23)
+  target_include_directories(atperson-policy-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-policy COMMAND atperson-policy-test)
 
   # AT Protocol feed-item translation (issue #24): top-level posts, nested
   # replies, deleted parents, quotes, and malformed context, over real
   # feedViewPost JSON fixtures. Offline, no network.
   add_executable(
-    atperson_extract_test
-    tests/extract_test.cpp
+    atperson-extract-test
+    tests/policy/extract.cpp
     src/app/atproto/extract.cpp
     src/app/ingestion/policy.cpp)
-  target_compile_features(atperson_extract_test PRIVATE cxx_std_23)
-  target_link_libraries(atperson_extract_test PRIVATE atperson_cpp cjson)
-  target_include_directories(atperson_extract_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  add_test(NAME atperson_extract COMMAND atperson_extract_test)
+  target_compile_features(atperson-extract-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-extract-test PRIVATE atperson-cpp cjson)
+  target_include_directories(atperson-extract-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-extract COMMAND atperson-extract-test)
 
   add_executable(
-    atperson_lock_test
-    tests/lock_test.cpp
+    atperson-lock-test
+    tests/sync/lock.cpp
     src/app/state/lock.cpp)
-  target_compile_features(atperson_lock_test PRIVATE cxx_std_23)
-  target_include_directories(atperson_lock_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  add_test(NAME atperson_lock COMMAND atperson_lock_test)
+  target_compile_features(atperson-lock-test PRIVATE cxx_std_23)
+  target_include_directories(atperson-lock-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-lock COMMAND atperson-lock-test)
 
-  add_executable(atperson_bootstrap_test tests/bootstrap_test.c)
-  target_link_libraries(atperson_bootstrap_test PRIVATE atperson_core)
+  add_executable(atperson-bootstrap-test tests/bootstrap/bootstrap.c)
+  target_link_libraries(atperson-bootstrap-test PRIVATE atperson-core)
   if(UNIX)
-    target_compile_definitions(atperson_bootstrap_test PRIVATE _POSIX_C_SOURCE=200809L)
+    target_compile_definitions(atperson-bootstrap-test PRIVATE _POSIX_C_SOURCE=200809L)
   endif()
-  add_test(NAME atperson_bootstrap COMMAND atperson_bootstrap_test)
+  add_test(NAME atperson-bootstrap COMMAND atperson-bootstrap-test)
 endif()
 
 # Fuzz targets (issue #11): libFuzzer harnesses over the untrusted-input
@@ -440,37 +440,37 @@ endif()
 # runs. Run manually with:
 #   cmake -S . -B build-fuzz -DATPERSON_BUILD_NETWORK=OFF -DATPERSON_BUILD_FUZZ=ON
 #   cmake --build build-fuzz
-#   ./build-fuzz/snapshot_load_fuzzer -max_total_time=60 fuzz/corpus/snapshot
+#   ./build-fuzz/snapshot-load-fuzzer -max_total_time=60 fuzz/corpus/snapshot
 option(ATPERSON_BUILD_FUZZ "Build libFuzzer targets (requires Clang)" OFF)
 if(ATPERSON_BUILD_FUZZ)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "ATPERSON_BUILD_FUZZ requires Clang (libFuzzer)")
   endif()
 
-  add_executable(snapshot_load_fuzzer fuzz/snapshot_load_fuzzer.c)
-  target_link_libraries(snapshot_load_fuzzer PRIVATE atperson_core)
-  target_include_directories(snapshot_load_fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  add_executable(snapshot-load-fuzzer fuzz/snapshot/load.c)
+  target_link_libraries(snapshot-load-fuzzer PRIVATE atperson-core)
+  target_include_directories(snapshot-load-fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
   if(UNIX)
-    target_compile_definitions(snapshot_load_fuzzer PRIVATE _POSIX_C_SOURCE=200809L)
+    target_compile_definitions(snapshot-load-fuzzer PRIVATE _POSIX_C_SOURCE=200809L)
   endif()
   target_compile_options(
-    snapshot_load_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
-  target_link_options(snapshot_load_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
+    snapshot-load-fuzzer PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+  target_link_options(snapshot-load-fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
 
-  add_executable(ledger_open_fuzzer fuzz/ledger_open_fuzzer.c)
-  target_link_libraries(ledger_open_fuzzer PRIVATE atperson_core)
-  target_include_directories(ledger_open_fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  add_executable(ledger-open-fuzzer fuzz/ledger/open.c)
+  target_link_libraries(ledger-open-fuzzer PRIVATE atperson-core)
+  target_include_directories(ledger-open-fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
   if(UNIX)
-    target_compile_definitions(ledger_open_fuzzer PRIVATE _POSIX_C_SOURCE=200809L)
+    target_compile_definitions(ledger-open-fuzzer PRIVATE _POSIX_C_SOURCE=200809L)
   endif()
   target_compile_options(
-    ledger_open_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
-  target_link_options(ledger_open_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
+    ledger-open-fuzzer PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+  target_link_options(ledger-open-fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
 
-  add_executable(tokenize_fuzzer fuzz/tokenize_fuzzer.c)
-  target_link_libraries(tokenize_fuzzer PRIVATE atperson_core)
-  target_include_directories(tokenize_fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  add_executable(tokenize-fuzzer fuzz/tokenize/tokenize.c)
+  target_link_libraries(tokenize-fuzzer PRIVATE atperson-core)
+  target_include_directories(tokenize-fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
   target_compile_options(
-    tokenize_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
-  target_link_options(tokenize_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
+    tokenize-fuzzer PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+  target_link_options(tokenize-fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()

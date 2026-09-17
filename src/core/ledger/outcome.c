@@ -5,7 +5,7 @@
  * on the same primitive so no committed log bytes are rewritten in place.
  */
 
-#include "ledger_internal.h"
+#include "internal.h"
 
 #include <stdint.h>
 #include <string.h>

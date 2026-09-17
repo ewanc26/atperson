@@ -25,7 +25,7 @@
  * the entry values they are handed.
  */
 
-#include "ledger_internal.h"
+#include "internal.h"
 
 #include <stdbool.h>
 #include <stddef.h>

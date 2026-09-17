@@ -2,7 +2,7 @@
 #define ATPERSON_PERSISTENCE_READER_H
 
 #include "internal.h"
-#include "portable_io.h"
+#include "io/portable.h"
 
 #include <stddef.h>
 

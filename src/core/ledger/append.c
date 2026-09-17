@@ -6,7 +6,7 @@
  * mirrors the committed entry/payload into memory and the dedup index.
  */
 
-#include "ledger_internal.h"
+#include "internal.h"
 
 #include <stdint.h>
 #include <stdlib.h>

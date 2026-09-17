@@ -436,6 +436,88 @@ void test_equivalent_runs_produce_equivalent_final_state() {
 }
 
 /* ---------------------------------------------------------------- */
+/* Scenario: conversation context through the durable lifecycle       */
+/* ---------------------------------------------------------------- */
+
+void test_conversation_context_survives_restarts_and_withdrawal() {
+    /* Issue #24 regression scenario: reply and quote context must ride
+     * the durable pipeline — ledger commit, snapshot mirror, restart from
+     * disk — and stay queryable per mirrored entry. Withdrawal of a reply
+     * removes its mirror entry (and context) at the next rebuild. And the
+     * context must never leak into learning: a quote's target text is not
+     * in the vocabulary, only the quoting author's own words. */
+    Scenario scenario("context");
+    atperson::SyncObservation top_post =
+        obs("at://e2e/ctx1", "thread start", "did:plc:author");
+    atperson::SyncObservation reply = obs("at://e2e/ctx2", "a reply arrives", "did:plc:other");
+    reply.context.reply_root_uri = "at://did:plc:author/app.bsky.feed.post/3k1";
+    reply.context.reply_parent_uri = "at://did:plc:author/app.bsky.feed.post/3k1";
+    atperson::SyncObservation quote = obs("at://e2e/ctx3", "look at this", "did:plc:third");
+    quote.context.quote_uri = "at://did:plc:other/app.bsky.feed.post/3k2";
+    /* The quote targets a post whose text contains "quoted vocabulary" —
+     * if quote text ever leaked into learning, the token "quoted" would
+     * appear in the recovered graph's vocabulary. */
+    ScriptedFeed contextual({{{top_post, reply, quote}, std::nullopt}});
+
+    (void)scenario.run(contextual, 1);
+
+    /* Restart from disk: the snapshot mirror carries the context. */
+    const auto graph = atperson::LanguageGraph::load(scenario.model_file);
+    const auto entries = graph.ledger_entries();
+    assert(entries.size() == 3u);
+
+    const auto reply_context = graph.ledger_context(1u);
+    assert(reply_context.reply_root_uri ==
+           std::string("at://did:plc:author/app.bsky.feed.post/3k1"));
+    assert(reply_context.reply_parent_uri ==
+           std::string("at://did:plc:author/app.bsky.feed.post/3k1"));
+    assert(reply_context.quote_uri[0] == '\0');
+
+    const auto quote_context = graph.ledger_context(2u);
+    assert(quote_context.quote_uri == std::string("at://did:plc:other/app.bsky.feed.post/3k2"));
+    assert(quote_context.reply_root_uri[0] == '\0');
+
+    /* Top-level post keeps empty context. */
+    const auto top = graph.ledger_context(0u);
+    assert(top.reply_root_uri[0] == '\0' && top.quote_uri[0] == '\0');
+
+    /* Quote text never entered the learned vocabulary: the quoted post's
+     * words ("quoted vocabulary") appear nowhere in what was learned.
+     * familiarity of an unlearned token reads 0. */
+    assert(graph.familiarity("quoted") == 0.0f);
+    assert(graph.familiarity("vocabulary") == 0.0f);
+    /* The quoting author's own words did. */
+    assert(graph.familiarity("look") > 0.0f);
+
+    /* Withdraw the reply; rebuild drops its mirror entry. */
+    atperson::Ledger ledger(scenario.ledger_file);
+    assert(ledger.withdraw_source("at://e2e/ctx2") == 1u);
+    atperson::LanguageGraph rebuilt;
+    const auto report = rebuilt.replay(ledger);
+    assert(report.replayed == 2u);
+    assert(report.excluded_withdrawn == 1u);
+    rebuilt.save(scenario.model_file);
+
+    const auto recovered = atperson::LanguageGraph::load(scenario.model_file);
+    const auto recovered_entries = recovered.ledger_entries();
+    assert(recovered_entries.size() == 2u);
+    /* Mirror order preserved: the surviving entries are the top-level
+     * post and the quote. */
+    assert(recovered_entries[1].source_id == std::string("at://e2e/ctx3"));
+
+    /* Known boundary, pinned: conversation context survives restarts from
+     * disk (the snapshot path) but NOT a replay rebuild. The ledger payload
+     * is canonical text only; context lives in the snapshot mirror. A
+     * ledger context section must exist before #27's action-outcome loop
+     * can rely on context surviving recovery — same shape as the valence
+     * boundary (docs/valence.md). Until then, rebuilds yield empty
+     * context, never stale or wrong context. */
+    const auto rebuilt_quote = recovered.ledger_context(1u);
+    assert(rebuilt_quote.reply_root_uri[0] == '\0');
+    assert(rebuilt_quote.quote_uri[0] == '\0');
+}
+
+/* ---------------------------------------------------------------- */
 
 } // namespace
 
@@ -447,6 +529,7 @@ int main() {
     test_edits_and_deletions_withdraw_from_learned_state();
     test_planning_abstention_on_recovered_state();
     test_equivalent_runs_produce_equivalent_final_state();
+    test_conversation_context_survives_restarts_and_withdrawal();
 
     std::printf("e2e harness passed\n");
     return 0;

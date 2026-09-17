@@ -93,10 +93,10 @@ jobs:
       - name: Build fuzz targets
         run: >-
           cmake --build build-fuzz --parallel
-          --target snapshot_load_fuzzer ledger_open_fuzzer tokenize_fuzzer
+          --target snapshot-load-fuzzer ledger-open-fuzzer tokenize-fuzzer
       - name: Smoke fuzz snapshot load
-        run: ./build-fuzz/snapshot_load_fuzzer -max_total_time=30 fuzz/corpus/snapshot
+        run: ./build-fuzz/snapshot-load-fuzzer -max_total_time=30 fuzz/corpus/snapshot
       - name: Smoke fuzz ledger open
-        run: ./build-fuzz/ledger_open_fuzzer -max_total_time=30 fuzz/corpus/ledger
+        run: ./build-fuzz/ledger-open-fuzzer -max_total_time=30 fuzz/corpus/ledger
       - name: Smoke fuzz tokenizer
-        run: ./build-fuzz/tokenize_fuzzer -max_total_time=30 fuzz/corpus/tokenize
+        run: ./build-fuzz/tokenize-fuzzer -max_total_time=30 fuzz/corpus/tokenize

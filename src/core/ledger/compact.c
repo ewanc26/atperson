@@ -6,7 +6,7 @@
  * the commit marker without changing logical entry ordering or ids.
  */
 
-#include "ledger_internal.h"
+#include "internal.h"
 
 #include <stdint.h>
 #include <stdio.h>

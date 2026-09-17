@@ -1,7 +1,7 @@
 #include "persistence/decode.h"
 #include "persistence/format.h"
 #include "persistence/migration.h"
-#include "portable_io.h"
+#include "io/portable.h"
 
 #include <stdio.h>
 #include <stdlib.h>
