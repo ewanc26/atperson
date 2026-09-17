@@ -71,5 +71,8 @@ Testing/
 .atperson/
 .env
 
+# macOS metadata
+.DS_Store
+
 # Letta Code session state
 .letta/
