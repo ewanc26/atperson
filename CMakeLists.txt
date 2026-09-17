@@ -63,11 +63,11 @@ add_library(
   atperson_cpp
   src/app/graph.cpp
   src/app/ledger.cpp
-  src/app/action_inspection.cpp
-  src/app/system_resources.cpp
-  src/app/system_filesystems.cpp
-  src/app/resource_budget.cpp
-  src/app/resource_runtime.cpp)
+  src/app/action/inspection.cpp
+  src/app/resource/system.cpp
+  src/app/resource/filesystems.cpp
+  src/app/resource/budget.cpp
+  src/app/resource/runtime.cpp)
 target_include_directories(
   atperson_cpp
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -160,11 +160,11 @@ if(ATPERSON_BUILD_NETWORK)
   add_executable(
     atperson
     src/app/main.cpp
-    src/app/atproto_client.cpp
-    src/app/ingestion_policy.cpp
-    src/app/ingestion_state.cpp
-    src/app/state_lock.cpp
-    src/app/sync_engine.cpp)
+    src/app/atproto/client.cpp
+    src/app/ingestion/policy.cpp
+    src/app/ingestion/state.cpp
+    src/app/state/lock.cpp
+    src/app/sync/engine.cpp)
   target_link_libraries(atperson PRIVATE atperson_cpp wolfram-cpp)
   target_compile_features(atperson PRIVATE cxx_std_23)
 
@@ -327,9 +327,9 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson_sync_test
     tests/sync_test.cpp
-    src/app/ingestion_policy.cpp
-    src/app/ingestion_state.cpp
-    src/app/sync_engine.cpp)
+    src/app/ingestion/policy.cpp
+    src/app/ingestion/state.cpp
+    src/app/sync/engine.cpp)
   target_link_libraries(atperson_sync_test PRIVATE atperson_cpp)
   target_include_directories(atperson_sync_test PRIVATE src/app)
   add_test(NAME atperson_sync COMMAND atperson_sync_test)
@@ -339,7 +339,7 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson_policy_test
     tests/policy_test.cpp
-    src/app/ingestion_policy.cpp)
+    src/app/ingestion/policy.cpp)
   target_compile_features(atperson_policy_test PRIVATE cxx_std_23)
   target_include_directories(atperson_policy_test PRIVATE src/app)
   add_test(NAME atperson_policy COMMAND atperson_policy_test)
@@ -347,7 +347,7 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson_lock_test
     tests/lock_test.cpp
-    src/app/state_lock.cpp)
+    src/app/state/lock.cpp)
   target_compile_features(atperson_lock_test PRIVATE cxx_std_23)
   target_include_directories(atperson_lock_test PRIVATE src/app)
   add_test(NAME atperson_lock COMMAND atperson_lock_test)
