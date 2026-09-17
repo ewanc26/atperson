@@ -57,14 +57,22 @@ bool atp_ledger_reserve_entries(atp_ledger *ledger, size_t needed) {
     if (!payload_lens) {
         return false;
     }
-    /* New slots start payload-less; append/recovery fill them in. */
+    atp_conversation_context *contexts =
+        realloc(ledger->contexts, capacity * sizeof(*contexts));
+    if (!contexts) {
+        return false;
+    }
+    /* New slots start payload-less and context-less; append/recovery fill
+     * them in. */
     for (size_t i = ledger->capacity; i < capacity; ++i) {
         payloads[i] = NULL;
         payload_lens[i] = 0u;
+        memset(&contexts[i], 0, sizeof(contexts[i]));
     }
     ledger->entries = entries;
     ledger->payloads = payloads;
     ledger->payload_lens = payload_lens;
+    ledger->contexts = contexts;
     ledger->capacity = capacity;
     return true;
 }

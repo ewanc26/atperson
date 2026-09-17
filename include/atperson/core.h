@@ -38,8 +38,15 @@ extern "C" {
  * open (validated, transformed record-by-record to a temp file, fsync'd,
  * renamed); v1 entries carry no payload, which is reported honestly rather
  * than faked.
+ *
+ * v3 appends the observation's conversational context (issue #24/#49) to each
+ * entry record: the reply root/parent and quote target URIs, each a
+ * length-prefixed string that is empty when absent. Context is planning/audit
+ * metadata, never learnable bytes, so it does not affect the content digest or
+ * learning. v1 and v2 logs are migrated on open; migrated entries carry empty
+ * context, the honest value for records that predate context capture.
  */
-#define ATPERSON_LEDGER_VERSION 2u
+#define ATPERSON_LEDGER_VERSION 3u
 
 /*
  * Largest payload retained per ledger entry. Bounded so recovery parsing of
@@ -370,6 +377,19 @@ atp_ledger_result atp_ledger_append(atp_ledger *ledger, const char *source_id,
                                     size_t payload_len, uint64_t *out_id, atp_status *status);
 
 /**
+ * As atp_ledger_append, but also retains `context` (issue #24/#49) inline in
+ * the entry record so a replay rebuild restores it. `context` may be NULL:
+ * the entry then carries empty context, identical to atp_ledger_append. Any
+ * URI at or beyond ATPERSON_CONTEXT_URI_BYTES is rejected with
+ * ATP_ERR_INVALID_ARGUMENT before any mutation.
+ */
+atp_ledger_result atp_ledger_append_with_context(
+    atp_ledger *ledger, const char *source_id, const char *author_did, uint64_t observed_at,
+    uint64_t content_digest, uint32_t schema_version, atp_ledger_outcome outcome,
+    const void *payload, size_t payload_len, const atp_conversation_context *context,
+    uint64_t *out_id, atp_status *status);
+
+/**
  * Change the outcome of an existing entry via an appended patch record.
  * Closing a PENDING/FAILED entry to LEARNED/SKIPPED is the normal completion
  * path. Setting a committed entry back to PENDING is rejected because it
@@ -427,6 +447,18 @@ atp_status atp_ledger_entry_at(const atp_ledger *ledger, size_t index, atp_ledge
  */
 atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void *out,
                                      size_t capacity, size_t *out_len);
+
+/**
+ * Copy the conversational context retained with entry `id` into `out`
+ * (issue #24/#49). Absent identifiers are empty strings. Entries written by
+ * atp_ledger_append, or migrated from a pre-v3 log, yield an all-empty
+ * context, the honest value for records that never carried one.
+ *
+ * Returns ATP_ERR_NOT_FOUND for an unknown id and ATP_ERR_INVALID_ARGUMENT
+ * for NULL arguments. Read-only: never mutates ledger or learned state.
+ */
+atp_status atp_ledger_entry_context(const atp_ledger *ledger, uint64_t id,
+                                    atp_conversation_context *out);
 
 /** What a compaction pass did, for logging and operator confidence. */
 typedef struct atp_compact_report {

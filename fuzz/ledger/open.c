@@ -8,9 +8,10 @@
  * rejected or safely recovered — never crash, leak, or corrupt the
  * in-memory index.
  *
- * A successfully opened ledger is exercised: entries are enumerated and
- * payloads read, so recovery-trusted values flow through the query and
- * payload-verification paths too. */
+ * A successfully opened ledger is exercised: entries are enumerated,
+ * payloads read and conversational context queried, so recovery-trusted
+ * values flow through the query, payload-verification and context paths
+ * too. */
 
 #include "atperson/core.h"
 
@@ -58,6 +59,8 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size) {
                     free(buffer);
                 }
             }
+            atp_conversation_context context;
+            (void)atp_ledger_entry_context(ledger, entry.id, &context);
         }
     }
 

@@ -110,7 +110,7 @@ static int check_entry_matches(const atp_ledger_entry *entry, const toy_post *po
 static int run_roundtrip(const char *dir) {
     remove_ledger_files(dir);
     CHECK(atp_mkdir(dir) == 0);
-    CHECK(ATPERSON_LEDGER_VERSION == 2u);
+    CHECK(ATPERSON_LEDGER_VERSION == 3u);
 
     char path[1024];
     snprintf(path, sizeof(path), "%s/ledger.bin", dir);
@@ -541,16 +541,16 @@ static int run_payload_corruption(const char *dir) {
     return 0;
 }
 
-/* v1 -> v2 migration: a hand-built v1 log migrates on open. Entries and
- * flattened outcomes survive; payloads are honestly absent. */
+/* v1 -> current migration: a hand-built v1 log migrates on open. Entries and
+ * flattened outcomes survive; payloads and context are honestly absent. */
 static int run_migration(const char *dir) {
     remove_ledger_files(dir);
     CHECK(atp_mkdir(dir) == 0);
     char path[1024];
     snprintf(path, sizeof(path), "%s/ledger.bin", dir);
 
-    /* Hand-build a v1 log. v1 framing is identical to v2 except the entry
-     * body has no payload fields and the magics end in '1'. */
+    /* Hand-build a v1 log. v1 framing is identical to current except the entry
+     * body has no payload or context fields and the magics end in '1'. */
     FILE *log = fopen(path, "wb");
     CHECK(log != NULL);
     unsigned char header[12];
@@ -606,14 +606,23 @@ static int run_migration(const char *dir) {
     CHECK(entry.content_digest == 888u);
     CHECK(entry.outcome == ATP_LEDGER_OUTCOME_PENDING);
 
-    /* The v1 entry is payload-less: honest absence. */
+    /* The v1 entry is payload-less: honest absence. Context is empty too:
+     * v1 never carried it. */
     char out[64];
     size_t out_len = 0u;
     CHECK(atp_ledger_entry_payload(ledger, 1u, out, sizeof(out), &out_len) == ATP_OK);
     CHECK(out_len == 0u);
+    atp_conversation_context context = {0};
+    CHECK(atp_ledger_entry_context(ledger, 1u, &context) == ATP_OK);
+    CHECK(context.reply_root_uri[0] == '\0');
+    CHECK(context.reply_parent_uri[0] == '\0');
+    CHECK(context.quote_uri[0] == '\0');
 
-    /* The migrated log is v2: appends with payloads work and dedup against
-     * the migrated entry holds. */
+    /* Unknown ids are rejected, not silently zeroed. */
+    CHECK(atp_ledger_entry_context(ledger, 99u, &context) == ATP_ERR_NOT_FOUND);
+
+    /* The migrated log is current-format: appends with payloads work and
+     * dedup against the migrated entry holds. */
     uint64_t id = 0u;
     atp_status status = ATP_OK;
     CHECK(atp_ledger_append(ledger, "at://v1/1", author, 777u, 888u, ATPERSON_SCHEMA_VERSION,
@@ -627,7 +636,7 @@ static int run_migration(const char *dir) {
     CHECK(id == 2u);
     atp_ledger_destroy(ledger);
 
-    /* Reopen: the migrated v2 log is stable and the new payload survives. */
+    /* Reopen: the migrated log is stable and the new payload survives. */
     ledger = open_or_fail(path);
     CHECK(atp_ledger_count(ledger) == 2u);
     CHECK(atp_ledger_entry_payload(ledger, 2u, out, sizeof(out), &out_len) == ATP_OK);
@@ -639,11 +648,169 @@ static int run_migration(const char *dir) {
     return 0;
 }
 
+/* v2 -> current migration: a hand-built v2 log migrates on open. Entries,
+ * flattened outcomes and retained payloads survive; context is honestly
+ * absent because v2 never carried it. */
+static int run_migration_v2(const char *dir) {
+    remove_ledger_files(dir);
+    CHECK(atp_mkdir(dir) == 0);
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ledger.bin", dir);
+
+    /* Hand-build a v2 log: magics end in '2'. */
+    FILE *log = fopen(path, "wb");
+    CHECK(log != NULL);
+    unsigned char header[12];
+    header[0] = 'A'; header[1] = 'T'; header[2] = 'P'; header[3] = 'L';
+    header[4] = 'D'; header[5] = 'G'; header[6] = '0'; header[7] = '2';
+    store_u32_le(&header[8], 2u);
+    CHECK(fwrite(header, 1u, sizeof(header), log) == sizeof(header));
+
+    /* v2 entry body: v1 fields plus payload_len u32 | payload. */
+    const char *source = "at://v2/1";
+    const char *author = "did:plc:v2";
+    const char *text = "retained v2 payload";
+    const size_t source_len = strlen(source);
+    const size_t author_len = strlen(author);
+    const size_t text_len = strlen(text);
+    unsigned char body[256];
+    size_t pos = 0u;
+    store_u64_le(&body[pos], 1u);
+    pos += 8u;
+    store_u32_le(&body[pos], (uint32_t)source_len);
+    pos += 4u;
+    memcpy(&body[pos], source, source_len);
+    pos += source_len;
+    store_u32_le(&body[pos], (uint32_t)author_len);
+    pos += 4u;
+    memcpy(&body[pos], author, author_len);
+    pos += author_len;
+    store_u64_le(&body[pos], 4242u);
+    pos += 8u;
+    store_u64_le(&body[pos], atp_ledger_digest(text, text_len));
+    pos += 8u;
+    store_u32_le(&body[pos], ATPERSON_SCHEMA_VERSION);
+    pos += 4u;
+    body[pos] = (uint8_t)ATP_LEDGER_OUTCOME_LEARNED;
+    pos += 1u;
+    store_u32_le(&body[pos], (uint32_t)text_len);
+    pos += 4u;
+    memcpy(&body[pos], text, text_len);
+    pos += text_len;
+
+    unsigned char record[9u + 256];
+    store_u32_le(&record[0], (uint32_t)pos);
+    store_u32_le(&record[4], record_checksum(body, pos));
+    record[8] = 1u; /* ATP_LEDGER_RECORD_ENTRY */
+    memcpy(&record[9], body, pos);
+    CHECK(fwrite(record, 1u, 9u + pos, log) == 9u + pos);
+    CHECK(fclose(log) == 0);
+
+    atp_ledger *ledger = open_or_fail(path);
+    CHECK(atp_ledger_count(ledger) == 1u);
+    atp_ledger_entry entry = {0};
+    CHECK(atp_ledger_entry_at(ledger, 0u, &entry) == ATP_OK);
+    CHECK(entry.id == 1u);
+    CHECK(strcmp(entry.source_id, source) == 0);
+    CHECK(entry.observed_at == 4242u);
+    CHECK(entry.outcome == ATP_LEDGER_OUTCOME_LEARNED);
+
+    /* The v2 payload survives migration unchanged. */
+    char out[64];
+    size_t out_len = 0u;
+    CHECK(atp_ledger_entry_payload(ledger, 1u, out, sizeof(out), &out_len) == ATP_OK);
+    CHECK(out_len == text_len);
+    CHECK(memcmp(out, text, text_len) == 0);
+
+    /* Context is empty: v2 never carried it. */
+    atp_conversation_context context = {0};
+    CHECK(atp_ledger_entry_context(ledger, 1u, &context) == ATP_OK);
+    CHECK(context.reply_root_uri[0] == '\0' && context.quote_uri[0] == '\0');
+    atp_ledger_destroy(ledger);
+
+    remove_ledger_files(dir);
+    return 0;
+}
+
+/* Context round trip: append with and without conversational context, verify
+ * read-back, restart persistence, overlong rejection, and that compaction
+ * preserves context. */
+static int run_context(const char *dir) {
+    remove_ledger_files(dir);
+    CHECK(atp_mkdir(dir) == 0);
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ledger.bin", dir);
+
+    atp_ledger *ledger = open_or_fail(path);
+    const char *text = "context round trip";
+    atp_conversation_context context = {0};
+    strcpy(context.reply_root_uri, "at://did:plc:a/app.bsky.feed.post/root");
+    strcpy(context.reply_parent_uri, "at://did:plc:a/app.bsky.feed.post/parent");
+    strcpy(context.quote_uri, "at://did:plc:b/app.bsky.feed.post/quote");
+    uint64_t id = 0u;
+    atp_status status = ATP_OK;
+    CHECK(atp_ledger_append_with_context(ledger, "at://ctx/1", "did:plc:a", 10u,
+                                         atp_ledger_digest(text, strlen(text)),
+                                         ATPERSON_SCHEMA_VERSION,
+                                         ATP_LEDGER_OUTCOME_LEARNED, text, strlen(text),
+                                         &context, &id, &status) == ATP_LEDGER_NEW);
+    CHECK(id == 1u);
+    CHECK(atp_ledger_append(ledger, "at://ctx/2", "did:plc:a", 20u, 42u,
+                            ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_SKIPPED, NULL, 0u,
+                            &id, &status) == ATP_LEDGER_NEW);
+
+    /* Read-back in-process. */
+    atp_conversation_context read = {0};
+    CHECK(atp_ledger_entry_context(ledger, 1u, &read) == ATP_OK);
+    CHECK(strcmp(read.reply_root_uri, context.reply_root_uri) == 0);
+    CHECK(strcmp(read.reply_parent_uri, context.reply_parent_uri) == 0);
+    CHECK(strcmp(read.quote_uri, context.quote_uri) == 0);
+    /* The context-less append yields empty context, not stale values. */
+    CHECK(atp_ledger_entry_context(ledger, 2u, &read) == ATP_OK);
+    CHECK(read.reply_root_uri[0] == '\0' && read.quote_uri[0] == '\0');
+
+    /* An unterminated URI is rejected before any mutation. */
+    atp_conversation_context bad = {0};
+    memset(bad.quote_uri, 'x', sizeof(bad.quote_uri));
+    CHECK(atp_ledger_append_with_context(ledger, "at://ctx/bad", "did:plc:a", 30u, 43u,
+                                         ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_PENDING,
+                                         NULL, 0u, &bad, &id, &status) == ATP_LEDGER_NOT_FOUND);
+    CHECK(status == ATP_ERR_INVALID_ARGUMENT);
+    CHECK(atp_ledger_count(ledger) == 2u);
+    atp_ledger_destroy(ledger);
+
+    /* Reopen: context survived the durable round trip. */
+    ledger = open_or_fail(path);
+    CHECK(atp_ledger_entry_context(ledger, 1u, &read) == ATP_OK);
+    CHECK(strcmp(read.quote_uri, context.quote_uri) == 0);
+
+    /* Compaction preserves context (metadata, not payload). */
+    atp_compact_report report = {0};
+    CHECK(atp_ledger_compact(ledger, &report) == ATP_OK);
+    CHECK(atp_ledger_entry_context(ledger, 1u, &read) == ATP_OK);
+    CHECK(strcmp(read.reply_root_uri, context.reply_root_uri) == 0);
+    CHECK(strcmp(read.reply_parent_uri, context.reply_parent_uri) == 0);
+    CHECK(strcmp(read.quote_uri, context.quote_uri) == 0);
+    atp_ledger_destroy(ledger);
+
+    /* And after reopening the compacted log. */
+    ledger = open_or_fail(path);
+    CHECK(atp_ledger_entry_context(ledger, 1u, &read) == ATP_OK);
+    CHECK(strcmp(read.quote_uri, context.quote_uri) == 0);
+    CHECK(atp_ledger_entry_context(ledger, 2u, &read) == ATP_OK);
+    CHECK(read.quote_uri[0] == '\0');
+    atp_ledger_destroy(ledger);
+
+    remove_ledger_files(dir);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc != 3) {
         fprintf(stderr,
                 "usage: %s <roundtrip|dedup-phase1|dedup-phase2|"
-                "crash-safety|payloads|payload-corruption|migration> <dir>\n",
+                "crash-safety|payloads|payload-corruption|migration|migration-v2|"
+                "context> <dir>\n",
                 argv[0]);
         return 2;
     }
@@ -670,6 +837,12 @@ int main(int argc, char **argv) {
     }
     if (strcmp(command, "migration") == 0) {
         return run_migration(dir);
+    }
+    if (strcmp(command, "migration-v2") == 0) {
+        return run_migration_v2(dir);
+    }
+    if (strcmp(command, "context") == 0) {
+        return run_context(dir);
     }
     fprintf(stderr, "unknown command: %s\n", command);
     return 2;

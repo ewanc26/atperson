@@ -25,6 +25,11 @@
  *   source deletion; the rebuilt state is what the entity would have been
  *   without them.
  *
+ * Mirrored entries retain the conversational context recorded with them
+ * (issue #49), so reply/quote continuity survives a replay rebuild and not
+ * just a snapshot restore. Context is metadata: it is never trained on, and
+ * an entry recorded before context capture replays with empty context.
+ *
  * A LEARNED entry without a retained payload (a v1-migrated ledger) cannot
  * be replayed — the training input is gone — and fails the whole rebuild
  * rather than silently producing a graph that never saw those bytes. The
@@ -103,6 +108,15 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
             break;
         }
 
+        atp_conversation_context context;
+        if (atp_ledger_entry_context(ledger, entry.id, &context) != ATP_OK) {
+            if (report) {
+                report->failed_at_id = entry.id;
+            }
+            status = ATP_ERR_FORMAT;
+            break;
+        }
+
         switch (entry.outcome) {
         case ATP_LEDGER_OUTCOME_LEARNED: {
             size_t payload_len = 0u;
@@ -153,7 +167,8 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
                 status = observed;
                 break;
             }
-            const atp_status mirrored = atp_graph_add_ledger_entry(graph, &entry);
+            const atp_status mirrored =
+                atp_graph_add_ledger_entry_with_context(graph, &entry, &context);
             if (mirrored != ATP_OK) {
                 if (report) {
                     report->failed_at_id = entry.id;
@@ -169,7 +184,8 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
         case ATP_LEDGER_OUTCOME_SKIPPED: {
             /* Observed but deliberately not learned: mirror only, so the
              * rebuilt snapshot keeps skipped provenance inspectable. */
-            const atp_status mirrored = atp_graph_add_ledger_entry(graph, &entry);
+            const atp_status mirrored =
+                atp_graph_add_ledger_entry_with_context(graph, &entry, &context);
             if (mirrored != ATP_OK) {
                 if (report) {
                     report->failed_at_id = entry.id;

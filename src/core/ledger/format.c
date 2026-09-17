@@ -8,6 +8,9 @@
  *                | observed_at u64 LE | digest u64 LE
  *                | schema_version u32 LE | outcome u8
  *                | payload_len u32 LE | payload            (v2)
+ *                | root_len u32 LE | reply_root_uri       (v3)
+ *                | parent_len u32 LE | reply_parent_uri   (v3)
+ *                | quote_len u32 LE | quote_uri            (v3)
  *   patch rec  : len u32 LE | crc u32 LE | type=2 | id u64 LE | outcome u8
  *
  * v2 appends `payload_len` plus the canonical observation bytes to each entry
@@ -16,6 +19,13 @@
  * shape for text-less observations and for entries migrated from v1, whose
  * bytes were never retained. The payload is covered by the record CRC and
  * re-verified against the entry's content digest on read.
+ *
+ * v3 appends the observation's conversational context (issue #24/#49): the
+ * reply root/parent and quote target URIs, each a length-prefixed string that
+ * is empty when the identifier is absent. Context is planning/audit metadata,
+ * never learnable bytes, so it is outside the content digest and does not
+ * affect learning. Entries migrated from v1/v2 carry empty context, the
+ * honest value for records that predate context capture.
  *
  * Multi-octet integers are little-endian, which is a deliberate format
  * decision (snapshot v1 remains host-oriented). A future format bump may
@@ -31,6 +41,38 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+/* Append a u32-length-prefixed string; NULL is written as a zero length. */
+static size_t atp_store_string(unsigned char *out, size_t pos, const char *value) {
+    const size_t length = value ? strlen(value) : 0u;
+    atp_store_u32_le(out + pos, (uint32_t)length);
+    pos += 4u;
+    if (length > 0u) {
+        memcpy(out + pos, value, length);
+        pos += length;
+    }
+    return pos;
+}
+
+/* Read a u32-length-prefixed string into `out` (NUL-terminated). Rejects a
+ * length that would overrun the body or the destination capacity. */
+static bool atp_parse_string(const unsigned char *payload, size_t length, size_t *pos,
+                             char *out, size_t capacity) {
+    if (*pos + 4u > length) {
+        return false;
+    }
+    const uint32_t string_len = atp_load_u32_le(payload + *pos);
+    *pos += 4u;
+    if (string_len >= capacity || *pos + (size_t)string_len > length) {
+        return false;
+    }
+    if (string_len > 0u) {
+        memcpy(out, payload + *pos, string_len);
+        *pos += string_len;
+    }
+    out[string_len] = '\0';
+    return true;
+}
 
 void atp_store_u32_le(unsigned char *out, uint32_t value) {
     out[0] = (unsigned char)(value & 0xffu);
@@ -90,7 +132,8 @@ bool atp_ledger_is_committed(atp_ledger_outcome outcome) {
 }
 
 size_t atp_serialize_entry(unsigned char *out, const atp_ledger_entry *entry,
-                           const unsigned char *payload, size_t payload_len) {
+                           const unsigned char *payload, size_t payload_len,
+                           const atp_conversation_context *context) {
     const size_t source_len = strlen(entry->source_id);
     const size_t author_len = strlen(entry->author_did);
     size_t pos = 0u;
@@ -117,16 +160,21 @@ size_t atp_serialize_entry(unsigned char *out, const atp_ledger_entry *entry,
         memcpy(out + pos, payload, payload_len);
         pos += payload_len;
     }
+    pos = atp_store_string(out, pos, context ? context->reply_root_uri : NULL);
+    pos = atp_store_string(out, pos, context ? context->reply_parent_uri : NULL);
+    pos = atp_store_string(out, pos, context ? context->quote_uri : NULL);
     return pos;
 }
 
 bool atp_parse_entry(const unsigned char *payload, size_t length, atp_ledger_entry *out,
-                     const unsigned char **out_payload, size_t *out_payload_len) {
+                     const unsigned char **out_payload, size_t *out_payload_len,
+                     atp_conversation_context *out_context) {
     if (length < 42u) {
         return false;
     }
-    size_t pos = 0u;
     memset(out, 0, sizeof(*out));
+    memset(out_context, 0, sizeof(*out_context));
+    size_t pos = 0u;
     out->id = atp_load_u64_le(payload + pos);
     pos += 8u;
 
@@ -184,11 +232,23 @@ bool atp_parse_entry(const unsigned char *payload, size_t length, atp_ledger_ent
     }
     const uint32_t payload_len = atp_load_u32_le(payload + pos);
     pos += 4u;
-    if (payload_len > ATPERSON_LEDGER_PAYLOAD_LIMIT || pos + (size_t)payload_len != length) {
+    if (payload_len > ATPERSON_LEDGER_PAYLOAD_LIMIT || pos + (size_t)payload_len > length) {
         return false;
     }
-    *out_payload = payload + pos;
-    *out_payload_len = payload_len;
+    const unsigned char *entry_payload = payload + pos;
+    pos += (size_t)payload_len;
+
+    if (!atp_parse_string(payload, length, &pos, out_context->reply_root_uri,
+                          ATPERSON_CONTEXT_URI_BYTES) ||
+        !atp_parse_string(payload, length, &pos, out_context->reply_parent_uri,
+                          ATPERSON_CONTEXT_URI_BYTES) ||
+        !atp_parse_string(payload, length, &pos, out_context->quote_uri,
+                          ATPERSON_CONTEXT_URI_BYTES) ||
+        pos != length) {
+        return false;
+    }
+    *out_payload = entry_payload;
+    *out_payload_len = (size_t)payload_len;
     return true;
 }
 
