@@ -17,6 +17,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ATPERSON_BUILD_NETWORK "Build the Wolfram-backed AT Protocol runtime" ON)
 option(ATPERSON_BUILD_TESTS "Build atperson tests" ON)
 
+set(ATPERSON_APP_PRIVATE_INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/action
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/atproto
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/ingestion
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/state
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/sync)
+
 add_library(
   atperson_core
   src/core/graph/lifecycle.c
@@ -71,7 +80,7 @@ add_library(
 target_include_directories(
   atperson_cpp
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
+  PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
 target_link_libraries(atperson_cpp PUBLIC atperson_core)
 target_compile_features(atperson_cpp PUBLIC cxx_std_23)
 
@@ -165,6 +174,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/ingestion/state.cpp
     src/app/state/lock.cpp
     src/app/sync/engine.cpp)
+  target_include_directories(atperson PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   target_link_libraries(atperson PRIVATE atperson_cpp wolfram-cpp)
   target_compile_features(atperson PRIVATE cxx_std_23)
 
@@ -313,13 +323,13 @@ if(ATPERSON_BUILD_TESTS)
   # Read-only rendering of authoritative C23 plan/context/decision traces.
   add_executable(atperson_action_inspection_test tests/action_inspection_test.cpp)
   target_link_libraries(atperson_action_inspection_test PRIVATE atperson_cpp)
-  target_include_directories(atperson_action_inspection_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
+  target_include_directories(atperson_action_inspection_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson_action_inspection COMMAND atperson_action_inspection_test)
 
   # Dynamic host/container resource probing and deterministic budget policy.
   add_executable(atperson_resource_test tests/resource_test.cpp)
   target_link_libraries(atperson_resource_test PRIVATE atperson_cpp)
-  target_include_directories(atperson_resource_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
+  target_include_directories(atperson_resource_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson_resource COMMAND atperson_resource_test)
 
   # Ingestion-state format and sync-engine restart semantics; offline
@@ -331,7 +341,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/ingestion/state.cpp
     src/app/sync/engine.cpp)
   target_link_libraries(atperson_sync_test PRIVATE atperson_cpp)
-  target_include_directories(atperson_sync_test PRIVATE src/app)
+  target_include_directories(atperson_sync_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson_sync COMMAND atperson_sync_test)
 
   # Ingestion policy: every skip class produces the documented reason and
@@ -341,7 +351,7 @@ if(ATPERSON_BUILD_TESTS)
     tests/policy_test.cpp
     src/app/ingestion/policy.cpp)
   target_compile_features(atperson_policy_test PRIVATE cxx_std_23)
-  target_include_directories(atperson_policy_test PRIVATE src/app)
+  target_include_directories(atperson_policy_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson_policy COMMAND atperson_policy_test)
 
   add_executable(
@@ -349,7 +359,7 @@ if(ATPERSON_BUILD_TESTS)
     tests/lock_test.cpp
     src/app/state/lock.cpp)
   target_compile_features(atperson_lock_test PRIVATE cxx_std_23)
-  target_include_directories(atperson_lock_test PRIVATE src/app)
+  target_include_directories(atperson_lock_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson_lock COMMAND atperson_lock_test)
 
   add_executable(atperson_bootstrap_test tests/bootstrap_test.c)
