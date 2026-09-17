@@ -23,10 +23,11 @@ enum class PolicyReason {
     Eligible,
     Repost,             /* eligible; the text is a reposted record */
     Reply,              /* eligible; replies carry their own text */
+    Quote,              /* eligible; quotes carry own text; quoted text is never merged (issue #24) */
     SelfAuthored,       /* the account's own output: never learned from */
     ViewerBlocked,      /* the viewer blocks the author */
     ViewerBlockedBy,    /* the author blocks the viewer */
-    ViewerMuted,        /* the viewer muted the author */
+    ViewerMuted,       /* the viewer muted the author */
     EmptyText,          /* no text to learn from */
     UnsupportedRecord,  /* not an app.bsky.feed.post record */
     NonTextOnly,        /* images/video only; no text content */
@@ -49,6 +50,7 @@ struct PolicyPost {
     bool moderation_filtered{};     /* a moderation decision filtered it */
     bool is_repost{};               /* feed item reason is a repost */
     bool is_reply{};                /* feed item is a reply */
+    bool is_quote{};                /* record embeds a quoted post (issue #24) */
 };
 
 struct PolicyDecision {

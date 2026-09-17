@@ -81,8 +81,23 @@ bool atp_reserve_ledger_entries(atp_graph *graph, size_t needed) {
     if (!entries) {
         return false;
     }
+    atp_conversation_context *contexts =
+        realloc(graph->ledger_contexts, capacity * sizeof(*contexts));
+    if (!contexts) {
+        /* The entry buffer already grew; keep it (ledger_capacity is a
+         * lower bound on the allocation, not an exact size) and report
+         * failure so the caller treats this as OOM. */
+        graph->ledger_entries = entries;
+        return false;
+    }
+
+    /* Zero the newly grown context slots: entries added without context
+     * (pre-#24 snapshots, plain add) must read back empty, not garbage. */
+    memset(contexts + graph->ledger_count, 0,
+           (capacity - graph->ledger_count) * sizeof(*contexts));
 
     graph->ledger_entries = entries;
+    graph->ledger_contexts = contexts;
     graph->ledger_capacity = capacity;
     return true;
 }

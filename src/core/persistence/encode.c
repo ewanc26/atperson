@@ -209,6 +209,25 @@ static bool atp_encode_ledger(const atp_graph *graph, atp_buffer *buffer) {
     return ok;
 }
 
+/* Conversation-context section (issue #24): one row per mirrored ledger
+ * entry, in mirror order. Rows with all-empty URIs are still written so the
+ * row index is always the ledger mirror index — no side table. */
+static bool atp_encode_context(const atp_graph *graph, atp_buffer *buffer) {
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_CONTEXT)) {
+        return false;
+    }
+    bool ok = atp_buffer_u64(buffer, (uint64_t)graph->ledger_count);
+    for (size_t i = 0u; ok && i < graph->ledger_count; ++i) {
+        const atp_conversation_context *context = &graph->ledger_contexts[i];
+        ok = atp_buffer_string_opt(buffer, context->reply_root_uri) &&
+             atp_buffer_string_opt(buffer, context->reply_parent_uri) &&
+             atp_buffer_string_opt(buffer, context->quote_uri);
+    }
+    atp_section_end(&section);
+    return ok;
+}
+
 static bool atp_encode_valence(const atp_graph *graph, atp_buffer *buffer) {
     atp_section_writer section;
     if (!atp_section_begin(buffer, &section, ATP_SECTION_VALENCE)) {
@@ -283,7 +302,8 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
         atp_buffer_u32(&buffer, ATPERSON_SNAPSHOT_VERSION) &&
         atp_encode_header(graph, &buffer) && atp_encode_network(graph, &buffer) &&
         atp_encode_nodes(graph, &buffer) && atp_encode_edges(graph, &buffer) &&
-        atp_encode_ledger(graph, &buffer) && atp_encode_episodes(graph, &buffer) &&
+        atp_encode_ledger(graph, &buffer) && atp_encode_context(graph, &buffer) &&
+        atp_encode_episodes(graph, &buffer) &&
         atp_encode_valence(graph, &buffer) && atp_encode_schema(&buffer) &&
         atp_buffer_u64(&buffer, atp_fnv1a64(buffer.data, buffer.size));
     if (!encoded) {

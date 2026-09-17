@@ -4,7 +4,7 @@
 #include <wolfram/agent.h>
 #include <wolfram/xrpc.h>
 
-#include "policy.hpp"
+#include "extract.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -31,16 +31,6 @@ struct JsonDelete {
 };
 
 using Json = std::unique_ptr<cJSON, JsonDelete>;
-
-const char *json_string(cJSON *object, const char *key) {
-    cJSON *value = cJSON_GetObjectItemCaseSensitive(object, key);
-    return cJSON_IsString(value) && value->valuestring ? value->valuestring : nullptr;
-}
-
-bool json_bool(cJSON *object, const char *key) {
-    cJSON *value = cJSON_GetObjectItemCaseSensitive(object, key);
-    return cJSON_IsBool(value) && cJSON_IsTrue(value);
-}
 
 std::runtime_error wolfram_error(std::string_view operation, wf_status status) {
     return std::runtime_error(std::string(operation) +
@@ -119,79 +109,13 @@ SyncPage AtprotoClient::fetch_timeline_page(const std::optional<std::string> &cu
 
     cJSON *item = nullptr;
     cJSON_ArrayForEach(item, feed) {
-        cJSON *post = cJSON_GetObjectItemCaseSensitive(item, "post");
-        if (!cJSON_IsObject(post)) {
-            continue;
+        /* Translation lives in extract.cpp so it is offline-testable; this
+         * loop only owns transport-adjacent iteration. Items too malformed
+         * to reference anything are skipped entirely. */
+        SyncObservation observation;
+        if (extract_feed_item(item, did_, observation)) {
+            page.items.push_back(std::move(observation));
         }
-
-        cJSON *record = cJSON_GetObjectItemCaseSensitive(post, "record");
-        cJSON *author = cJSON_GetObjectItemCaseSensitive(post, "author");
-        if (!cJSON_IsObject(record)) {
-            continue;
-        }
-
-        const char *text = json_string(record, "text");
-        const char *uri = json_string(post, "uri");
-        if (!uri) {
-            continue;
-        }
-
-        /* Extract the fields the ingestion policy decides on. */
-        PolicyPost policy_post;
-        const char *record_type = json_string(record, "$type");
-        policy_post.record_type = record_type ? record_type : "";
-        const char *did = cJSON_IsObject(author) ? json_string(author, "did") : nullptr;
-        policy_post.author_did = did ? did : "";
-        policy_post.text = text ? std::string_view(text) : std::string_view{};
-
-        cJSON *viewer = cJSON_GetObjectItemCaseSensitive(post, "viewer");
-        if (cJSON_IsObject(viewer)) {
-            const char *blocking = json_string(viewer, "blocking");
-            policy_post.viewer_blocked = blocking && blocking[0];
-            policy_post.viewer_blocked_by = json_bool(viewer, "blockedBy");
-            policy_post.viewer_muted = json_bool(viewer, "muted");
-        }
-
-        cJSON *embed = cJSON_GetObjectItemCaseSensitive(record, "embed");
-        if (cJSON_IsObject(embed)) {
-            const char *embed_type = json_string(embed, "$type");
-            policy_post.embed_type = embed_type ? embed_type : "";
-            /* A quote-post embed carries the quoted record's text; the
-             * record's own text remains the learnable content here. */
-            policy_post.embed_has_text_fallback =
-                policy_post.embed_type == "app.bsky.embed.record";
-        }
-
-        cJSON *reason = cJSON_GetObjectItemCaseSensitive(item, "reason");
-        if (cJSON_IsObject(reason)) {
-            const char *reason_type = json_string(reason, "$type");
-            policy_post.is_repost =
-                reason_type && std::string_view(reason_type) == "app.bsky.feed.defs#reasonRepost";
-        }
-        policy_post.is_reply = cJSON_IsObject(cJSON_GetObjectItemCaseSensitive(item, "reply"));
-
-        const PolicyDecision decision = evaluate_post(did_, policy_post);
-        if (!decision.eligible) {
-            /* Skipped by policy, not silently: the item still becomes an
-             * observation with an empty text so the ledger records it as
-             * SKIPPED and it can be distinguished from never-fetched data. */
-            page.items.push_back(SyncObservation{
-                .text = "",
-                .source_uri = uri,
-                .author_did = policy_post.author_did,
-                .created_at = json_string(record, "createdAt") ? json_string(record, "createdAt") : "",
-                .policy_reason = decision.reason,
-            });
-            continue;
-        }
-
-        page.items.push_back(SyncObservation{
-            .text = text ? text : "",
-            .source_uri = uri,
-            .author_did = policy_post.author_did,
-            .created_at = json_string(record, "createdAt") ? json_string(record, "createdAt") : "",
-            .policy_reason = decision.reason,
-        });
     }
 
     // The cursor is opaque: read it, pass it back to Wolfram, never parse it.

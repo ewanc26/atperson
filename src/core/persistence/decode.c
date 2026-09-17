@@ -134,6 +134,34 @@ static bool atp_decode_ledger(atp_reader *reader, atp_graph *graph) {
 }
 
 /*
+ * Conversation-context section (issue #24): one row per mirrored ledger
+ * entry, in mirror order, each carrying reply root/parent and quote URIs.
+ * Row indexes are validated against the already-decoded ledger mirror (the
+ * CONTEXT switch case requires the LEDGER section first). Absent section =
+ * empty context (pre-#24 snapshots load with no thread metadata).
+ */
+static bool atp_decode_context(atp_reader *reader, atp_graph *graph) {
+    uint64_t count = 0u;
+    const uint64_t min_row = 4u + 1u + 4u + 1u + 4u + 1u;
+    if (!atp_reader_u64(reader, &count) || count > graph->ledger_count ||
+        count > (reader->size - reader->position) / min_row) {
+        return false;
+    }
+    for (size_t i = 0u; i < (size_t)count; ++i) {
+        atp_conversation_context context = {0};
+        if (!atp_reader_string_opt(reader, context.reply_root_uri,
+                                   sizeof(context.reply_root_uri)) ||
+            !atp_reader_string_opt(reader, context.reply_parent_uri,
+                                   sizeof(context.reply_parent_uri)) ||
+            !atp_reader_string_opt(reader, context.quote_uri, sizeof(context.quote_uri))) {
+            return false;
+        }
+        graph->ledger_contexts[i] = context;
+    }
+    return true;
+}
+
+/*
  * Valence section (issue #13): folded per-token records plus the bounded
  * provenance log. Node indexes are validated against the already-decoded
  * node table (the VALENCE switch case requires the NODES section to have
@@ -260,7 +288,7 @@ atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *statu
 
     atp_reader reader = {data, size, 12u};
     atp_graph *graph = NULL;
-    bool seen[10] = {false};
+    bool seen[11] = {false};
     uint32_t learning_schema = 1u;
 
     while (reader.size - reader.position > 8u) {
@@ -268,10 +296,10 @@ atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *statu
         if (!atp_reader_section(&reader, &section)) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
-        if (section.tag != 0u && section.tag <= 9u && seen[section.tag]) {
+        if (section.tag != 0u && section.tag <= 10u && seen[section.tag]) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
-        if (section.tag != 0u && section.tag <= 9u) {
+        if (section.tag != 0u && section.tag <= 10u) {
             seen[section.tag] = true;
         }
         const size_t payload_end = reader.position + (size_t)section.length;
@@ -317,6 +345,13 @@ atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *statu
             break;
         case ATP_SECTION_LEDGER:
             ok = graph && atp_decode_ledger(&reader, graph);
+            break;
+        case ATP_SECTION_CONTEXT:
+            /* Context rows are validated against the ledger mirror, so the
+             * LEDGER section must already be decoded. Every writer emits
+             * LEDGER before CONTEXT; a stream that reorders them is not a
+             * snapshot this core produced. */
+            ok = graph && seen[ATP_SECTION_LEDGER] && atp_decode_context(&reader, graph);
             break;
         case ATP_SECTION_EPISODES:
             ok = graph && atp_decode_episodes(&reader, graph);

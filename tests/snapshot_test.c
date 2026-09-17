@@ -278,6 +278,89 @@ static void test_oversized_section_rejected(void) {
     remove(CORRUPT_PATH);
 }
 
+static void test_conversation_context_roundtrip(void) {
+    /* Issue #24: conversation context (reply root/parent, quote URIs) must
+     * survive save/load exactly; entries recorded without context must
+     * read empty; out-of-range queries are rejected, not crashes. */
+    atp_graph *graph = build_sample_graph();
+
+    atp_conversation_context context = {0};
+    strncpy(context.reply_root_uri, "at://did:plc:root/app.bsky.feed.post/3k1",
+            sizeof(context.reply_root_uri) - 1u);
+    strncpy(context.reply_parent_uri, "at://did:plc:parent/app.bsky.feed.post/3k2",
+            sizeof(context.reply_parent_uri) - 1u);
+
+    atp_ledger_entry reply_entry = {0};
+    strncpy(reply_entry.source_id, "at://sample/reply", sizeof(reply_entry.source_id) - 1u);
+    reply_entry.id = 14u;
+    reply_entry.observed_at = 400u;
+    reply_entry.content_digest = atp_ledger_digest("moon reply", 10u);
+    reply_entry.schema_version = ATPERSON_SCHEMA_VERSION;
+    reply_entry.outcome = ATP_LEDGER_OUTCOME_LEARNED;
+    assert(atp_graph_add_ledger_entry_with_context(graph, &reply_entry, &context) == ATP_OK);
+
+    atp_conversation_context quote_context = {0};
+    strncpy(quote_context.quote_uri, "at://did:plc:quoted/app.bsky.feed.post/3k3",
+            sizeof(quote_context.quote_uri) - 1u);
+    atp_ledger_entry quote_entry = {0};
+    strncpy(quote_entry.source_id, "at://sample/quote", sizeof(quote_entry.source_id) - 1u);
+    quote_entry.id = 15u;
+    quote_entry.observed_at = 500u;
+    quote_entry.content_digest = atp_ledger_digest("moon quote", 10u);
+    quote_entry.schema_version = ATPERSON_SCHEMA_VERSION;
+    quote_entry.outcome = ATP_LEDGER_OUTCOME_LEARNED;
+    assert(atp_graph_add_ledger_entry_with_context(graph, &quote_entry, &quote_context) ==
+           ATP_OK);
+
+    /* Oversized URI is rejected without mutating the mirror. */
+    atp_conversation_context oversized = {0};
+    memset(oversized.reply_root_uri, 'x', sizeof(oversized.reply_root_uri));
+    atp_ledger_entry bad_entry = reply_entry;
+    bad_entry.id = 16u;
+    assert(atp_graph_add_ledger_entry_with_context(graph, &bad_entry, &oversized) ==
+           ATP_ERR_INVALID_ARGUMENT);
+    assert(atp_graph_ledger_count(graph) == 5u);
+
+    atp_conversation_context read_back = {0};
+    assert(atp_graph_ledger_context(graph, 3u, &read_back) == ATP_OK);
+    assert(strcmp(read_back.reply_root_uri, context.reply_root_uri) == 0);
+    assert(strcmp(read_back.reply_parent_uri, context.reply_parent_uri) == 0);
+    assert(read_back.quote_uri[0] == '\0');
+    assert(atp_graph_ledger_context(graph, 4u, &read_back) == ATP_OK);
+    assert(strcmp(read_back.quote_uri, quote_context.quote_uri) == 0);
+    assert(read_back.reply_root_uri[0] == '\0');
+
+    /* Entries 0-2 were recorded without context: must read empty. */
+    assert(atp_graph_ledger_context(graph, 0u, &read_back) == ATP_OK);
+    assert(read_back.reply_root_uri[0] == '\0');
+    assert(read_back.quote_uri[0] == '\0');
+
+    assert(atp_graph_save(graph, SNAPSHOT_PATH) == ATP_OK);
+    atp_graph_destroy(graph);
+
+    atp_status status = ATP_OK;
+    graph = atp_graph_load(SNAPSHOT_PATH, &status);
+    assert(graph != NULL && status == ATP_OK);
+    assert(atp_graph_ledger_count(graph) == 5u);
+
+    /* Context survives the round-trip exactly. */
+    assert(atp_graph_ledger_context(graph, 3u, &read_back) == ATP_OK);
+    assert(strcmp(read_back.reply_root_uri, context.reply_root_uri) == 0);
+    assert(strcmp(read_back.reply_parent_uri, context.reply_parent_uri) == 0);
+    assert(read_back.quote_uri[0] == '\0');
+    assert(atp_graph_ledger_context(graph, 4u, &read_back) == ATP_OK);
+    assert(strcmp(read_back.quote_uri, quote_context.quote_uri) == 0);
+
+    /* Pre-existing entries keep empty context after reload. */
+    assert(atp_graph_ledger_context(graph, 1u, &read_back) == ATP_OK);
+    assert(read_back.reply_root_uri[0] == '\0');
+
+    /* Out-of-range index is rejected, not a crash. */
+    assert(atp_graph_ledger_context(graph, 5u, &read_back) == ATP_ERR_NOT_FOUND);
+    atp_graph_destroy(graph);
+    remove(SNAPSHOT_PATH);
+}
+
 static void test_unknown_section_skipped(void) {
     atp_graph *graph = build_sample_graph();
     assert(atp_graph_save(graph, SNAPSHOT_PATH) == ATP_OK);
@@ -480,6 +563,7 @@ int main(void) {
     test_v5_magic_and_layout();
     test_learning_schema_section();
     test_roundtrip_stability();
+    test_conversation_context_roundtrip();
     test_truncated_rejected();
     test_digest_rejects_bitrot();
     test_oversized_section_rejected();

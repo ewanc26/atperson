@@ -145,7 +145,7 @@ bool process_observation(LanguageGraph &graph, Ledger &ledger,
                                        : sizeof(entry.author_did) - 1u;
     std::memcpy(entry.author_did, observation.author_did.data(), author_len);
     entry.author_did[author_len] = '\0';
-    graph.record_ledger_entry(entry);
+    graph.record_ledger_entry(entry, observation.context);
     return true;
 }
 

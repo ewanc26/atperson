@@ -253,6 +253,13 @@ static void test_ceiling_replay_equivalence(void) {
      * is fail-closed, so an admitting ceiling changes nothing. */
     const char *LEDGER_PATH = "atperson-growth-test-ledger.bin";
 
+    /* A previous crashed run can leave a header-only log or a stale .off
+     * file behind; both make atp_ledger_open fail. Start from scratch. */
+    remove(LEDGER_PATH);
+    remove("atperson-growth-test-ledger.bin.off");
+    remove("atperson-growth-test-ledger.bin.off.tmp");
+    remove("atperson-growth-test-ledger.bin.tmp");
+
     atp_status status = ATP_OK;
     atp_ledger *ledger = atp_ledger_open(LEDGER_PATH, &status);
     assert(ledger != NULL && status == ATP_OK);

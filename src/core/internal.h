@@ -119,6 +119,7 @@ struct atp_graph {
     atp_network network;
 
     atp_ledger_entry *ledger_entries;
+    atp_conversation_context *ledger_contexts; /* parallel to ledger_entries */
     size_t ledger_count;
     size_t ledger_capacity;
 

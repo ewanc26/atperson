@@ -67,6 +67,10 @@ The C23 core currently provides:
   from explicit events (action outcomes, interactions, approach/avoidance) —
   never from exposure — with inspectable evidence counters and a bounded
   provenance log (see [`docs/valence.md`](docs/valence.md));
+- per-entry **conversation context**: reply root/parent and quote URIs
+  recorded alongside every mirrored ledger entry as planning metadata —
+  never trained on, with quoted text excluded from learning (see
+  [`docs/conversation-context.md`](docs/conversation-context.md));
 - a read-only **action candidate** API that ranks learned continuations from
   context without mutating the graph;
 - versioned binary snapshots containing the complete mutable learning state,

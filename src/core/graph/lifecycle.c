@@ -59,6 +59,7 @@ void atp_graph_destroy(atp_graph *graph) {
     free(graph->node_index_slots);
     free(graph->edge_index_slots);
     free(graph->ledger_entries);
+    free(graph->ledger_contexts);
     free(graph->episodes);
     free(graph->valence_records);
     free(graph->valence_events);
@@ -140,6 +141,12 @@ const char *atp_status_string(atp_status status) {
 }
 
 atp_status atp_graph_add_ledger_entry(atp_graph *graph, const atp_ledger_entry *entry) {
+    return atp_graph_add_ledger_entry_with_context(graph, entry, NULL);
+}
+
+atp_status atp_graph_add_ledger_entry_with_context(atp_graph *graph,
+                                                    const atp_ledger_entry *entry,
+                                                    const atp_conversation_context *context) {
     if (!graph || !entry) {
         return ATP_ERR_INVALID_ARGUMENT;
     }
@@ -151,11 +158,39 @@ atp_status atp_graph_add_ledger_entry(atp_graph *graph, const atp_ledger_entry *
     if (author_len >= ATPERSON_LEDGER_AUTHOR_BYTES) {
         return ATP_ERR_INVALID_ARGUMENT;
     }
+    if (context) {
+        for (size_t i = 0u; i < 3u; ++i) {
+            const char *uri = i == 0u   ? context->reply_root_uri
+                              : i == 1u ? context->reply_parent_uri
+                                        : context->quote_uri;
+            if (strlen(uri) >= ATPERSON_CONTEXT_URI_BYTES) {
+                return ATP_ERR_INVALID_ARGUMENT;
+            }
+        }
+    }
     if (!atp_reserve_ledger_entries(graph, graph->ledger_count + 1u)) {
         return ATP_ERR_OUT_OF_MEMORY;
     }
     graph->ledger_entries[graph->ledger_count] = *entry;
+    if (context) {
+        graph->ledger_contexts[graph->ledger_count] = *context;
+    } else {
+        memset(&graph->ledger_contexts[graph->ledger_count], 0,
+               sizeof(atp_conversation_context));
+    }
     graph->ledger_count++;
+    return ATP_OK;
+}
+
+atp_status atp_graph_ledger_context(const atp_graph *graph, size_t index,
+                                   atp_conversation_context *out_context) {
+    if (!graph || !out_context) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (index >= graph->ledger_count) {
+        return ATP_ERR_NOT_FOUND;
+    }
+    *out_context = graph->ledger_contexts[index];
     return ATP_OK;
 }
 

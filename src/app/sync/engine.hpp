@@ -19,13 +19,16 @@ namespace atperson {
  * Produced by Wolfram-backed AtprotoClient in the network build and by test
  * fixtures offline. `policy_reason` records why the item was skipped or why
  * it is eligible (eligible/repost/reply); skipped items carry empty text and
- * are committed to the ledger as SKIPPED, never trained on. */
+ * are committed to the ledger as SKIPPED, never trained on. `context` is
+ * planning metadata: it rides with the observation but never enters the
+ * learned text. */
 struct SyncObservation {
     std::string text;
     std::string source_uri;
     std::string author_did;
     std::string created_at;
     PolicyReason policy_reason{PolicyReason::Eligible};
+    ConversationContext context;
 };
 
 /* One page of feed items plus the opaque cursor for the next page.

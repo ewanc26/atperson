@@ -25,6 +25,19 @@ struct Association {
     std::uint64_t last_source_hash{};
 };
 
+/* Stable conversational identifiers for one observation (issue #24).
+ * Planning metadata, not learnable content: the reply root/parent URIs and
+ * quote target identify what a post responds to without flattening thread
+ * structure into text. Context rides with the mirrored ledger entry for
+ * later planning and audit; it is never trained on. Empty strings mean the
+ * identifier is absent (a top-level post, a non-quote, or a parent deleted
+ * before the fetch). */
+struct ConversationContext {
+    std::string reply_root_uri;
+    std::string reply_parent_uri;
+    std::string quote_uri;
+};
+
 class LanguageGraph {
   public:
     LanguageGraph();
@@ -115,7 +128,14 @@ class LanguageGraph {
      * either the ledger or the snapshot alone.
      */
     void record_ledger_entry(const atp_ledger_entry &entry);
+    /** Record with conversational context (issue #24). `context` fields
+     * longer than ATPERSON_CONTEXT_URI_BYTES-1 throw. */
+    void record_ledger_entry(const atp_ledger_entry &entry,
+                             const ConversationContext &context);
     [[nodiscard]] std::vector<atp_ledger_entry> ledger_entries() const;
+
+    /** Conversational context of the i-th mirrored entry (issue #24). */
+    [[nodiscard]] atp_conversation_context ledger_context(std::size_t index) const;
 
     /**
      * Deterministic replay: re-apply every committed observation in `ledger`

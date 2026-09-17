@@ -185,6 +185,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/cursor.cpp
     src/app/cli/sync.cpp
     src/app/atproto/client.cpp
+    src/app/atproto/extract.cpp
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
     src/app/ingestion/policy.cpp
@@ -403,6 +404,19 @@ if(ATPERSON_BUILD_TESTS)
   target_compile_features(atperson_policy_test PRIVATE cxx_std_23)
   target_include_directories(atperson_policy_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson_policy COMMAND atperson_policy_test)
+
+  # AT Protocol feed-item translation (issue #24): top-level posts, nested
+  # replies, deleted parents, quotes, and malformed context, over real
+  # feedViewPost JSON fixtures. Offline, no network.
+  add_executable(
+    atperson_extract_test
+    tests/extract_test.cpp
+    src/app/atproto/extract.cpp
+    src/app/ingestion/policy.cpp)
+  target_compile_features(atperson_extract_test PRIVATE cxx_std_23)
+  target_link_libraries(atperson_extract_test PRIVATE atperson_cpp cjson)
+  target_include_directories(atperson_extract_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson_extract COMMAND atperson_extract_test)
 
   add_executable(
     atperson_lock_test

@@ -239,6 +239,23 @@ typedef struct atp_ledger_entry {
     char author_did[ATPERSON_LEDGER_AUTHOR_BYTES];
 } atp_ledger_entry;
 
+/*
+ * Conversational context attached to one mirrored ledger entry (issue #24).
+ * Planning/audit metadata, never learned input: the reply root/parent and
+ * quote target URIs identify what an observation responded to without
+ * flattening thread structure into text. Empty strings mean absent — a
+ * top-level post, a non-quote, or a parent deleted before the fetch.
+ * Context persists in optional snapshot section 10; pre-#24 snapshots load
+ * with empty context.
+ */
+#define ATPERSON_CONTEXT_URI_BYTES 256u
+
+typedef struct atp_conversation_context {
+    char reply_root_uri[ATPERSON_CONTEXT_URI_BYTES];
+    char reply_parent_uri[ATPERSON_CONTEXT_URI_BYTES];
+    char quote_uri[ATPERSON_CONTEXT_URI_BYTES];
+} atp_conversation_context;
+
 /**
  * Return a stable default configuration. The graph starts with no vocabulary,
  * no edges, and randomly initialised neural parameters derived from `seed`.
@@ -528,6 +545,15 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
 
 /** Record one ledger entry into the graph's mirror (copied by value). */
 atp_status atp_graph_add_ledger_entry(atp_graph *graph, const atp_ledger_entry *entry);
+
+/** Record one ledger entry plus its conversational context (issue #24).
+ * `context` may be NULL: the entry then mirrors with empty context. */
+atp_status atp_graph_add_ledger_entry_with_context(
+    atp_graph *graph, const atp_ledger_entry *entry, const atp_conversation_context *context);
+
+/** Copy the conversational context of the i-th mirrored entry (0-based). */
+atp_status atp_graph_ledger_context(const atp_graph *graph, size_t index,
+                                    atp_conversation_context *out_context);
 
 /** Number of entries mirrored in the graph. */
 size_t atp_graph_ledger_count(const atp_graph *graph);

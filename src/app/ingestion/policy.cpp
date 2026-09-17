@@ -10,6 +10,8 @@ const char *policy_reason_name(PolicyReason reason) {
         return "repost";
     case PolicyReason::Reply:
         return "reply";
+    case PolicyReason::Quote:
+        return "quote";
     case PolicyReason::SelfAuthored:
         return "self-authored";
     case PolicyReason::ViewerBlocked:
@@ -82,6 +84,12 @@ PolicyDecision evaluate_post(std::string_view account_did, const PolicyPost &pos
         /* An embed with a text fallback (e.g. a quote post) still counts:
          * the client extracts the quote's text into `text`. */
         if (!post.embed_type.empty() && !post.embed_has_text_fallback) {
+            /* Quote embeds are text-bearing but never learnable input
+             * (issue #24), so a quote with no own text is honestly
+             * empty-text, not "media-only". */
+            if (post.is_quote) {
+                return {false, PolicyReason::EmptyText};
+            }
             return {false, PolicyReason::NonTextOnly};
         }
         return {false, PolicyReason::EmptyText};
@@ -92,6 +100,15 @@ PolicyDecision evaluate_post(std::string_view account_did, const PolicyPost &pos
     }
     if (post.is_reply) {
         return {true, PolicyReason::Reply};
+    }
+    if (post.is_quote) {
+        /* Quotes carry explicit semantics (issue #24): the quoted record's
+         * text is another author's content that this policy never vetted,
+         * so it is never merged into learnable text. The quote is learned
+         * from only via the quoting author's own words, which reach here
+         * as `text`; the quote target rides in the observation's
+         * ConversationContext for planning and audit. */
+        return {true, PolicyReason::Quote};
     }
     return {true, PolicyReason::Eligible};
 }
