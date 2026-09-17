@@ -1,7 +1,6 @@
 #include "control.hpp"
 
 #include "config.hpp"
-#include "lock.hpp"
 #include "control/state.hpp"
 
 #include <ostream>
@@ -32,7 +31,6 @@ void save(const atperson::ControlState &state, const std::filesystem::path &cont
 } // namespace
 
 int run_control(std::ostream &out, const RuntimeResourceStatus &resource_status,
-                const std::filesystem::path &data_dir,
                 const std::filesystem::path &control_file, std::string_view sub,
                 std::string_view argument) {
     auto state = atperson::load_control_state(control_file);
@@ -54,7 +52,6 @@ int run_control(std::ostream &out, const RuntimeResourceStatus &resource_status,
     }
 
     atperson::require_runtime_write_headroom(resource_status);
-    const atperson::StateLock writer_lock(data_dir);
 
     if (sub == "pause") {
         state.paused = true;
