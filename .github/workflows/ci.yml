@@ -75,3 +75,26 @@ jobs:
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  smoke-fuzz:
+    name: Bounded smoke fuzz (Clang, 30s per target)
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure fuzz build
+        run: >-
+          cmake -S . -B build-fuzz
+          -DATPERSON_BUILD_NETWORK=OFF
+          -DATPERSON_BUILD_FUZZ=ON
+          -DCMAKE_BUILD_TYPE=Debug
+      - name: Build fuzz targets
+        run: cmake --build build-fuzz --parallel
+      - name: Smoke fuzz snapshot load
+        run: ./build-fuzz/snapshot_load_fuzzer -max_total_time=30 fuzz/corpus/snapshot
+      - name: Smoke fuzz ledger open
+        run: ./build-fuzz/ledger_open_fuzzer -max_total_time=30 fuzz/corpus/ledger
+      - name: Smoke fuzz tokenizer
+        run: ./build-fuzz/tokenize_fuzzer -max_total_time=30 fuzz/corpus/tokenize

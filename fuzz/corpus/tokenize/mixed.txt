@@ -1,0 +1,5 @@
+alpha beta gamma delta
+the wolf howls at the moon
+�� invalid utf8
+naíve café résumé
+ZWJ‍emoji 🐺 wolf

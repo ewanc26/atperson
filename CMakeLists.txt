@@ -382,6 +382,13 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson_e2e_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson_e2e COMMAND atperson_e2e_test)
 
+  # Property-based persistence round-trip invariants (issue #11): snapshot
+  # save/load equivalence, ledger append/reopen equivalence, and replay
+  # convergence, over reproducible pseudo-random inputs. Offline.
+  add_executable(atperson_property_test tests/property_test.cpp)
+  target_link_libraries(atperson_property_test PRIVATE atperson_cpp)
+  add_test(NAME atperson_property COMMAND atperson_property_test)
+
   # Ingestion policy: every skip class produces the documented reason and
   # eligible classes are tagged (repost/reply). Offline, no network.
   add_executable(
@@ -406,4 +413,39 @@ if(ATPERSON_BUILD_TESTS)
     target_compile_definitions(atperson_bootstrap_test PRIVATE _POSIX_C_SOURCE=200809L)
   endif()
   add_test(NAME atperson_bootstrap COMMAND atperson_bootstrap_test)
+endif()
+
+# Fuzz targets (issue #11): libFuzzer harnesses over the untrusted-input
+# boundaries — snapshot decoding, ledger open/recovery, tokenization.
+# Clang-only (libFuzzer); never built by default or in ordinary CI test
+# runs. Run manually with:
+#   cmake -S . -B build-fuzz -DATPERSON_BUILD_NETWORK=OFF -DATPERSON_BUILD_FUZZ=ON
+#   cmake --build build-fuzz
+#   ./build-fuzz/snapshot_load_fuzzer -max_total_time=60 fuzz/corpus/snapshot
+option(ATPERSON_BUILD_FUZZ "Build libFuzzer targets (requires Clang)" OFF)
+if(ATPERSON_BUILD_FUZZ)
+  if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "ATPERSON_BUILD_FUZZ requires Clang (libFuzzer)")
+  endif()
+
+  add_executable(snapshot_load_fuzzer fuzz/snapshot_load_fuzzer.c)
+  target_link_libraries(snapshot_load_fuzzer PRIVATE atperson_core)
+  target_include_directories(snapshot_load_fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  target_compile_options(
+    snapshot_load_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+  target_link_options(snapshot_load_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
+
+  add_executable(ledger_open_fuzzer fuzz/ledger_open_fuzzer.c)
+  target_link_libraries(ledger_open_fuzzer PRIVATE atperson_core)
+  target_include_directories(ledger_open_fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  target_compile_options(
+    ledger_open_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+  target_link_options(ledger_open_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
+
+  add_executable(tokenize_fuzzer fuzz/tokenize_fuzzer.c)
+  target_link_libraries(tokenize_fuzzer PRIVATE atperson_core)
+  target_include_directories(tokenize_fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  target_compile_options(
+    tokenize_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+  target_link_options(tokenize_fuzzer PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()
