@@ -82,6 +82,39 @@ The model begins with **zero words and zero relationships**. Neural parameters
 have small deterministic random initial values so learning can start, but there
 is no seeded vocabulary, biography, ideology, personality, or preference set.
 
+## Resource usage
+
+atperson derives runtime resource limits from the machine it is actually running
+on. The policy is runtime-only: it does not become learned state and is not
+persisted in model snapshots. Run `atperson resources` to see the detected
+hardware and the currently derived budget, including the durable path that is
+limiting writes.
+
+| What is detected | How |
+| --- | --- |
+| Effective CPU capacity | CPU count, including fractional CPU quotas |
+| Memory | Total and currently available RAM |
+| Filesystem | Capacity and free bytes for every path that can receive durable state |
+| cgroup limits | Linux cgroup v2 and v1 memory/CPU limits folded in when tighter than the host, so a container with a 1 GiB limit does not behave as if it owns all RAM |
+
+| What is dynamic | Behaviour |
+| --- | --- |
+| Graph growth budget | Memory keeps a host/container safety reserve first; atperson then permits graph growth from only part of the remaining available memory, split between future nodes and edges using conservative per-item reservations |
+| Write budget | Each durable filesystem keeps a dynamic free-space reserve; the tightest filesystem controls the process-wide write budget, and mutating commands fail before doing new work if any destination is inside its safety reserve |
+| Sync page size | Page size and the per-run observation budget shrink with disk, memory and effective CPU capacity; a sufficiently small quota can reduce a timeline page to one item |
+| Re-probing | Longer multi-page syncs re-probe before each page, so cgroup limits, memory pressure and disk headroom can change while a process is running without a restart |
+
+| What is deliberately not dynamic | Why |
+| --- | --- |
+| Tokenization and learning equations | Machine size may admit more bounded work, but must not make the same learned state mean something different |
+| Familiarity and episodic-memory retention rules | Model semantics, not resource policy |
+| Planner scoring, beam semantics and stop thresholds | Model semantics, not resource policy |
+| Replay ordering and schema compatibility | Determinism and compatibility are invariants |
+| Persona, preference and social state | Learned state is not derived from machine size |
+
+Operators may override individual limits with environment variables; empty values
+or `0` mean automatic. See [`docs/resources.md`](docs/resources.md).
+
 ## What exists now
 
 The C23 core currently provides:
