@@ -209,6 +209,33 @@ static bool atp_encode_ledger(const atp_graph *graph, atp_buffer *buffer) {
     return ok;
 }
 
+static bool atp_encode_valence(const atp_graph *graph, atp_buffer *buffer) {
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_VALENCE)) {
+        return false;
+    }
+    bool ok = atp_buffer_u64(buffer, (uint64_t)graph->valence_record_count);
+    for (size_t i = 0u; ok && i < graph->valence_record_count; ++i) {
+        const atp_valence_record *record = &graph->valence_records[i];
+        ok = atp_buffer_u32(buffer, record->node_index) &&
+             atp_buffer_f32(buffer, record->valence) &&
+             atp_buffer_u64(buffer, record->event_count) &&
+             atp_buffer_u64(buffer, record->positive_events) &&
+             atp_buffer_u64(buffer, record->negative_events) &&
+             atp_buffer_u64(buffer, record->last_event_at);
+    }
+    ok = ok && atp_buffer_u64(buffer, (uint64_t)graph->valence_event_count) &&
+         atp_buffer_u64(buffer, graph->valence_event_evictions);
+    for (size_t i = 0u; ok && i < graph->valence_event_count; ++i) {
+        const atp_valence_event_log_entry *entry = &graph->valence_events[i];
+        ok = atp_buffer_u32(buffer, entry->node_index) && atp_buffer_u32(buffer, entry->kind) &&
+             atp_buffer_f32(buffer, entry->signal) && atp_buffer_u64(buffer, entry->at_epoch) &&
+             atp_buffer_string_opt(buffer, entry->source_id);
+    }
+    atp_section_end(&section);
+    return ok;
+}
+
 static bool atp_encode_schema(atp_buffer *buffer) {
     atp_section_writer section;
     if (!atp_section_begin(buffer, &section, ATP_SECTION_SCHEMA)) {
@@ -257,7 +284,7 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
         atp_encode_header(graph, &buffer) && atp_encode_network(graph, &buffer) &&
         atp_encode_nodes(graph, &buffer) && atp_encode_edges(graph, &buffer) &&
         atp_encode_ledger(graph, &buffer) && atp_encode_episodes(graph, &buffer) &&
-        atp_encode_schema(&buffer) &&
+        atp_encode_valence(graph, &buffer) && atp_encode_schema(&buffer) &&
         atp_buffer_u64(&buffer, atp_fnv1a64(buffer.data, buffer.size));
     if (!encoded) {
         free(buffer.data);

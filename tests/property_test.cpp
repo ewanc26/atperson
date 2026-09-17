@@ -216,12 +216,125 @@ void test_replay_converges_to_observed_state() {
     }
 }
 
+/* ---------------------------------------------------------------- */
+/* Valence round-trip property (issue #13)                           */
+/* ---------------------------------------------------------------- */
+
+void test_valence_round_trip_equivalence() {
+    for (std::uint64_t seed = 1u; seed <= 8u; ++seed) {
+        Xorshift rng(seed * 0x9E3779B97F4A7C15ull);
+        const auto dir = scratch_dir("valence");
+        const auto path = dir / "graph.snap";
+
+        atperson::LanguageGraph original;
+        /* Observe the vocabulary first: valence attaches to experienced
+         * subjects only. */
+        for (std::uint32_t i = 0u; i < 20u; ++i) {
+            original.observe(random_text(rng, 6u), random_uri(rng, i));
+        }
+        /* Explicit events over the observed vocabulary, mixed kinds and
+         * signs, including reversal sequences. Tokens not present in
+         * the observed graph are skipped: valence attaches to
+         * experienced subjects only. */
+        for (std::uint32_t i = 0u; i < 30u; ++i) {
+            const std::string token = words[rng.below(word_count)];
+            /* Familiarity is >= 1.0f for any observed token. */
+            if (original.familiarity(token) < 1.0f) {
+                continue;
+            }
+            const auto kind = static_cast<atp_valence_kind>(1u + rng.below(4u));
+            const float signal = (static_cast<float>(rng.below(201u)) - 100.0f) / 100.0f;
+            original.valence_event(token, kind, signal, 1000u + i,
+                                   "at://property/event-" + std::to_string(i));
+        }
+
+        original.save(path);
+        const auto loaded = atperson::LanguageGraph::load(path);
+
+        /* Folded state round-trips exactly: every record, every counter,
+         * every score, in the same order. */
+        const auto left = original.valence_records();
+        const auto right = loaded.valence_records();
+        assert(left.size() == right.size());
+        for (std::size_t i = 0u; i < left.size(); ++i) {
+            assert(std::string_view(left[i].token) == std::string_view(right[i].token));
+            assert(left[i].valence == right[i].valence);
+            assert(left[i].event_count == right[i].event_count);
+            assert(left[i].positive_events == right[i].positive_events);
+            assert(left[i].negative_events == right[i].negative_events);
+            assert(left[i].last_event_at == right[i].last_event_at);
+        }
+
+        /* The provenance log round-trips: newest first, same entries. The
+         * C++ wrapper does not expose the log yet, so query via the C API
+         * through the same graph objects by re-loading raw snapshots is
+         * unnecessary — compare through valence_records plus one extra
+         * save/load of each and the C API on fresh loads. */
+        atp_status status_left = ATP_OK;
+        atp_status status_right = ATP_OK;
+        const auto raw_left = dir / "left.snap";
+        const auto raw_right = dir / "right.snap";
+        original.save(raw_left);
+        loaded.save(raw_right);
+        atp_graph *graph_left = atp_graph_load(raw_left.string().c_str(), &status_left);
+        atp_graph *graph_right = atp_graph_load(raw_right.string().c_str(), &status_right);
+        assert(graph_left != nullptr && status_left == ATP_OK);
+        assert(graph_right != nullptr && status_right == ATP_OK);
+        atp_valence_event log_left[64] = {};
+        atp_valence_event log_right[64] = {};
+        std::size_t count_left = 0u;
+        std::size_t count_right = 0u;
+        assert(atp_graph_valence_log(graph_left, log_left, 64u, &count_left) == ATP_OK);
+        assert(atp_graph_valence_log(graph_right, log_right, 64u, &count_right) == ATP_OK);
+        assert(count_left == count_right);
+        for (std::size_t i = 0u; i < count_left; ++i) {
+            assert(log_left[i].kind == log_right[i].kind);
+            assert(log_left[i].signal == log_right[i].signal);
+            assert(log_left[i].at_epoch == log_right[i].at_epoch);
+            assert(std::string_view(log_left[i].token) == std::string_view(log_right[i].token));
+            assert(std::string_view(log_left[i].source_id) ==
+                   std::string_view(log_right[i].source_id));
+        }
+        atp_graph_destroy(graph_left);
+        atp_graph_destroy(graph_right);
+
+        /* Determinism: the same event stream applied to two fresh graphs
+         * with the same seed produces identical folded state. */
+        atperson::LanguageGraph twin_a;
+        atperson::LanguageGraph twin_b;
+        for (std::uint32_t i = 0u; i < 20u; ++i) {
+            const std::string text = random_text(rng, 6u);
+            twin_a.observe(text, random_uri(rng, i));
+            twin_b.observe(text, random_uri(rng, i));
+        }
+        for (std::uint32_t i = 0u; i < 30u; ++i) {
+            const std::string token = words[rng.below(word_count)];
+            if (twin_a.familiarity(token) < 1.0f) {
+                continue;
+            }
+            const auto kind = static_cast<atp_valence_kind>(1u + rng.below(4u));
+            const float signal = (static_cast<float>(rng.below(201u)) - 100.0f) / 100.0f;
+            const std::string source = "at://property/twin-" + std::to_string(i);
+            twin_a.valence_event(token, kind, signal, 2000u + i, source);
+            twin_b.valence_event(token, kind, signal, 2000u + i, source);
+        }
+        const auto records_a = twin_a.valence_records();
+        const auto records_b = twin_b.valence_records();
+        assert(records_a.size() == records_b.size());
+        for (std::size_t i = 0u; i < records_a.size(); ++i) {
+            assert(records_a[i].valence == records_b[i].valence);
+            assert(records_a[i].event_count == records_b[i].event_count);
+        }
+    }
+}
+
 } // namespace
 
 int main() {
     test_snapshot_round_trip_equivalence();
     test_ledger_round_trip_equivalence();
     test_replay_converges_to_observed_state();
+    test_valence_round_trip_equivalence();
 
     std::printf("property tests passed\n");
     return 0;

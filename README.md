@@ -63,10 +63,15 @@ The C23 core currently provides:
   summaries, recall accounting, and deterministic least-recalled eviction;
 - per-token **familiarity**, an exponentially weighted exposure signal updated
   when that token is encountered again;
+- per-token **valence**, an experience-derived score in `[-1, 1]` updated only
+  from explicit events (action outcomes, interactions, approach/avoidance) —
+  never from exposure — with inspectable evidence counters and a bounded
+  provenance log (see [`docs/valence.md`](docs/valence.md));
 - a read-only **action candidate** API that ranks learned continuations from
   context without mutating the graph;
 - versioned binary snapshots containing the complete mutable learning state,
-  including the ledger mirror, episodic memory, and familiarity state;
+  including the ledger mirror, episodic memory, familiarity, and valence
+  state;
 - deterministic PRNG state and learning counters required for persistence and
   reproducibility.
 

@@ -55,6 +55,35 @@ typedef struct atp_edge {
     float strength;
 } atp_edge;
 
+/*
+ * Experience-derived valence (issue #13). One record per token that has
+ * received at least one explicit valence event — records are created
+ * lazily by events, never by observation, so a fresh graph has none and
+ * the empty-start invariant holds. Kept sorted by node_index (binary
+ * search; insertion is a memmove, which is fine for event-scale rates).
+ */
+typedef struct atp_valence_record {
+    uint32_t node_index;
+    float valence; /* in [-1, 1] */
+    uint64_t event_count;
+    uint64_t positive_events;
+    uint64_t negative_events;
+    uint64_t last_event_at;
+} atp_valence_record;
+
+/*
+ * Bounded provenance log for valence updates: one entry per event, oldest
+ * evicted when the log is full. Persisted in the snapshot so the folded
+ * state can be explained after restart.
+ */
+typedef struct atp_valence_event_log_entry {
+    uint32_t node_index;
+    uint32_t kind; /* atp_valence_kind */
+    float signal; /* in [-1, 1] */
+    uint64_t at_epoch;
+    char source_id[ATPERSON_LEDGER_SOURCE_BYTES];
+} atp_valence_event_log_entry;
+
 typedef struct atp_network {
     float input_hidden[ATPERSON_HIDDEN_DIM][ATPERSON_INPUT_DIM];
     float hidden_bias[ATPERSON_HIDDEN_DIM];
@@ -98,6 +127,15 @@ struct atp_graph {
     size_t episode_capacity; /* allocated buffer capacity */
     size_t episode_max;      /* configured upper bound */
     uint64_t episode_evictions;
+
+    atp_valence_record *valence_records;
+    size_t valence_record_count;
+    size_t valence_record_capacity;
+
+    atp_valence_event_log_entry *valence_events;
+    size_t valence_event_count;   /* live entries, oldest first */
+    size_t valence_event_capacity;/* fixed at ATPERSON_VALENCE_EVENT_CAPACITY */
+    uint64_t valence_event_evictions;
 
     uint64_t observations;
     uint64_t token_observations;

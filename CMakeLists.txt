@@ -35,6 +35,7 @@ add_library(
   src/core/graph/store.c
   src/core/graph/observe.c
   src/core/graph/query.c
+  src/core/graph/valence.c
   src/core/memory.c
   src/core/action/ordering.c
   src/core/action/candidates.c
@@ -216,6 +217,10 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson_familiarity_test tests/familiarity_test.c)
   target_link_libraries(atperson_familiarity_test PRIVATE atperson_core)
   add_test(NAME atperson_familiarity COMMAND atperson_familiarity_test)
+
+  add_executable(atperson_valence_test tests/valence_test.c)
+  target_link_libraries(atperson_valence_test PRIVATE atperson_core)
+  add_test(NAME atperson_valence COMMAND atperson_valence_test)
 
   add_executable(atperson_action_test tests/action_test.c)
   target_link_libraries(atperson_action_test PRIVATE atperson_core)

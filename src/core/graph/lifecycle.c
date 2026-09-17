@@ -9,6 +9,7 @@ atp_graph_config atp_graph_default_config(void) {
         .seed = UINT64_C(0x4154504552534F4E),
         .learning_rate = 0.025f,
         .familiarity_decay = 0.98f,
+        .valence_rate = 0.25f,
         .episode_capacity = ATPERSON_EPISODE_DEFAULT_CAPACITY,
     };
     return config;
@@ -24,6 +25,10 @@ atp_graph *atp_graph_create(const atp_graph_config *config) {
     }
     if (!(effective.familiarity_decay > 0.0f) || effective.familiarity_decay >= 1.0f) {
         effective.familiarity_decay = atp_graph_default_config().familiarity_decay;
+    }
+    if (!(effective.valence_rate > 0.0f) || effective.valence_rate > 1.0f ||
+        !isfinite(effective.valence_rate)) {
+        effective.valence_rate = atp_graph_default_config().valence_rate;
     }
     if (effective.episode_capacity == 0u) {
         effective.episode_capacity = ATPERSON_EPISODE_DEFAULT_CAPACITY;
@@ -55,6 +60,8 @@ void atp_graph_destroy(atp_graph *graph) {
     free(graph->edge_index_slots);
     free(graph->ledger_entries);
     free(graph->episodes);
+    free(graph->valence_records);
+    free(graph->valence_events);
     free(graph);
 }
 

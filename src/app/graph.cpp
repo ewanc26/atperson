@@ -227,6 +227,34 @@ float LanguageGraph::familiarity(std::string_view token) const noexcept {
     return atp_graph_familiarity(graph_, owned_token.c_str());
 }
 
+void LanguageGraph::valence_event(std::string_view token, atp_valence_kind kind, float signal,
+                                  std::uint64_t at_epoch, std::string_view source_id) {
+    const std::string owned_token(token);
+    const std::string owned_source(source_id);
+    require(atp_graph_valence_event(graph_, owned_token.c_str(), kind, signal, at_epoch,
+                                     owned_source.c_str()),
+            "record valence event");
+}
+
+std::optional<atp_valence_state> LanguageGraph::valence(std::string_view token) const {
+    const std::string owned_token(token);
+    atp_valence_state state{};
+    const atp_status status = atp_graph_valence(graph_, owned_token.c_str(), &state);
+    if (status == ATP_ERR_NOT_FOUND) {
+        return std::nullopt;
+    }
+    require(status, "query valence");
+    return state;
+}
+
+std::vector<atp_valence_state> LanguageGraph::valence_records() const {
+    std::vector<atp_valence_state> result(atp_graph_valence_count(graph_));
+    for (std::size_t i = 0; i < result.size(); ++i) {
+        require(atp_graph_valence_at(graph_, i, &result[i]), "read valence record");
+    }
+    return result;
+}
+
 atp_replay_report LanguageGraph::replay(const Ledger &ledger) {
     atp_replay_report report = {};
     const atp_status status = atp_replay_ledger(ledger.handle(), graph_, &report);

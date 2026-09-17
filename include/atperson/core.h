@@ -97,6 +97,13 @@ extern "C" {
 #define ATPERSON_EPISODE_DEFAULT_CAPACITY 4096u
 
 /*
+ * Bounded provenance log for valence events (issue #13). The log explains
+ * recent updates; the folded per-token state and counters are the full
+ * accounting (they never evict). Evicted entries are counted, never faked.
+ */
+#define ATPERSON_VALENCE_EVENT_CAPACITY 1024u
+
+/*
  * Concurrency contract.
  *
  * The C23 core is single-threaded by design. No core object (atp_graph,
@@ -150,6 +157,14 @@ typedef struct atp_graph_config {
      * selects the default.
      */
     float familiarity_decay;
+    /*
+     * Learning rate for experience-derived valence (issue #13), in (0, 1].
+     * Each explicit valence event moves a token's score by
+     * `valence += rate * (signal - valence)`, so the score is an exponential
+     * moving average of event signals, bounded in [-1, 1] by construction and
+     * reversible by contrary evidence. 0 selects the default (0.25).
+     */
+    float valence_rate;
     /* Episode capacity (0 selects ATPERSON_EPISODE_DEFAULT_CAPACITY). */
     size_t episode_capacity;
     /*
@@ -598,6 +613,100 @@ atp_status atp_graph_episode_at(const atp_graph *graph, size_t index, atp_episod
  * arguments are invalid. Querying never mutates the graph.
  */
 float atp_graph_familiarity(const atp_graph *graph, const char *token);
+
+/*
+ * Experience-derived valence (issue #13).
+ *
+ * Valence is a slowly learned per-token score in [-1, 1] updated ONLY from
+ * explicit experience events — never from exposure, content, or any
+ * developer-authored seed. The empty-start invariant holds: a fresh graph
+ * has no valence records at all, and observation alone never creates one.
+ * A token that has been observed but never valued reads neutral (0.0).
+ *
+ * Evidence contract — what counts as an event:
+ * - ACTION: the outcome of an action the entity itself took (e.g. a post
+ *   that was well received scores positive, one that was rejected or
+ *   erroring scores negative);
+ * - INTERACTION: a direct interaction signal from another actor (reply,
+ *   like, mention, block — the caller maps the signal to [-1, 1]);
+ * - APPROACH: the entity chose to engage with the subject;
+ * - AVOID: the entity chose not to engage with the subject.
+ *
+ * The caller decides what real-world event maps to each kind and signal
+ * value; the core records it, folds it into the score, and retains
+ * provenance. Nothing is inferred: a signal of 0 records an event but
+ * moves the score toward 0 (neutral evidence).
+ *
+ * Update equation: valence' = valence + rate * (signal - valence), rate =
+ * config.valence_rate in (0, 1]. Bounded in [-1, 1] by construction
+ * (an EMA of values in [-1, 1] stays in [-1, 1]). No time-based decay:
+ * valence changes only when events arrive, so the score is exactly the
+ * folded evidence. Reversal: contrary evidence pulls the EMA across zero;
+ * the event counters make the competition inspectable.
+ */
+typedef enum atp_valence_kind {
+    ATP_VALENCE_ACTION = 1,
+    ATP_VALENCE_INTERACTION = 2,
+    ATP_VALENCE_APPROACH = 3,
+    ATP_VALENCE_AVOID = 4
+} atp_valence_kind;
+
+/** Inspectable valence state for one token. */
+typedef struct atp_valence_state {
+    char token[ATPERSON_TOKEN_BYTES];
+    float valence; /* in [-1, 1] */
+    uint64_t event_count;
+    uint64_t positive_events; /* signals > 0 */
+    uint64_t negative_events; /* signals < 0 */
+    uint64_t last_event_at;
+} atp_valence_state;
+
+/** One bounded-log provenance entry, in arrival order. */
+typedef struct atp_valence_event {
+    atp_valence_kind kind;
+    float signal; /* in [-1, 1] */
+    uint64_t at_epoch;
+    char token[ATPERSON_TOKEN_BYTES];
+    char source_id[ATPERSON_LEDGER_SOURCE_BYTES];
+} atp_valence_event;
+
+/**
+ * Record one explicit valence event for `token`. The token must already be
+ * known to the vocabulary (observed at least once): valence attaches to
+ * experienced subjects, and interning vocabulary from a valence event would
+ * let a single event create learned state, so unknown tokens return
+ * ATP_ERR_NOT_FOUND and mutate nothing. `signal` is clamped to [-1, 1];
+ * `source_id` is provenance (an AT URI or action id) and is never
+ * interpreted. Events append to the bounded provenance log (oldest evicted
+ * when full; the eviction counter tracks loss).
+ */
+atp_status atp_graph_valence_event(atp_graph *graph, const char *token, atp_valence_kind kind,
+                                  float signal, uint64_t at_epoch, const char *source_id);
+
+/**
+ * Read the valence state for `token`. ATP_ERR_NOT_FOUND when the token is
+ * unknown or has never received an event. Read-only.
+ */
+atp_status atp_graph_valence(const atp_graph *graph, const char *token, atp_valence_state *out);
+
+/**
+ * Copy the i-th valence record (0-based, in vocabulary node-index order —
+ * the order tokens were first observed in). Read-only.
+ */
+atp_status atp_graph_valence_at(const atp_graph *graph, size_t index, atp_valence_state *out);
+
+/** Number of tokens with valence records. */
+size_t atp_graph_valence_count(const atp_graph *graph);
+
+/**
+ * Copy up to `capacity` provenance events, newest first. `out_count` is
+ * always set when non-null. Read-only.
+ */
+atp_status atp_graph_valence_log(const atp_graph *graph, atp_valence_event *out, size_t capacity,
+                                 size_t *out_count);
+
+/** Total provenance entries evicted from the bounded log. */
+uint64_t atp_graph_valence_log_evictions(const atp_graph *graph);
 
 #ifdef __cplusplus
 }

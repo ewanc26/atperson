@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -89,6 +90,24 @@ class LanguageGraph {
      * exposure), 0.0 when the token is unknown. Read-only.
      */
     [[nodiscard]] float familiarity(std::string_view token) const noexcept;
+
+    /**
+     * Record one explicit valence event (action outcome, interaction,
+     * approach/avoidance) for a known token. Throws std::runtime_error on
+     * failure; ATP_ERR_NOT_FOUND means the token has never been observed —
+     * valence attaches to experienced subjects only. See docs/valence.md.
+     */
+    void valence_event(std::string_view token, atp_valence_kind kind, float signal,
+                       std::uint64_t at_epoch, std::string_view source_id);
+
+    /**
+     * Valence state for `token`, or std::nullopt when the token is unknown or
+     * has never received an event (neutral, not a fake zero). Read-only.
+     */
+    [[nodiscard]] std::optional<atp_valence_state> valence(std::string_view token) const;
+
+    /** All valence records in vocabulary order. Read-only. */
+    [[nodiscard]] std::vector<atp_valence_state> valence_records() const;
 
     /**
      * Mirrored observation ledger: the entries the graph was trained from.

@@ -133,6 +133,84 @@ static bool atp_decode_ledger(atp_reader *reader, atp_graph *graph) {
     return true;
 }
 
+/*
+ * Valence section (issue #13): folded per-token records plus the bounded
+ * provenance log. Node indexes are validated against the already-decoded
+ * node table (the VALENCE switch case requires the NODES section to have
+ * been decoded first). Absent section = empty valence (pre-#13 snapshots
+ * load neutral).
+ */
+static bool atp_decode_valence(atp_reader *reader, atp_graph *graph) {
+    uint64_t count = 0u;
+    const uint64_t min_record = 4u + 4u + 8u + 8u + 8u + 8u;
+    if (!atp_reader_u64(reader, &count) || count > SIZE_MAX / sizeof(atp_valence_record) ||
+        count > (reader->size - reader->position) / min_record) {
+        return false;
+    }
+    if (graph->valence_records) {
+        return false; /* duplicate section would leak */
+    }
+    atp_valence_record *records = NULL;
+    if (count > 0u) {
+        records = malloc((size_t)count * sizeof(*records));
+        if (!records) {
+            return false;
+        }
+    }
+    bool ok = true;
+    uint32_t previous_index = 0u;
+    for (size_t i = 0u; ok && i < (size_t)count; ++i) {
+        atp_valence_record *record = &records[i];
+        memset(record, 0, sizeof(*record));
+        ok = atp_reader_u32(reader, &record->node_index) && record->node_index < graph->node_count &&
+             (i == 0u || record->node_index > previous_index) &&
+             atp_reader_f32(reader, &record->valence) && record->valence >= -1.0f &&
+             record->valence <= 1.0f && atp_reader_u64(reader, &record->event_count) &&
+             record->event_count > 0u && atp_reader_u64(reader, &record->positive_events) &&
+             atp_reader_u64(reader, &record->negative_events) &&
+             atp_reader_u64(reader, &record->last_event_at);
+        if (ok) {
+            previous_index = record->node_index;
+        }
+    }
+    if (ok) {
+        graph->valence_records = records;
+        graph->valence_record_count = (size_t)count;
+        graph->valence_record_capacity = (size_t)count;
+    } else {
+        free(records);
+        return false;
+    }
+
+    uint64_t event_count = 0u;
+    const uint64_t min_event = 4u + 4u + 4u + 8u + 4u;
+    ok = atp_reader_u64(reader, &event_count) && event_count <= ATPERSON_VALENCE_EVENT_CAPACITY &&
+         atp_reader_u64(reader, &graph->valence_event_evictions) &&
+         event_count <= (reader->size - reader->position) / min_event;
+    if (!ok) {
+        return false;
+    }
+    if (event_count > 0u) {
+        graph->valence_events = malloc(ATPERSON_VALENCE_EVENT_CAPACITY * sizeof(*graph->valence_events));
+        if (!graph->valence_events) {
+            return false;
+        }
+        graph->valence_event_capacity = ATPERSON_VALENCE_EVENT_CAPACITY;
+        graph->valence_event_count = (size_t)event_count;
+    }
+    for (size_t i = 0u; ok && i < (size_t)event_count; ++i) {
+        atp_valence_event_log_entry *entry = &graph->valence_events[i];
+        memset(entry, 0, sizeof(*entry));
+        ok = atp_reader_u32(reader, &entry->node_index) && entry->node_index < graph->node_count &&
+             atp_reader_u32(reader, &entry->kind) && entry->kind >= (uint32_t)ATP_VALENCE_ACTION &&
+             entry->kind <= (uint32_t)ATP_VALENCE_AVOID && atp_reader_f32(reader, &entry->signal) &&
+             entry->signal >= -1.0f && entry->signal <= 1.0f &&
+             atp_reader_u64(reader, &entry->at_epoch) &&
+             atp_reader_string_opt(reader, entry->source_id, sizeof(entry->source_id));
+    }
+    return ok;
+}
+
 static bool atp_decode_episodes(atp_reader *reader, atp_graph *graph) {
     uint64_t count = 0u;
     const uint64_t min_entry = 8u + 8u + 8u + 4u + 8u + 8u + 4u + (4u + 1u) + (4u + 1u);
@@ -172,9 +250,17 @@ static bool atp_decode_episodes(atp_reader *reader, atp_graph *graph) {
 }
 
 atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *status) {
+    /* Integrity before interpretation: the trailing FNV-1a digest covers
+     * the whole image, which is already fully in memory, so any bitrot is
+     * rejected as ATP_ERR_FORMAT before a corrupted byte can influence
+     * section decoding or the schema-replayability decision. */
+    if (size < 8u || atp_fnv1a64(data, size - 8u) != atp_load_u64le(data + size - 8u)) {
+        return atp_load_failure(NULL, status, ATP_ERR_FORMAT);
+    }
+
     atp_reader reader = {data, size, 12u};
     atp_graph *graph = NULL;
-    bool seen[9] = {false};
+    bool seen[10] = {false};
     uint32_t learning_schema = 1u;
 
     while (reader.size - reader.position > 8u) {
@@ -182,10 +268,10 @@ atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *statu
         if (!atp_reader_section(&reader, &section)) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
-        if (section.tag != 0u && section.tag <= 8u && seen[section.tag]) {
+        if (section.tag != 0u && section.tag <= 9u && seen[section.tag]) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
-        if (section.tag != 0u && section.tag <= 8u) {
+        if (section.tag != 0u && section.tag <= 9u) {
             seen[section.tag] = true;
         }
         const size_t payload_end = reader.position + (size_t)section.length;
@@ -234,6 +320,13 @@ atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *statu
             break;
         case ATP_SECTION_EPISODES:
             ok = graph && atp_decode_episodes(&reader, graph);
+            break;
+        case ATP_SECTION_VALENCE:
+            /* Node indexes are validated against the node table, so the
+             * NODES section must already be decoded. Every writer emits
+             * NODES before VALENCE; a stream that reorders them is not a
+             * snapshot this core produced. */
+            ok = graph && seen[ATP_SECTION_NODES] && atp_decode_valence(&reader, graph);
             break;
         case ATP_SECTION_SCHEMA: {
             uint32_t schema = 0u;
