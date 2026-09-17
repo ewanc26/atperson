@@ -77,6 +77,7 @@ stages, with later stages intentionally incomplete:
 | Outbound action policy | Implemented (inspection/admission only) | Default-deny per-kind policy with durable rate budgets, duplicate suppression and inspectable `allow`/`deny`/`defer` reasons; no network writes (see [`docs/outbound-policy.md`](docs/outbound-policy.md)) |
 | Outbound execution | Implemented (operator-led posts/replies) | `atperson publish` runs a frozen, approved action document through pause → policy → dry-run → control gates, then writes exactly that record via Wolfram; idempotent frozen rkey, budget on confirmed success only, credential-free append-only audit (see [`docs/outbound-execution.md`](docs/outbound-execution.md)) |
 | Action/outcome journal | Implemented | Durable, replayable record of the entity's own outbound attempts and their outcomes, with event linkage and explicit valence application; `atperson journal` lists actions/events/valence, `apply` writes one valence event, and `map` applies an operator-authored outcome-to-valence rule table (#56); `rebuild` replays journal valence after the ledger (see [`docs/action-journal.md`](docs/action-journal.md)) |
+| Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup with volume persistence and dynamic cgroup v1/v2 resource budgeting (see [`docs/docker.md`](docs/docker.md)) |
 
 The model begins with **zero words and zero relationships**. Neural parameters
 have small deterministic random initial values so learning can start, but there

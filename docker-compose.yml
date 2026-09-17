@@ -1,0 +1,27 @@
+services:
+  atperson:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: atperson:latest
+    container_name: atperson
+    environment:
+      - ATPERSON_HOME=/var/lib/atperson
+      - ATPERSON_IDENTIFIER=${ATPERSON_IDENTIFIER:-}
+      - ATPERSON_APP_PASSWORD=${ATPERSON_APP_PASSWORD:-}
+      - ATPERSON_SERVICE=${ATPERSON_SERVICE:-https://bsky.social}
+      - ATPERSON_TYPESAFE_API_KEY=${ATPERSON_TYPESAFE_API_KEY:-}
+    volumes:
+      - atperson-data:/var/lib/atperson
+    restart: unless-stopped
+    command: daemon
+    # Optional resource limits: the atperson runtime probes cgroup memory/CPU
+    # limits on Linux and dynamically scales its graph and write budgets.
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2.0'
+    #       memory: 1G
+
+volumes:
+  atperson-data:
