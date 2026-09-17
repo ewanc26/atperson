@@ -16,6 +16,8 @@
 #include "engine.hpp"
 #include "linkage.hpp"
 #include "control/state.hpp"
+#include "parallel.hpp"
+#include "worker/pool.hpp"
 
 #include <iostream>
 #include <optional>
@@ -25,6 +27,20 @@
 
 namespace atperson {
 namespace cli {
+
+namespace {
+
+/* Parallel sync is opt-in: it overlaps page fetches with observation
+ * processing on a pool sized from the resource budget. It is off by default
+ * so the sequential path remains the reference for tests and CI. The pool
+ * is fail-closed: a fetch failure aborts the run without touching the cursor
+ * or the ledger. */
+bool parallel_sync_enabled() {
+    const char *value = std::getenv("ATPERSON_SYNC_PARALLEL");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+} // namespace
 
 int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &resource_status,
              const std::filesystem::path &data_dir, LanguageGraph &graph,
@@ -79,9 +95,24 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
         }
     };
 
-    const auto result = atperson::run_sync(
-        graph, ledger, ingestion, fetch_page, limits,
-        atperson::make_journal_linker(atperson::cli::action_journal_path()));
+    const auto linker = atperson::make_journal_linker(atperson::cli::action_journal_path());
+
+    atperson::SyncResult result;
+    if (parallel_sync_enabled()) {
+        /* The pool is sized from the effective CPU capacity, so a container
+         * with a fractional quota gets fewer workers than the host has
+         * logical CPUs. One worker reproduces the sequential path through
+         * the queue, so the result is identical for fixed inputs. */
+        const auto pool_config = atperson::WorkerPool::config_from_system(
+            mutable_status.system);
+        atperson::WorkerPool pool(pool_config);
+        result = atperson::run_sync_parallel(graph, ledger, ingestion, fetch_page, limits,
+                                             pool, linker);
+        pool.shutdown();
+    } else {
+        result = atperson::run_sync(graph, ledger, ingestion, fetch_page, limits, linker);
+    }
+
     graph.save(model_path);
     ingestion.checkpoint.generation++;
     atperson::save_ingestion_state(ingestion, state_file);

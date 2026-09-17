@@ -11,6 +11,8 @@
 #include "ingestion/state.hpp"
 #include "linkage.hpp"
 #include "lock.hpp"
+#include "parallel.hpp"
+#include "worker/pool.hpp"
 
 #include <chrono>
 #include <optional>
@@ -20,6 +22,20 @@
 
 namespace atperson {
 namespace cli {
+
+namespace {
+
+/* Parallel sync is opt-in; see run_sync. The daemon builds one pool for its
+ * whole lifetime and reuses it across cycles, so the pool's worker threads
+ * survive a cycle boundary. The pool is fail-closed: a fetch failure aborts
+ * the cycle and the daemon backs off rather than touching the cursor or the
+ * ledger. */
+bool parallel_sync_enabled() {
+    const char *value = std::getenv("ATPERSON_SYNC_PARALLEL");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+} // namespace
 
 int run_daemon_command(std::ostream &out, std::ostream &err,
                        const RuntimeResourceStatus &resource_status,
@@ -86,6 +102,33 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         }
     };
 
+    /* One pool for the daemon's whole lifetime, sized from the effective CPU
+     * capacity. Reused across cycles so worker threads are not recreated
+     * per cycle. The pool is fail-closed: a fetch failure aborts the cycle
+     * and the daemon backs off rather than touching the cursor or the
+     * ledger. */
+    atperson::WorkerPool *pool = nullptr;
+    if (parallel_sync_enabled()) {
+        const auto pool_config = atperson::WorkerPool::config_from_system(
+            mutable_status.system);
+        pool = new atperson::WorkerPool(pool_config);
+    }
+
+    const auto linker = make_journal_linker(action_journal_path());
+
+    /* The loop is sync-runner-agnostic: it does not know whether a cycle
+     * fetches sequentially or in parallel. The runner captures the fetcher,
+     * the graph, the ledger and the ingestion state by reference. */
+    atperson::SyncRunner run_cycle = [&](LanguageGraph &g, atperson::Ledger &l,
+                                         atperson::IngestionState &s,
+                                         const atperson::SyncLimits &cl,
+                                         const atperson::SyncLinker &ln) -> atperson::SyncResult {
+        if (pool != nullptr) {
+            return atperson::run_sync_parallel(g, l, s, fetch_page, cl, *pool, ln);
+        }
+        return atperson::run_sync(g, l, s, fetch_page, cl, ln);
+    };
+
     const DaemonPersistence persistence{
         [&ingestion, &state_file]() {
             ingestion.checkpoint.generation++;
@@ -131,9 +174,22 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         },
     };
 
-    const DaemonRunReport report =
-        run_daemon(config, graph, ledger, ingestion, limits, fetch_page, persistence, hooks,
-                   make_journal_linker(action_journal_path()));
+    DaemonRunReport report;
+    try {
+        report = run_daemon(config, graph, ledger, ingestion, limits, run_cycle, persistence,
+                            hooks, linker);
+    } catch (...) {
+        if (pool != nullptr) {
+            pool->shutdown();
+            delete pool;
+        }
+        throw;
+    }
+
+    if (pool != nullptr) {
+        pool->shutdown();
+        delete pool;
+    }
 
     if (report.stopped) {
         out << "daemon: shutdown requested; durable state flushed\n";

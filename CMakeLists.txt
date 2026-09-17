@@ -89,7 +89,8 @@ add_library(
   src/app/resource/system.cpp
   src/app/resource/filesystems.cpp
   src/app/resource/budget.cpp
-  src/app/resource/runtime.cpp)
+  src/app/resource/runtime.cpp
+  src/app/worker/pool.cpp)
 target_include_directories(
   atperson-cpp
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -217,6 +218,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/state/lock.cpp
     src/app/sync/engine.cpp
     src/app/sync/linkage.cpp
+    src/app/sync/parallel.cpp
     src/app/journal/store.cpp)
   target_include_directories(atperson PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   target_link_libraries(atperson PRIVATE atperson-cpp wolfram-cpp)
@@ -469,6 +471,17 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-daemon-test PRIVATE atperson-cpp)
   target_include_directories(atperson-daemon-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-daemon COMMAND atperson-daemon-test)
+
+  # Worker pool (#29 parallel sync): fail-closed task propagation,
+  # backpressure and shutdown. Offline, no network.
+  add_executable(
+    atperson-worker-test
+    tests/worker/pool.cpp
+    src/app/worker/pool.cpp)
+  target_compile_features(atperson-worker-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-worker-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-worker-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-worker COMMAND atperson-worker-test)
 
   # Outbound action policy and rate budgets (#23): default-deny, per-window
   # limits, cooldowns, duplicate suppression, restart persistence and the

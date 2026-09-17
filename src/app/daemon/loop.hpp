@@ -34,6 +34,13 @@
 
 namespace atperson {
 
+/* One bounded sync run. The daemon supplies either the sequential runner or
+ * the parallel one (which overlaps fetches on a worker pool); the loop is
+ * unchanged either way, so scheduling, backoff, snapshot cadence and graceful
+ * shutdown are identical. */
+using SyncRunner = std::function<SyncResult(LanguageGraph &, Ledger &, IngestionState &,
+                                           const SyncLimits &, const SyncLinker &)>;
+
 /* Durable writes the daemon performs. Both must be atomic/durable; a throw
  * is fatal and stops the daemon. */
 struct DaemonPersistence {
@@ -72,10 +79,21 @@ struct DaemonRunReport {
  * Run the ingestion loop until shutdown, a fatal error, or the configured
  * cycle bound. `limits` is the per-cycle traversal budget (page size and
  * observation cap come from the resource budget; max_pages from
- * DaemonConfig::pages_per_cycle). `link` is the #27 action-event linker,
- * fired per observation under the same durability invariant as the ledger
- * commit; a null linker disables linkage. Returns the report; throws on
- * fatal (non-retryable) errors.
+ * DaemonConfig::pages_per_cycle). `run_sync` is the sync runner; the loop
+ * does not know whether it is sequential or parallel. `link` is the #27
+ * action-event linker, fired per observation under the same durability
+ * invariant as the ledger commit; a null linker disables linkage. Returns
+ * the report; throws on fatal (non-retryable) errors.
+ */
+DaemonRunReport run_daemon(const DaemonConfig &config, LanguageGraph &graph, Ledger &ledger,
+                           IngestionState &state, const SyncLimits &limits,
+                           const SyncRunner &run_sync, const DaemonPersistence &persistence,
+                           const DaemonHooks &hooks, const SyncLinker &link = nullptr);
+
+/*
+ * Convenience overload: wrap a `SyncPageFetcher` in a sequential `SyncRunner`
+ * and delegate to the runner form. Kept so the daemon test and any other
+ * caller that has only a fetcher do not need to build a runner closure.
  */
 DaemonRunReport run_daemon(const DaemonConfig &config, LanguageGraph &graph, Ledger &ledger,
                            IngestionState &state, const SyncLimits &limits,

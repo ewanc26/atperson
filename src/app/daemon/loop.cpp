@@ -4,9 +4,31 @@
 
 namespace atperson {
 
+namespace {
+
+/* Wrap a fetcher in a sequential runner. The runner closes over the graph,
+ * ledger and state by reference so the loop can pass them through unchanged. */
+SyncRunner make_sequential_runner(const SyncPageFetcher &fetch_page) {
+    return [fetch_page](LanguageGraph &graph, Ledger &ledger, IngestionState &state,
+                        const SyncLimits &limits,
+                        const SyncLinker &link) -> SyncResult {
+        return run_sync(graph, ledger, state, fetch_page, limits, link);
+    };
+}
+
+} // namespace
+
 DaemonRunReport run_daemon(const DaemonConfig &config, LanguageGraph &graph, Ledger &ledger,
                            IngestionState &state, const SyncLimits &limits,
                            const SyncPageFetcher &fetch_page, const DaemonPersistence &persistence,
+                           const DaemonHooks &hooks, const SyncLinker &link) {
+    return run_daemon(config, graph, ledger, state, limits, make_sequential_runner(fetch_page),
+                      persistence, hooks, link);
+}
+
+DaemonRunReport run_daemon(const DaemonConfig &config, LanguageGraph &graph, Ledger &ledger,
+                           IngestionState &state, const SyncLimits &limits,
+                           const SyncRunner &run_sync, const DaemonPersistence &persistence,
                            const DaemonHooks &hooks, const SyncLinker &link) {
     validate_daemon_config(config);
 
@@ -39,7 +61,7 @@ DaemonRunReport run_daemon(const DaemonConfig &config, LanguageGraph &graph, Led
         }
 
         try {
-            const SyncResult result = run_sync(graph, ledger, state, fetch_page, cycle_limits, link);
+            const SyncResult result = run_sync(graph, ledger, state, cycle_limits, link);
             ++report.cycles;
             report.pages_completed += result.pages_completed;
             report.observations_seen += result.observations_seen;
