@@ -1,19 +1,23 @@
 # Architecture
 
-atperson has one hard boundary:
+The architecture starts with one rule:
 
 ```text
 C23 = authoritative learned state
 C++23 = runtime, integration, policy, and presentation
 ```
 
-The distinction is intentional. The entity's learned language graph must remain
-usable, testable, serialisable, and deterministic without requiring the network
-runtime.
+That boundary is deliberate. The learned graph must remain usable, testable,
+serialisable and deterministic without requiring the network runtime, and the
+runtime must not quietly become a second authority for what the entity knows.
+
+The other important boundary is just as simple: AT Protocol mechanics belong to
+[Wolfram](https://github.com/ewanc26/wolfram). `atperson` consumes them; it does
+not grow a parallel protocol stack of its own.
 
 ## C23 learning core
 
-`atperson_core` owns all state that changes because of learning:
+`atperson_core` owns state whose meaning comes from learning or durable replay:
 
 - token vocabulary;
 - per-token embeddings;
@@ -23,16 +27,19 @@ runtime.
 - exposure and training counters;
 - source hashes attached to learned edges;
 - episodic memory;
-- internal state (per-token familiarity);
-- inspectable action-candidate scoring over learned state;
+- familiarity;
+- experience-derived valence;
+- inspectable action candidates, plans and guarded decisions;
+- structured planner-context selection;
 - PRNG state;
 - the observation ledger;
-- persistence format.
+- snapshot persistence and replay compatibility.
 
 A new graph contains no tokens or edges. Tokens are interned only when an
-observation introduces them.
+observation introduces them. There is no seeded vocabulary, biography,
+personality, ideology, preference set or opinion table.
 
-The initial neural component is deliberately small. Each token receives a
+The neural component is deliberately small. Each token receives a
 16-dimensional embedding. A feed-forward scorer takes the source and target
 embeddings, passes their concatenation through a 16-unit `tanh` hidden layer,
 and predicts whether the pair belongs together. Observed adjacent pairs are
@@ -40,526 +47,437 @@ positive examples; another known token is sampled as a negative example when
 possible. Both the shared scorer and token embeddings train online with
 gradient descent.
 
-This is a learning primitive, not a finished language model. It gives later
-systems a persistent, experience-shaped substrate without baking in a
-pretrained model or scripted personality.
+This is a learning primitive rather than a pretrained language model. It gives
+the rest of the system a persistent, experience-shaped substrate without
+hiding behaviour in a persona prompt.
 
 ## C++23 runtime
 
-The C++ layer owns concerns that should not become part of the model itself:
+The C++ layer owns concerns that should not become learned state:
 
 - process lifecycle;
 - filesystem and configuration;
-- RAII;
-- AT Protocol sessions;
-- JSON extraction;
-- scheduling;
-- protocol event translation; the C++ sync path feeds the ledger, which owns
-  the deduplication;
-- the runtime ingestion cursor (see below);
-- the state-directory writer lock (see below);
-- the action/outcome journal (#27): the durable, replayable record of the
-  entity's own outbound attempts and their outcomes, with event linkage and
-  explicit valence application;
-- future network-action policy, rate limiting, and presentation. Learned
-  candidate scoring remains in C23.
+- RAII wrappers around C23 state;
+- AT Protocol sessions through Wolfram;
+- JSON extraction and record translation;
+- scheduling and long-running daemon control;
+- the runtime ingestion cursor;
+- the state-directory writer lock;
+- operator control state;
+- outbound action vocabulary, default-deny policy and durable rate budgets;
+- the operator-led `publish` execution path;
+- the action/outcome journal and its event linkage;
+- CLI and presentation.
+
+The split is not “C does algorithms, C++ does everything else”. The important
+question is authority. If a value is part of what the entity has learned, or is
+needed to reproduce that learned state, it belongs in the C23 core. If it is
+operator policy, process state, transport or orchestration, it belongs outside
+that core.
 
 `LanguageGraph` is intentionally a thin RAII wrapper over the C API; the
-`Ledger` wrapper is the same for the C23 observation ledger.
+`Ledger` wrapper follows the same rule for the C23 observation ledger.
 
 ## First-run bootstrap
 
-`atp_bootstrap_home` (C23 core, `src/core/bootstrap.c`) runs before any
-command: when the data directory or `.env` file does not exist it creates
-both — the directory at mode `0700`, the `.env` template at mode `0600`. The
-template documents every environment variable atperson reads; the operator
-fills in credentials and sources it. atperson never parses `.env` itself —
-it reads the environment, the file is operator convenience only.
+`atp_bootstrap_home` (`src/core/bootstrap.c`) runs before any command. When the
+data directory or `.env` file does not exist it creates them — the directory at
+mode `0700`, the `.env` template at mode `0600`.
 
-The bootstrap is idempotent: existing files and directories are never
-modified, and a run that creates nothing reports nothing. It contains no
-learning logic and no network access; it is environment preparation, so it
-lives in the core layer where it can be tested without the runtime.
+The template documents every environment variable `atperson` reads. The
+operator fills in credentials and sources it; `atperson` does not parse `.env`
+itself.
+
+Bootstrap is idempotent. Existing files and directories are never modified,
+and a run that creates nothing reports nothing. It contains no learning logic
+and no network access.
 
 ## State-directory writer lock
 
-The snapshot, ledger, commit marker, and ingestion cursor form one logical
-state set. Every state-mutating command (`ingest`, `ingest-file`, `sync`,
-`cursor reset`, `rebuild`, `compact`, `withdraw`, `daemon`, `journal
-apply`) acquires an exclusive lock on the data directory before touching
-durable state: a
-`.writer-lock` file created with `O_CREAT|O_EXCL`, recording the owner's pid,
-a boot marker, and the acquisition time. Release removes the file; RAII
-guarantees release on normal exit, exception, or stack unwind. The daemon
-holds the lock for its entire lifetime, not per cycle, so no other process
-can load a stale in-memory snapshot and later clobber it.
+The snapshot, ledger, commit marker and ingestion cursor form one logical state
+set. State-mutating commands such as `ingest`, `ingest-file`, `sync`, `cursor
+reset`, `rebuild`, `compact`, `withdraw`, `daemon`, `journal apply` and
+`journal map` acquire an exclusive lock on the data directory before touching
+that set.
 
-Operator `control` deliberately does **not** take the writer lock. Control
-state is runtime metadata outside the state set, and an operator must be able
-to pause or request shutdown while a daemon owns the lock; control saves are
-atomic, so concurrent operator use stays self-consistent.
+The lock is a `.writer-lock` file created with `O_CREAT|O_EXCL`, recording the
+owner pid, a boot marker and acquisition time. Release removes the file. RAII
+guarantees release on normal exit, exception or stack unwind. The daemon holds
+the lock for its entire lifetime, not once per cycle, so another process cannot
+load stale learned state and later overwrite a newer snapshot.
 
-The `outbound` policy and rate-budget commands follow the same rule: the
-outbound policy file and budget state are runtime metadata outside the state
-set, so `atperson outbound` evaluates, admits and persists budgets without the
-writer lock while a daemon runs. Admission is a single serialisation point;
-see [`docs/outbound-policy.md`](outbound-policy.md).
+Operator `control` deliberately does **not** take the writer lock. Control state
+is runtime metadata outside the learned-state set, and an operator must be able
+to pause or request shutdown while a daemon owns the lock. Control saves are
+atomic.
 
-`atperson publish` (#25) also never takes the writer lock. It serialises its
-own budget read-modify-write with a dedicated `.outbound-lock` in the data
-directory, so publishing neither waits for nor is blocked by the daemon's
-long-held writer lock; see [`docs/outbound-execution.md`](outbound-execution.md).
+The `outbound` policy and rate-budget commands are also runtime metadata. They
+can inspect and mutate policy/budget state while the daemon owns the writer
+lock; see [`outbound-policy.md`](outbound-policy.md).
 
-Stale detection: a lockfile whose owner pid is dead, or whose boot marker
-differs from the current boot (the machine rebooted), is provably stale and
-reclaimed. A lockfile owned by a live process is respected — acquisition
-fails with a diagnostic naming the holder. An empty lockfile (the
-microsecond window between create and metadata write) is given a short
-grace period, then treated as abandoned.
+`atperson publish` does not take the writer lock either. It serialises its own
+outbound read-modify-write path with a dedicated `.outbound-lock`, so a publish
+does not need to stop long-running ingestion. The write still has to clear
+operator control, outbound policy and approval gates before Wolfram is allowed
+to touch the network. See [`outbound-execution.md`](outbound-execution.md).
 
-Consistency model for readers: read-only commands (`stats`, `assoc`,
-`candidates`, `familiarity`, `recall`, `cursor status`) run without the lock
-and observe the snapshot and ledger as of their own read. A concurrent
-writer may commit after a reader started; readers never block writers and
-writers never wait for readers. This is the documented trade-off until a
-shared-lock reader path is needed.
+A lock whose owner pid is dead, or whose boot marker differs from the current
+boot, is stale and can be reclaimed. A lock held by a live process is respected.
+An empty lockfile — the small window between creation and metadata write — gets
+a short grace period before being treated as abandoned.
+
+Read-only commands run without the writer lock and observe durable state as of
+their own read. A concurrent writer may commit afterwards; readers do not block
+writers and writers do not wait for readers.
 
 ## Wolfram boundary
 
 AT Protocol networking belongs to
 [`ewanc26/wolfram`](https://github.com/ewanc26/wolfram).
 
-atperson consumes Wolfram's C23 implementation and C++ RAII ownership layer. It
-must not grow parallel implementations of XRPC, session management, DID/handle
-resolution, repository operations, or Bluesky procedures.
+`atperson` consumes Wolfram's C23 implementation and C++ ownership layer. It
+must not grow parallel implementations of XRPC, sessions, DID/handle
+resolution, repository operations or Bluesky procedures.
 
-The first network path uses `wf_agent_login` and `wf_agent_get_timeline`, then
-extracts public post text and passes each post to the learning core with its AT
-URI as the source identifier.
+There are currently two network directions:
+
+- **ingestion** uses Wolfram to authenticate and fetch timeline pages, then
+  translates public records into observations for the C23 core;
+- **operator-led outbound execution** uses Wolfram only after an approved frozen
+  post/reply action clears runtime policy and control gates.
+
+The daemon itself remains read-only with respect to the network. Autonomous
+posts, replies, likes, follows, reposts, DMs and moderation are not side effects
+of learning or ingestion.
 
 ## Ingestion policy
 
-The ingestion policy (`src/app/ingestion_policy.{hpp,cpp}`) is the single
-reviewable decision point for which fetched records may become observations.
-It consumes already-extracted fields — record type, author DID, text, embed
-type, viewer state, feed reason — and produces a decision: eligible, or
-skipped with a machine-readable reason. Protocol mechanics stay in Wolfram
-and the client; the policy never touches the wire.
+The ingestion policy is the single reviewable decision point for which fetched
+records may become observations. It consumes already-extracted fields — record
+type, author DID, text, embed type, viewer state and feed reason — and produces
+an eligibility decision or a machine-readable skip reason. Protocol mechanics
+stay in Wolfram and the extraction layer; policy never touches the wire.
 
 Rule order is deliberate:
 
-1. **Record type.** Only `app.bsky.feed.post` records are supported. A feed
-   can carry other record types; they are skipped as `unsupported-record`
-   rather than mis-parsed.
-2. **Self-observation.** The authenticated account's own output is never
-   learned from (`self-authored`). This is an explicit policy decision:
-   learning from self-authored records would create a feedback loop between
-   the entity's output and its experience.
+1. **Record type.** Only `app.bsky.feed.post` records are supported. Other
+   record types are skipped as `unsupported-record` rather than mis-parsed.
+2. **Self-observation.** The authenticated account's own output is not learned
+   from (`self-authored`). Feeding output straight back into input would create
+   a self-reinforcing loop.
 3. **Moderation and relationship state.** Viewer-blocked, viewer-blocked-by,
-   viewer-muted, and moderation-filtered posts are skipped
-   (`viewer-blocked`, `viewer-blocked-by`, `viewer-muted`,
-   `moderation-filtered`). The account chose not to see this content;
-   atperson respects that choice.
-4. **Text presence.** Empty text is skipped (`empty-text`); image- or
-   video-only posts with no text are skipped as `non-text-only`.
+   viewer-muted and moderation-filtered records are skipped with explicit
+   reasons.
+4. **Text presence.** Empty text is `empty-text`; image/video-only posts with
+   no text are `non-text-only`.
 
-Replies and reposts remain eligible and are tagged (`reply`, `repost`): a
-repost's feed item points at the underlying post, and a reply carries its own
-text. Text is text.
+Replies and reposts remain eligible when they carry learnable text and retain
+their feed/conversation context.
 
 ### Ledger semantics for skipped items
 
-A policy-skipped item is not silently dropped. It still flows through the
-ledger as an observation with outcome `SKIPPED`, so "observed but not
-learned" stays distinguishable from "never fetched" — the ledger distinguishes
-skipped from unfetched data. Replaying the timeline is idempotent for
-skipped items too: the `(source id + content digest)` dedup index suppresses
-re-processing, so a replay counts them as duplicates rather than fresh skips.
+A policy-skipped record is not silently dropped. It still enters the ledger
+with outcome `SKIPPED`, so “observed but deliberately not learned” remains
+distinguishable from “never fetched”. The `(source id + content digest)` dedup
+index also applies to skipped material, making replay idempotent.
 
 ## Observation ledger
 
-The ledger is a durable, append-only C23 log of every observation fed to the
-learning core. It records, per observation:
+The ledger is a durable, append-only C23 log of observations presented to the
+learning core. Per observation it records:
 
-- AT URI / stable source identifier;
-- author DID where applicable;
-- observed-at time;
+- stable source identifier / AT URI;
+- author DID when available;
+- observation time;
 - content digest;
-- model/schema version;
+- learning-schema version;
 - processing outcome;
-- the canonical observation bytes (inline payload, format v2).
+- retained canonical observation bytes;
+- conversation metadata (reply root, reply parent and quote target).
 
-The log is the authority for what the entity has seen. A committed observation
-(`LEARNED` or `SKIPPED`) is never trained on again across process restarts;
-outcome changes append a small patch record rather than rewriting log bytes.
-Because the canonical bytes are retained inline, the ledger is replayable: a
-rebuild can recover the exact content that produced the current graph, not
-just the fact that it was observed.
+The ledger is the authority for committed external experience. A committed
+`LEARNED` or `SKIPPED` observation is never trained on again across process
+restarts. Outcome changes append patch records rather than rewriting history.
+Because learnable payload bytes are retained, the ledger can reconstruct the
+state rather than merely proving that an observation once existed.
 
 ### Files and layout
 
-- `path` is the record log: `"ATPLDG03"` then a little-endian version u32
-  (v3; v1/v2 logs with the `"ATPLDG01"`/`"ATPLDG02"` magic migrate on open,
-  see below).
+- The record log begins with `"ATPLDG03"` and a little-endian version `u32`.
+  v1/v2 logs (`"ATPLDG01"` / `"ATPLDG02"`) migrate on open.
 - Each record is `len u32 | crc u32 (FNV-1a 32) | type u8 | payload`, where
   type 1 is an observation entry and type 2 is an outcome patch.
 - An entry body is `id u64 | source_len u32 | source | author_len u32 |
   author | observed_at u64 | digest u64 | schema u32 | outcome u8 |
   payload_len u32 | payload | root_len u32 | reply_root_uri |
   parent_len u32 | reply_parent_uri | quote_len u32 | quote_uri`.
-  `payload_len` 0 marks a payload-less entry; a zero context length marks an
-  absent conversational identifier.
-- Payloads are length-prefixed bytes, never NUL-terminated; binary content
-  round-trips exactly. Retention is capped at `ATPERSON_LEDGER_PAYLOAD_LIMIT`
-  (64 KiB); larger observations are rejected before any durable write.
-- Conversation context is durable ledger metadata, not learnable content: it
-  rides the entry record (covered by the record CRC) but is excluded from the
-  content digest, so a replay rebuild restores reply/quote continuity without
-  changing what an observation learns. URIs are capped at
-  `ATPERSON_CONTEXT_URI_BYTES` (256) each.
+- Payloads are length-prefixed bytes, never NUL-terminated. Retention is capped
+  at `ATPERSON_LEDGER_PAYLOAD_LIMIT` (64 KiB); larger observations are refused
+  before durable mutation.
+- Conversation context is durable metadata, not learnable content. It is covered
+  by the record CRC but excluded from the content digest. Each context URI is
+  capped at `ATPERSON_CONTEXT_URI_BYTES` (256).
 - `<path>.off` is the durable commit marker: `"ATPLOF02"`, version, committed
-  count, and the byte offset of the committed prefix (28 bytes total).
+  count and committed byte offset (28 bytes total).
 
-Multi-octet integers are little-endian in both files. The ledger was
-little-endian from the start; snapshot v5 made the same choice when it became
-a portable format (v1-v4 were host-oriented).
+Multi-octet integers are little-endian. The ledger used little-endian encoding
+from the start; snapshot v5 later adopted the same portable convention.
 
 ### Payload reads
 
-`atp_ledger_entry_payload(ledger, id, out, capacity, out_len)` returns the
-retained bytes exactly as appended. A payload-less entry (v1-migrated, or an
-empty observation) reports honest absence: `ATP_OK` with length 0, never a
-fake empty string presented as data. Every read re-verifies the payload
-against the entry's content digest; a mismatch is `ATP_ERR_FORMAT`, so
-corrupted bytes are never returned as content. A null `out` with capacity 0
+`atp_ledger_entry_payload(ledger, id, out, capacity, out_len)` returns retained
+bytes exactly as appended. A payload-less entry reports length 0 rather than
+inventing content. Every read re-verifies the bytes against the stored digest;
+a mismatch is `ATP_ERR_FORMAT`. Passing a null output buffer with capacity 0
 queries the length without copying.
 
-### Legacy migration (v1/v2)
+### Legacy migration
 
-Opening a v1 or v2 log migrates it before recovery. The migration validates the
-committed prefix, flattens outcome patches onto their entries, streams the
-transformed v3 records to a temp file, fsyncs, and renames atomically. A crash
-before the rename leaves the intact legacy log; after it, the v3 log is
-complete. The stale legacy marker is discarded and rewritten from the migrated
-log.
+Opening a v1 or v2 log migrates it before recovery. Migration validates the
+committed prefix, flattens outcome patches, streams transformed v3 records to a
+temporary file, `fsync`s and renames atomically.
 
-Patch history flattens to final outcomes — intermediate PENDING/FAILED states
-are not preserved across migration. v1 entries migrate payload-less: their
-observation bytes were never retained, and payload reads report that honestly
-rather than faking content. Neither v1 nor v2 carried conversation context, so
-migrated entries take empty context — the honest value for observations that
-predate capture — and later appends carry it normally.
+A crash before the rename leaves the old generation intact; after the rename
+the v3 file is complete. v1 entries remain payload-less because their original
+bytes were never retained. v1/v2 entries also gain empty conversation context,
+which is the honest value for observations predating that metadata.
 
 ### Crash safety
 
-Write ordering is the correctness argument:
+Write ordering is part of the correctness contract:
 
-1. write the record bytes to the log and `fsync`;
+1. write record bytes to the log and `fsync`;
 2. stage the new marker in `<path>.off.tmp` and `fsync` it;
-3. rename the temp marker over `.off`.
+3. rename the temporary marker over `.off`.
 
 A crash at any point leaves the previous committed prefix intact. Recovery
-truncates a torn tail beyond the committed offset, removes stale staging files,
-and heals a missing marker from the longest valid log prefix. A marker pointing
-beyond the log, or checksum damage inside the committed prefix, is refused as a
-format error rather than silently truncated.
+truncates torn tail bytes beyond the committed offset, removes stale staging
+files and heals a missing marker from the longest valid log prefix. Corruption
+inside the committed prefix is refused as a format error rather than silently
+trimmed away.
 
 ### Deduplication
 
-The unique `(source id + content digest)` index is rebuilt in memory on open
-and maintained on append. Reservations are made (outcome `PENDING`) before any
-training happens; the sync path flips them to `LEARNED` only after an
-observation reaches the graph. `FAILED` and `PENDING` reservations are
-retryable, so a crash mid-observe never silently drops an observation.
+The unique `(source id + content digest)` index is rebuilt in memory on open and
+maintained on append. Reservations use outcome `PENDING` before training.
+`LEARNED` is written only after the observation successfully reaches the graph.
+`PENDING` and `FAILED` remain retryable, so a crash during observation never
+silently loses input.
 
 ### Runtime flow and snapshot mirror
 
-Each synced post: `append(source, author, observed_at, digest, schema,
-PENDING, text)` -> observe -> `set_outcome(id, LEARNED)` (or `SKIPPED` for
-empty text), then mirror the entry into the graph snapshot (v2) so recent
-provenance is inspectable in one file. The retained text makes the ledger
-replayable; the ledger remains authoritative for rebuilds.
+The sync path is, conceptually:
 
-Deleting a learned contribution is solved by withdrawal plus rebuild (see
-"Source withdrawal and unlearning" below): the model is
-rebuild-from-ledger, never approximate inverse gradient steps.
+```text
+append(PENDING) -> observe -> set outcome -> mirror committed metadata
+```
+
+Eligible text becomes `LEARNED`; deliberately excluded material becomes
+`SKIPPED`. The retained ledger payload is the replay authority. The snapshot
+contains a mirror for inspection and fast restart, but rebuild does not trust
+that mirror over the ledger.
+
+Deleting learned contribution is handled by withdrawal plus rebuild, not an
+approximate inverse gradient step.
 
 ### Deterministic rebuild
 
-`atp_replay_ledger(ledger, graph, report)` reconstructs learned state from
-the ledger alone — no network access, no snapshot required. Entries are
-re-applied in ledger id order (the order they were originally observed in)
-through the same observe path sync uses, so a rebuilt graph is what the
-original run would have produced from the same bytes: same config seed, same
-PRNG stream, same training decisions.
-
-Outcome semantics are explicit:
+`atp_replay_ledger(ledger, graph, report)` reconstructs observation-derived
+state from the ledger alone. Entries replay in ledger id order through the same
+observe path used by ingestion, preserving the deterministic config seed, PRNG
+stream and training decisions.
 
 | Outcome | Replay behaviour |
-|---------|------------------|
-| `LEARNED` | Payload re-observed (training, episodic memory, familiarity), entry mirrored |
-| `SKIPPED` | Mirrored only — observed but deliberately not learned, as the original run decided |
-| `PENDING` | Excluded — retryable reservation, not committed experience |
-| `FAILED` | Excluded — examined but untrainable, retryable |
-| `WITHDRAWN` | Excluded — durably removed; the rebuilt state never saw it |
+| --- | --- |
+| `LEARNED` | Payload re-observed; entry mirrored |
+| `SKIPPED` | Mirrored only |
+| `PENDING` | Excluded; still retryable |
+| `FAILED` | Excluded; still retryable |
+| `WITHDRAWN` | Excluded completely |
 
-A LEARNED entry without a retained payload (a v1-migrated ledger) cannot be
-replayed — the training input is gone — and fails the whole rebuild with
-`ATP_ERR_FORMAT` and `report->failed_at_id` set, rather than silently
-producing a graph that never saw those bytes.
+A `LEARNED` entry without a retained payload cannot be reproduced and fails the
+rebuild with `ATP_ERR_FORMAT` instead of creating a different graph silently.
 
-The CLI surfaces this as `atperson rebuild`: it takes the writer lock,
-replays the ledger into a fresh graph, then replays the action/outcome
-journal's explicit valence entries (see
-[`docs/action-journal.md`](action-journal.md)), and saves the result
-atomically (tmp + fsync + rename, the same path `atp_graph_save` always
-uses). A failure at any point — unreplayable entry, digest mismatch — leaves
-the previous snapshot untouched; the rebuilt snapshot replaces it only on
-success. Two rebuilds of the same ledger and journal produce
-byte-identical snapshots.
+`atperson rebuild` takes the writer lock, replays the observation ledger into a
+fresh graph, then replays explicit valence entries from the action journal in
+append order. The replacement snapshot is saved atomically. A failed rebuild
+leaves the previous snapshot untouched, and identical ledger+journal input
+produces byte-identical rebuilt snapshots.
 
 ### Learning-schema compatibility
 
-Every ledger entry records the learning schema it was observed under
-(`schema_version`): the identity of the tokenisation, negative sampling,
-memory selection, familiarity, and training equations that gave the
-observation its learning meaning. Replay consults one compatibility
-predicate, `atp_schema_can_replay(version)`, for every entry. Snapshots
-record the schema that produced their state (section 8) and load refuses
-foreign ones. The data being intact but the algorithm being the mismatch
-is reported as `ATP_ERR_SCHEMA` — distinct from `ATP_ERR_FORMAT`
-(corruption) — with `report->failed_at_id` and `report->failed_schema`
-naming exactly where a mixed ledger broke.
+Each ledger entry records the learning schema that gave its bytes meaning.
+Replay consults `atp_schema_can_replay(version)` before applying an entry, and
+snapshot loading refuses schemas the current core cannot reproduce.
 
-When a change to the learning algorithm bumps `ATPERSON_SCHEMA_VERSION`,
-the same change records its compatibility decision in the table. Three
-classes:
+A format problem is `ATP_ERR_FORMAT`; a valid record whose learning semantics
+are not supported is `ATP_ERR_SCHEMA`. Replay reports the first failing ledger
+id and schema.
 
-| Class | Table entry | Replay behaviour |
-|-------|-------------|------------------|
-| Replay-compatible | version listed | Entry re-applied through the current observe path, which reproduces the old learning effect |
-| Adapter migration | version listed, handler dispatched on it | Versioned handler reproduces the old behaviour for those entries |
-| Incompatible | version absent | Replay fails with `ATP_ERR_SCHEMA` naming the entry; start a fresh model generation |
+Schema changes fall into three classes:
 
-Mixed-schema ledgers accumulated across upgrades replay deterministically
-in id order and fail at the first unreplayable entry — old and new
-algorithms are never ambiguously mixed in one graph. A snapshot written
-under schema N is refused by code that cannot replay N: extend it via
-`atperson rebuild` from the ledger, or start a new generation. The
-model-generation boundary is therefore explicit: a schema bump that
-changes training semantics invalidates the old snapshot as a continuation
-point, never silently.
+| Class | Replay behaviour |
+| --- | --- |
+| Replay-compatible | Current observe path reproduces the old effect |
+| Adapter migration | A versioned handler reproduces the old behaviour |
+| Incompatible | Replay fails and a new model generation is required |
 
-Review guidance: any PR touching tokenisation, sampling, memory selection,
-familiarity, or the training equations must include a schema-version
-decision — bump plus a table entry (or a deliberate absence) — and a test
-demonstrating the transition. Fixtures cover both directions: a compatible
-transition (schema-1 entries replaying under a bumped core via the table)
-and an incompatible one (foreign schema refused with `ATP_ERR_SCHEMA`).
+Mixed-schema ledgers replay in id order and stop at the first incompatible
+entry. Old and new semantics are never silently blended.
+
+Any change to tokenisation, sampling, memory selection, familiarity or training
+equations therefore needs an explicit schema decision and transition tests.
 
 ## Source withdrawal and unlearning
 
-Learned contributions are not permanent. `ATP_LEDGER_OUTCOME_WITHDRAWN` is
-a fifth ledger outcome applied through the existing append-only patch
-records: withdrawal never rewrites log history, is idempotent (withdrawing
-an already-withdrawn entry is a no-op), and the patch sequence on disk is
-the audit trail.
+`ATP_LEDGER_OUTCOME_WITHDRAWN` is an append-only ledger outcome. Withdrawal
+never rewrites history and is idempotent.
 
-Three scopes:
+Supported scopes are:
 
 - `atp_ledger_withdraw(id)` — one observation;
-- `atp_ledger_withdraw_source(source_id)` — every entry from one source
-  URI (a deleted AT record);
-- `atp_ledger_withdraw_author(author_did)` — every entry by one account.
+- `atp_ledger_withdraw_source(source_id)` — all entries from one source URI;
+- `atp_ledger_withdraw_author(author_did)` — all entries by one account.
 
-Edited records need no special machinery: the dedup index keys on
-`(source id + content digest)`, so the same URI with new content appends a
-fresh entry. Withdrawing the old content excludes it while the edit trains
-normally.
+Edited records need no special case because deduplication includes the content
+digest. The same URI with different bytes is a new observation; withdrawing the
+old digest does not block the edit.
 
-Withdrawal never mutates the live graph. The graph has no inverse-observe,
-and approximate subtraction from neural parameters would not restore the
-state that would have existed without the source — the architecture
-explicitly rejects that. Instead, withdrawal patches the ledger, and the
-next rebuild produces the corrected state atomically: withdrawn entries
-are excluded from graph, neural training, familiarity, memory, counters,
-and the snapshot mirror, so the rebuilt state is what the entity would
-have been without them. Already-evicted episodic memories need no special
-handling — eviction is deterministic from replay order, so a rebuilt graph
-never contains episodes from withdrawn observations. The live snapshot
-keeps stale state until the next rebuild; the ledger is the authority, the
-snapshot is a cache.
+Withdrawal does not mutate the current in-memory graph. The graph deliberately
+has no inverse-observe operation: subtracting approximate neural updates would
+not recover the state that would have existed without the source. Instead,
+withdrawal changes the ledger outcome and the next rebuild reconstructs graph,
+neural state, familiarity, memory, counters and snapshot mirror without those
+entries.
 
-A withdrawn entry is committed history: it blocks re-append (the
-observation stays deduplicated) and cannot regress to `PENDING`. The CLI
-surfaces this as `atperson withdraw <id|source|author> <target>`, which
-prints a reminder to run `atperson rebuild` to apply the withdrawal to
-learned state.
+Until rebuild, the live snapshot may still contain stale contribution. The
+ledger remains authoritative.
 
 ## Ledger compaction
 
-The append-only design grows without bound: entry records, outcome
-patches, and retained payloads accumulate forever. `atp_ledger_compact`
-reclaims the provably dead bytes in one atomic pass, opt-in and never run
-implicitly on open. The CLI surfaces it as `atperson compact`.
+The append-only ledger accumulates entry records, outcome patches and retained
+payloads. `atp_ledger_compact` reclaims bytes that are provably dead. It is
+explicit and never runs automatically on open.
 
-What compaction drops, and why each drop is safe:
+| Dropped | Why it is safe |
+| --- | --- |
+| Outcome patch records | Final outcomes are flattened into rewritten entry records |
+| Withdrawn payloads | Replay excludes them and the tombstone still preserves deduplication |
+| Nothing else | Learned payloads are replay input; other outcomes may still become learnable |
 
-| Dropped | Why it is dead |
-|---------|----------------|
-| Patch records | The in-memory state already holds flattened outcomes; the compacted log writes one entry record per entry with its final outcome — the same flattening the legacy migration documents |
-| WITHDRAWN payloads | Replay excludes withdrawn entries, dedup still suppresses the key from the tombstone, and withdrawal is durable — the bytes are unreachable by design |
-| Nothing else | LEARNED payloads are replay input; SKIPPED/PENDING/FAILED entries can still legally close to LEARNED, so their bytes stay |
+Compaction preserves ledger ids and logical outcomes exactly. Every entry
+survives either in full or as a withdrawn tombstone, so episode/source linkage
+and deduplication remain stable.
 
-What compaction preserves, exactly:
+Crash safety uses an atomic-generation replacement:
 
-- Entry ids are stable across generations. Episodes and source references
-  key on ledger ids and need no remapping.
-- Every entry survives as itself or as a tombstone (withdrawn): the dedup
-  index is rebuilt from the compacted log on reopen, so withdrawn and
-  skipped content is never re-learned.
-- Logical outcomes are identical to the source ledger, verified per entry.
+1. stream the compacted log to `<path>.tmp`, `fsync`, close;
+2. remove the commit marker;
+3. rename the temporary log over the old one;
+4. reopen and rewrite the marker from the compacted generation.
 
-Crash safety uses the same ordering as every other ledger write, with the
-self-heal recovery doing the heavy lifting at the window boundaries:
-
-1. Stream the compacted log to `<path>.tmp`, fsync, close.
-2. Remove the commit marker.
-3. Rename the temp file over the original log.
-4. Reopen and rewrite the marker from the compacted generation.
-
-A crash before step 2 leaves the original log authoritative — the marker
-still points into it, and open discards the stale staging file. A crash
-between steps 2 and 3 leaves no marker: open self-heals from the longest
-valid prefix of whichever log is present (the original before the rename,
-the compacted log after it). A crash after step 3 heals the marker from
-the complete compacted log. No interruption point destroys the last
-valid ledger; recovery always distinguishes the situation from the marker's
-presence plus the log's own validation.
-
-`atp_compact_report` records what the pass did — entries written, patch
-records flattened, withdrawn payloads dropped, bytes before and after —
-so operators can see the effect. Rebuild equivalence is a test invariant:
-replaying a ledger before and after compaction produces byte-identical
-snapshots, because the learned payload bytes are the same bytes.
+Recovery can always identify a complete valid generation. Rebuild equivalence
+before and after compaction is a test invariant.
 
 ## Episodic memory
 
-The ledger is the durable, complete record; memory is a curated facet of it.
-An **episode** is a remembered observation, not every observation. Each episode
-stores its ledger id, observed-at time, content digest, schema version, source
-id and author DID, and a compact summary of the most significant tokens.
+The ledger is the complete durable observation history; episodic memory is a
+curated learned view of it.
 
-Selection is purely count-based and inspectable — no hidden thresholds on
-meaning, sentiment, or topic:
+An episode stores its ledger id, observation time, content digest, schema
+version, source id, author DID and a compact summary of significant tokens.
+Selection is inspectable and count-based: observations introducing new
+vocabulary or containing at least two distinct tokens may be remembered;
+empty/single-token repeats are not.
 
-- an observation is remembered when it **introduces new vocabulary** (a new
-  node was interned) or contains **at least two distinct tokens**;
-- empty or single-token repeat observations are not remembered.
+The summary keeps the top eight tokens by in-text count with deterministic tie
+breaking. Association edges remain the semantic substrate; episodes are the
+episodic substrate.
 
-The summary holds the top eight tokens by in-text count (weights are raw
-counts, ties broken by node index). The weighted association edges remain the
-semantic substrate; episodes are the episodic substrate.
+Two recall surfaces now exist:
 
-**Recall** tokenises the query without mutating the vocabulary, scores each
-episode by the sum of its summary-token weights that overlap the query, and
-returns matches strongest-first with recency then ledger id breaking ties.
-Recalled episodes get their `recall_count` incremented and `last_recall_at`
-updated, so consolidation is observable and drives eviction.
+- the original exact-overlap recall API;
+- ranked recall, which can combine exact support, direct learned associations,
+  familiarity, recency and previous use while preserving all component scores.
 
-**Eviction** is deterministic and least-used-first: when memory is at capacity,
-the episode with the lowest recall count is evicted (then oldest, then smallest
-ledger id), and a `episode_evictions` counter is bumped. Everything is
-serialisable, so memory survives restarts byte-for-byte.
+Actual recall updates recall counters. Planner-context selection uses the
+read-only ranked-recall preview path so merely considering a memory does not
+mutate it. See [`episodic-recall.md`](episodic-recall.md).
 
-The snapshot stores the episodic-memory block (snapshot v3) after the mirrored
-ledger block, so the same file that is authoritative for the graph also carries
-the remembered-view provenance.
-
-### Runtime flow (sync)
-
-Each synced post: `append(source, author, observed_at, digest, schema,
-PENDING, text)` -> `remember(...)` -> `set_outcome(id, LEARNED)` (or `SKIPPED`
-for empty text), then the entry is mirrored into the graph snapshot (v2) and
-the episode (if selected) is stored in memory (v3). The retained text makes
-the ledger replayable; the ledger remains authoritative for rebuilds, and
-memory is linked to it by ledger id.
+Eviction is deterministic and least-used-first, then oldest, then smallest
+ledger id. Memory remains serialisable and replayable from the ledger.
 
 ### Ingestion cursor
 
-`sync` consumes bounded timeline pages through Wolfram's cursor-aware
-`wf_agent_get_timeline` and persists an **interrupted catch-up checkpoint** in
-`~/.ewanc26/atperson/ingestion-state.json` (versioned JSON format
-`atperson-ingestion-state`, override with `ATPERSON_INGESTION_STATE`). The
-cursor is C++ runtime metadata, never learned C23 state: it is not part of
-the model snapshot and cannot influence the graph. `atperson daemon` drives
-the same traversal in repeated cycles; scheduling, retry backoff and snapshot
-cadence are runtime concerns documented in
-[`docs/daemon.md`](daemon.md).
+`sync` consumes bounded timeline pages through Wolfram's cursor-aware timeline
+API and persists interrupted catch-up state in
+`~/.ewanc26/atperson/ingestion-state.json` (override with
+`ATPERSON_INGESTION_STATE`).
 
-The authority hierarchy is explicit:
+The cursor is C++ runtime metadata, not learned state:
 
 ```text
-observation ledger = authority for what has been committed
-model snapshot     = durable learned state
-ingestion state    = fetching optimisation/checkpoint only
+observation ledger = authority for committed external experience
+model snapshot     = durable learned state / fast restart
+journal            = authority for recorded self-authored experience
+cursor              = fetching checkpoint only
 ```
 
-The AT Protocol cursor is opaque — it is read, persisted, and passed back to
-Wolfram, never parsed or compared. Ordering invariant: every observation in a
-page is durably processed before that page's cursor is checkpointed, so a
-crash mid-page refetches the same page on restart and ledger deduplication
-suppresses anything already committed. A failed run advances nothing.
+Every record in a page is durably processed before that page's cursor is
+checkpointed. A crash mid-page therefore refetches the page and ledger
+deduplication removes already committed work.
 
-When a traversal reaches exhaustion the cursor is cleared; the next
-independent sync starts at the current timeline head again and the ledger
-filters already-seen `(source id, digest)` pairs, so an expired cursor can
-never cause new head posts to be skipped. A cursor the service rejects is
-reported, discarded, and the run restarts from the head — a fetching-state
-failure, never a model-state failure. The cursor is bound to the
-authenticated account DID, service URL, and endpoint, so a cursor from
-another account or service is never reused.
+When traversal is exhausted, the cursor is cleared. A service-rejected cursor
+is reported and discarded; the run can restart from the current head because
+the ledger, not the cursor, defines what has already been learned. Cursor state
+is bound to account DID, service URL and endpoint.
 
-`checkpoint.generation` (monotonic), `saved_at` (RFC 3339 UTC),
-`pages_completed`, and `observations_seen` are operational telemetry only.
-`atperson cursor status` inspects the checkpoint; `atperson cursor reset`
-explicitly clears it. Persistence is atomic (temp file + rename), and a
-leftover `.tmp` file never takes precedence over the committed state.
+`checkpoint.generation`, `saved_at`, `pages_completed` and
+`observations_seen` are operational telemetry only. Cursor persistence is
+atomic.
 
-## Internal state
+## Familiarity and valence
 
-Internal state is the first, conservative pass at "preferences/values": a
-slowly learned, experience-derived **familiarity** score per token. It is an
-exponentially weighted exposure count:
+Familiarity and valence are deliberately different signals.
+
+**Familiarity** is exposure-derived and value-neutral:
 
 ```text
-familiarity = familiarity * familiarity_decay + 1    on every exposure
+familiarity = familiarity * familiarity_decay + 1
 ```
 
-A token starts at 1.0 on first sight and rises toward `1 / (1 - decay)`
-(`familiarity_decay` defaults to 0.98, configurable per graph). It is pure
-state derived from repetition — there is no value, polarity, sentiment, or
-topic judgment attached, so it cannot encode a hidden opinion. It is updated
-in the same C23 intern path as every observation, is queryable read-only via
-`atp_graph_familiarity` (and the CLI `familiarity <token>`), and is persisted
-as the per-node familiarity field in the snapshot nodes section (introduced
-in snapshot v4). This score can inform recall and action
-scoring as a purely behavioural signal.
+A token begins at `1.0` on first exposure and rises towards
+`1 / (1 - decay)` (`familiarity_decay` defaults to `0.98`). Familiarity says
+how repeatedly present something has been; it does not say whether the entity
+likes, dislikes, trusts or approves of it.
 
-## Action model
+**Valence** is experience-derived and changes only through explicit events:
 
-Stage 5 begins with a deliberately read-only continuation-candidate scorer in
-C23. It does **not** generate a post, choose a Bluesky operation, or perform any
-network side effect. Its job is to expose a deterministic planning surface over
-state the entity has actually learned.
+```text
+valence' = valence + rate * (signal - valence)
+```
 
-`atp_graph_action_candidates` (declared in `include/atperson/action.h`) tokenises
-the supplied context without mutating the vocabulary, keeps the distinct known
-context nodes, and considers only existing outgoing association edges from
-those nodes. Targets supported by multiple context nodes are aggregated into a
-single candidate.
+Signals are bounded to `[-1, 1]`. Exposure alone never changes valence. Applied
+valence events are journalled so rebuild can replay them after the observation
+ledger. See [`valence.md`](valence.md) and
+[`action-journal.md`](action-journal.md).
 
-Every returned candidate exposes the inputs used for ranking:
+Neither familiarity nor valence grants network permission. They are learned
+state; outbound permission remains runtime policy.
+
+## Action model and planner
+
+The learned action layer is entirely inspectable and read-only until an
+operator/runtime policy explicitly moves an approved action into the outbound
+path.
+
+### Candidates
+
+`atp_graph_action_candidates` tokenises supplied context without interning
+unknown vocabulary, keeps distinct known context nodes and considers existing
+outgoing associations. Targets supported by multiple context nodes are merged.
+
+Each candidate exposes the values used for ranking:
 
 ```text
 association_score = mean(0.7 * learned_edge_strength + 0.3 * neural_score)
@@ -568,175 +486,189 @@ support_score     = supporting_observations / (supporting_observations + 1)
 score             = mean(association_score, familiarity_score, support_score)
 ```
 
-The result also carries the summed supporting edge observations and the number
-of distinct context nodes that support the target. Ties are resolved
-predictably by association score, familiarity, support count, then token text.
-An entirely unknown context yields no candidates. Querying never changes graph
-state, so this stage requires no new snapshot block or version bump.
+Results also include supporting observation counts and context-match counts.
+Unknown context produces no candidate and inspection never mutates the graph.
 
-This is intentionally a small primitive. A later planner can combine candidate
-sequences, episodic recall, timing, conversational context, and explicit
-network policy, but those layers should consume inspectable C23 scores rather
-than replace them with hidden prompt logic.
+### Bounded plans and guarded decisions
+
+The C23 planner can compose bounded candidate sequences. Raw plans remain useful
+for inspection even when they contain a cycle or weak tail. The guarded
+decision layer applies explicit score, support, drop, repetition and cycle
+rules and can either return a supported prefix or abstain completely.
+
+An abstention is a successful decision that the learned evidence is
+insufficient, not a runtime error.
+
+See [`action-inspection.md`](action-inspection.md) and
+[`action-termination.md`](action-termination.md) for the exact trace fields and
+default thresholds.
+
+### Structured context
+
+`atp_graph_select_context` assembles deterministic planner context from explicit
+sources: immediate input, caller-supplied recent interaction, ranked episodic
+memory and neutral author/source interaction state.
+
+The selector does not build a hidden prompt. Every selected item has a kind,
+reason, score, provenance and budget contribution. Memory consideration uses a
+read-only preview path, and author/source continuity is derived from existing
+state rather than a second mutable relationship database.
+
+See [`planner-context.md`](planner-context.md).
+
+### Policy boundary
+
+A C23 plan is evidence, never network permission.
+
+The C++23 outbound layer owns action kinds, default-deny policy, durable rate
+budgets and operator control. `atperson publish` currently executes frozen,
+operator-approved posts and replies through Wolfram only after those gates pass.
+Other autonomous social behaviour remains fail-closed.
 
 ## Persistence
 
-Snapshots are versioned and contain the complete mutable graph, neural
-parameters, counters, PRNG state, a mirrored ledger block (snapshot v2), the
-episodic-memory block (snapshot v3), the per-token familiarity block
-(snapshot v4), and the episode eviction counter (snapshot v5). Saving is
-performed through a temporary file and rename so a partially written snapshot
-does not replace the previous state.
+Snapshots are versioned and contain the complete mutable graph/neural state,
+counters and deterministic PRNG state, together with mirrored ledger metadata,
+episodic memory, familiarity, valence and conversation context.
 
-Snapshot v5 is the portable format: little-endian integers, IEEE 754 float
-bit patterns, framed sections (`tag u32le | length u64le | payload`) with
-bounds-checked lengths and skippable unknown tags, and a trailing FNV-1a
-digest over the whole file for bitrot detection. Versions 1-4 were
-host-oriented; v4 snapshots load portably (every v4 writer in practice ran
-on a little-endian host) and migrate to v5 on the next save, while v1-v3
-are refused with `ATP_ERR_FORMAT` rather than silently reinterpreted.
+Snapshot v5 is the portable container format: little-endian integers, IEEE 754
+float bit patterns, framed sections (`tag u32le | length u64le | payload`) with
+bounds-checked lengths and skippable unknown tags, followed by a trailing
+FNV-1a digest over the entire file.
 
-## Growth path
+Older optional state can be added as tagged sections without redefining the
+meaning of existing sections. v4 snapshots load portably and migrate to v5 on
+the next save; v1-v3 are refused rather than silently reinterpreted.
 
-The intended order is:
+The snapshot is a durable fast-start representation of learned state. The
+observation ledger and action journal remain the evidence streams from which a
+rebuild derives that state.
 
-1. **Language graph** — vocabulary, embeddings, associations, persistence.
-2. **Observation ledger** — durable dedupe, replay, provenance, deletion.
-   Core ledger, snapshot mirror, and sync-through-ledger are implemented; the
-   snapshot rebuild/replay semantics that consume it are part of stage 3+.
-3. **Memory** — episodic and semantic structures linked to sources. The first,
-   counter-based pass is implemented: source-linked episodes, token summaries,
-   recall counters, deterministic eviction, snapshot v3, and a CLI `recall`
-   command. Semantic memory is the association graph; richer consolidation is
-   future work.
-4. **Internal state** — slowly learned preferences/values derived from repeated
-   experience, not hard-coded personality text. The first pass is implemented:
-   per-token familiarity (exponentially weighted exposure, snapshot v4, CLI
-   `familiarity` accessor). Later passes may feed familiarity into recall
-   ordering and richer action scoring.
-5. **Action model** — candidate generation and inspectable scoring. The first
-   pass is implemented as read-only C23 continuation candidates with explicit
-   association, familiarity, support, exposure, and context-match evidence.
-   Higher-level sequence planning and network-action policy remain future work.
-6. **Network behaviour** — carefully rate-limited output through Wolfram.
-7. **Long-running runtime** — event-driven or scheduled learning with crash
-   recovery and explicit operator controls.
+## Implementation state
 
-No stage should skip observability just to make the entity appear more human.
+The original staged plan has mostly turned into implemented architecture:
+
+1. **Language graph** — implemented: vocabulary, embeddings, associations,
+   neural scoring and persistence.
+2. **Observation ledger** — implemented: durable deduplication, replay,
+   provenance, withdrawal, compaction and schema compatibility.
+3. **Memory** — implemented first pass: source-linked episodic memory, ranked
+   recall and deterministic eviction.
+4. **Learned internal state** — implemented: exposure-derived familiarity and
+   explicit experience-derived valence.
+5. **Action model** — implemented first pass: candidates, bounded plans,
+   abstention/termination guards and structured context selection.
+6. **Runtime policy** — implemented: operator control, default-deny outbound
+   policy, durable rate budgets and audit surfaces.
+7. **Outbound execution** — implemented narrowly for operator-led frozen posts
+   and replies through Wolfram; autonomous social behaviour remains disabled.
+8. **Long-running runtime** — implemented: daemonised bounded ingestion cycles,
+   retry backoff, snapshot cadence and graceful shutdown.
+
+The remaining work is not “turn autonomy on”. Any broader autonomous behaviour
+has to preserve the same inspectability, provenance, rate control and
+fail-closed boundaries already used by the operator-led path.
+
+No feature should skip observability just to make the entity appear more human.
 
 ## Growth bounds
 
-The semantic graph grows with observed vocabulary. Two mechanisms keep
-that growth bounded and fast; both are derived from the same principle:
-the canonical arrays are the source of truth, everything else is derived
-state that can be rebuilt.
+The semantic graph grows with observed vocabulary. Two mechanisms keep that
+growth bounded and fast while preserving the canonical state arrays as the
+source of truth.
 
 ### Hash indexes
 
-Node lookup (`token -> index`) and edge lookup (`(source, target) ->
-index`) are open-addressing hash tables over the canonical arrays:
-power-of-two capacity, linear probing, load factor kept at or below 0.5,
-`UINT32_MAX` as the empty marker. They are maintained incrementally on
-intern and edge creation, rebuilt wholesale by the snapshot loaders
-(`atp_graph_rebuild_indexes`), and never persisted — a snapshot contains
-only the arrays.
+Node lookup (`token -> index`) and edge lookup (`(source, target) -> index`) use
+open-addressing hash tables over the canonical arrays: power-of-two capacity,
+linear probing, load factor at or below 0.5 and `UINT32_MAX` as the empty
+marker.
 
-The edge key hash runs the packed `(source << 32 | target)` key through a
-splitmix64-style finalizer. The raw packed key is dense and sequential —
-intern indices grow together — so identity hashing packs linear-probe
-runs into contiguous spans and degrades toward O(n) probes. Before the
-finalizer, a 76k-edge snapshot loaded in 1.8s; after, 16ms.
+Indexes are maintained incrementally on intern/edge creation, rebuilt by
+snapshot loaders and never persisted. The packed `(source << 32 | target)` edge
+key runs through a splitmix64-style finaliser before probing; direct identity
+hashing caused dense sequential keys to degrade into long probe runs.
 
-With the indexes, `atp_find_node` and `atp_find_edge` are O(1) expected
-regardless of graph size. Benchmarks (below) confirm observe cost scales
-linearly with history size, not quadratically.
+With the finaliser, `atp_find_node` and `atp_find_edge` are O(1) expected.
+Association inspection still scales with the queried node's out-degree because
+all candidate edges for that node must be ranked.
 
 ### Resource ceilings
 
-`atp_graph_config.node_capacity_max` and `edge_capacity_max` (0 =
-unlimited) are a **resource budget, not a retention policy**. When an
-observation would cross a ceiling, the whole observation is rejected with
-`ATP_ERR_CAPACITY` — never partially learned. A dry-run pass counts the
-new nodes and edges a text would create before any mutation, so a
-rejected observation leaves no half-learned state behind. Rejections are
-counted in `atp_graph_stats.capacity_rejections`.
+`atp_graph_config.node_capacity_max` and `edge_capacity_max` (`0` = unlimited)
+are resource budgets, not retention policy. Before observation mutation, a
+dry-run pass counts new nodes and edges. If the observation would cross a
+ceiling, the whole observation is rejected with `ATP_ERR_CAPACITY`; partial
+learning is not allowed.
 
-Ceilings are deployment policy, not graph data: `atp_graph_load` restores
-the graph with unlimited ceilings regardless of what the saving process
-had configured. Apply the budget after loading with
-`atp_graph_set_capacity`. Lowering a ceiling below the current count
-evicts nothing — existing nodes and edges stay, further growth is
-rejected.
+Ceilings are deployment/runtime policy rather than persisted graph semantics.
+Loading a graph restores its learned state and the runtime reapplies current
+capacity policy afterwards. Lowering a ceiling below current counts evicts
+nothing; it only blocks further growth.
 
-Pruning vocabulary with provenance is deliberately out of scope here:
-episodes reference nodes by index, so deleting nodes invalidates episode
-summaries. The fail-closed ceiling is the safe bound; retention is a
-separate, future decision.
+Vocabulary pruning is separate future work because episodes refer to graph
+nodes by stable index. The safe current behaviour is fail-closed growth, not
+silent deletion.
 
 ### Benchmarks
 
-`tests/bench.c` (run via `ctest -L bench`) measures deterministic
-synthetic histories — fixed seeds, skewed vocabulary for hub pressure —
-at small (1k observations / 500 vocab), medium (10k / 5k), and large
-(50k / 25k) scales: observe throughput, association lookup, recall,
-snapshot save/load, and a memory footprint estimate. Timing is reported,
-never asserted, so CI variance cannot flake.
+`tests/bench.c` (`ctest -L bench`) measures deterministic synthetic histories
+with fixed seeds and skewed vocabulary. It covers observation throughput,
+association lookup, recall, snapshot save/load and a memory-footprint estimate.
+Timing is reported but never asserted, so CI variance cannot make the suite
+flake.
 
-Representative figures (M2, -O2, September 2026):
+Representative M2 `-O2` figures from September 2026:
 
 | Profile | Nodes | Edges | Observe µs/obs | Lookup µs/query | Snapshot save/load |
-|---------|-------|-------|----------------|-----------------|--------------------|
-| small   | 500   | 1.6k  | 20             | 6.3             | 0.9ms / 0.8ms      |
-| medium  | 4.9k  | 15.8k | 27             | 28              | 4.3ms / 4.5ms      |
-| large   | 24.7k | 78.2k | 44             | 128             | 13.7ms / 16.1ms    |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| small | 500 | 1.6k | 20 | 6.3 | 0.9ms / 0.8ms |
+| medium | 4.9k | 15.8k | 27 | 28 | 4.3ms / 4.5ms |
+| large | 24.7k | 78.2k | 44 | 128 | 13.7ms / 16.1ms |
 
-Observe cost grows with per-observation pair count (larger histories
-train more edges per observation), not with graph size: the index keeps
-intern and pair lookup constant. Association lookup cost grows with the
-queried token's out-degree — hub nodes have more candidates to rank —
-not with total graph size.
+Observe cost grows with the number of pairs in an observation rather than a
+linear scan of graph history. Lookup cost grows with the queried node's
+out-degree, not total graph size.
 
-## Tokenization contract
+## Tokenisation contract
 
-Token identity is durable learning state: interned vocabulary, edges,
-episodes, and snapshots all key on token bytes. The contract is versioned
-through the learning schema (`ATPERSON_SCHEMA_VERSION`), so a tokenizer
-change is a schema decision, never a silent behaviour change.
+Token identity is durable learning state: vocabulary, edges, episodes and
+snapshots all key on token bytes. Tokenisation is therefore versioned through
+`ATPERSON_SCHEMA_VERSION`; changing it is a schema decision rather than an
+incidental parser refactor.
 
-All token-producing paths — graph observation, action-context scanning,
-recall queries, and association lookup — go through one implementation
-(`src/core/tokenize.c`, entry point `atp_tokenize`). The tokenizer takes
-the schema version and an emit callback; the legacy and Unicode scanners
-are selected by that version, so schema-1 ledger entries replay with
-byte-identical token identity.
+All token-producing paths — observation, action-context scanning, recall and
+association lookup — use `src/core/tokenize.c` / `atp_tokenize`. The schema
+version selects the correct scanner so older ledger entries keep their original
+learning meaning during replay.
 
 ### Schema 1 (legacy)
 
-Byte-oriented, preserved byte-for-byte for replay: ASCII is lowercased,
-bytes >= 0x80 are token bytes, `'` `-` `_` are token bytes, everything
-else separates. Tokens cap at 95 bytes with silent truncation.
+Schema 1 is byte-oriented and preserved for replay. ASCII is lowercased, bytes
+`>= 0x80` are token bytes, `'`, `-` and `_` are token bytes, and everything
+else separates. Tokens cap at 95 bytes with the historical truncation rules.
 
 ### Schema 2 (Unicode)
 
 | Decision | Rule |
-|---|---|
-| UTF-8 validation | Invalid sequences sanitize to U+FFFD, which is a separator. Malformed bytes never enter the vocabulary and never pass through raw. |
-| Normalization | NFKC_Casefold + LUMP (utf8proc) |
-| Case handling | Unicode case folding: `STRASSE`/`Straße`/`straße` collapse; Cyrillic and Greek fold too |
-| Token bytes | Unicode categories L* (letters), M* (marks), N* (numbers), plus `'` `-` `_` |
-| Separators | Punctuation, symbols, whitespace, control, emoji, U+FFFD |
-| Emoji | Separators — ZWJ sequences and skin-tone modifiers would explode the vocabulary with visually-identical variants |
-| Combining marks | Token bytes, so scripts without precomposed forms survive |
-| URLs/handles | Split at `.` `:` `/` `@` (they are punctuation) |
-| Truncation | At a codepoint boundary, never mid-sequence: a token longer than 95 bytes is cut after the last codepoint that fits |
+| --- | --- |
+| UTF-8 validation | Invalid sequences become U+FFFD, which is a separator |
+| Normalisation | NFKC_Casefold + LUMP (`utf8proc`) |
+| Case handling | Unicode case folding across supported scripts |
+| Token bytes | Unicode L*, M*, N* categories plus `'`, `-`, `_` |
+| Separators | Punctuation, symbols, whitespace, control, emoji and U+FFFD |
+| Emoji | Separators, avoiding vocabulary explosion from ZWJ/modifier variants |
+| Combining marks | Preserved as token bytes |
+| URLs/handles | Split at punctuation such as `.`, `:`, `/`, `@` |
+| Truncation | At a codepoint boundary, never mid-sequence |
 
-Canonical equivalence examples — all one token:
+Canonical-equivalence examples include:
 
-- `café` (NFC) and `cafe` + U+0301 (NFD)
-- `Café`, `CAFÉ` (case folding)
-- `ﬁ` → `fi` (compatibility decomposition)
-- `K` (Kelvin sign U+212A) → `k`
-- `don’t` (U+2019) → `don't` (LUMP)
+- NFC `café` and decomposed `cafe` + U+0301;
+- `Café` and `CAFÉ`;
+- `ﬁ` -> `fi`;
+- Kelvin sign `K` (U+212A) -> `k`;
+- curly-apostrophe `don’t` -> `don't` through LUMP.
 
-utf8proc (MIT, pure C) provides normalization, case folding, and
-validation without introducing a C++ or Wolfram dependency into the core.
+`utf8proc` is MIT-licensed pure C, keeping normalisation, case folding and UTF-8
+validation inside the C23 core without introducing a C++ or Wolfram dependency.
