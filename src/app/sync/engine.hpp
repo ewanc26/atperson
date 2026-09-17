@@ -4,7 +4,7 @@
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
 #include "policy.hpp"
-#include "state.hpp"
+#include "ingestion/state.hpp"
 
 #include <cstdint>
 #include <functional>

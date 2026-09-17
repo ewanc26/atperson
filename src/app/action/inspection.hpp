@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <ostream>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -12,6 +13,17 @@ namespace atperson {
 
 /** Whether `command` is one of the read-only action inspection commands. */
 [[nodiscard]] bool is_action_inspection_command(std::string_view command) noexcept;
+
+/**
+ * Stable digest binding an approval to the exact inspected decision (#22).
+ *
+ * The digest covers the context text and the accepted plan (tokens, step
+ * count, score, stop reason). A regenerated or altered plan produces a
+ * different digest, so an approval can never authorise a replacement action.
+ * Returns 16 lowercase hex characters (64-bit atp_ledger_digest).
+ */
+[[nodiscard]] std::string decision_digest(std::string_view context,
+                                          const atp_action_decision &decision);
 
 /**
  * Render one read-only action inspection command.

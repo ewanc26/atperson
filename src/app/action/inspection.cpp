@@ -1,11 +1,53 @@
 #include "inspection.hpp"
 
+#include <atperson/core.h>
+
 #include <charconv>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <iomanip>
 #include <stdexcept>
 #include <string>
 
 namespace atperson {
+
+std::string decision_digest(std::string_view context, const atp_action_decision &decision) {
+    /* Canonical byte encoding: context text, then the accepted plan's
+     * identity — step count, tokens, score bits, stop reason. Any change to
+     * the context or the plan changes the digest, so an approval binds to
+     * exactly the decision the operator inspected. */
+    std::string canonical;
+    canonical.reserve(context.size() + decision.plan.step_count * 16u + 16u);
+    canonical.append(context);
+    canonical.push_back('\0');
+    canonical.append(reinterpret_cast<const char *>(&decision.plan.step_count),
+                     sizeof(decision.plan.step_count));
+    for (std::size_t i = 0u; i < decision.plan.step_count; ++i) {
+        const atp_action_candidate &step = decision.plan.steps[i];
+        const std::size_t token_length = strnlen(step.token, ATPERSON_TOKEN_BYTES);
+        canonical.append(step.token, token_length);
+        canonical.push_back('\0');
+        std::uint32_t score_bits = 0u;
+        static_assert(sizeof(step.score) == sizeof(score_bits),
+                      "float must be 32-bit for stable digests");
+        std::memcpy(&score_bits, &step.score, sizeof(score_bits));
+        canonical.append(reinterpret_cast<const char *>(&score_bits), sizeof(score_bits));
+    }
+    std::uint32_t plan_score_bits = 0u;
+    std::memcpy(&plan_score_bits, &decision.plan.score, sizeof(plan_score_bits));
+    canonical.append(reinterpret_cast<const char *>(&plan_score_bits),
+                     sizeof(plan_score_bits));
+    const std::uint32_t stop_reason = static_cast<std::uint32_t>(decision.plan.stop_reason);
+    canonical.append(reinterpret_cast<const char *>(&stop_reason), sizeof(stop_reason));
+
+    const std::uint64_t digest =
+        atp_ledger_digest(canonical.data(), canonical.size());
+    char hex[17];
+    std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(digest));
+    return std::string(hex, 16u);
+}
+
 namespace {
 
 std::size_t parse_bounded(std::string_view value, std::size_t minimum, std::size_t maximum,
@@ -222,6 +264,7 @@ int run_action_inspection_command(std::ostream &out, const LanguageGraph &graph,
         print_stop_evidence(out, decision.evidence);
         if (!decision.abstained) {
             print_plan(out, decision.plan, 0u);
+            out << "digest: " << decision_digest(arguments[0], decision) << '\n';
         }
         return 0;
     }

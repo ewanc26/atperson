@@ -8,7 +8,7 @@
 
 #include "client.hpp"
 #include "config.hpp"
-#include "state.hpp"
+#include "ingestion/state.hpp"
 #include "lock.hpp"
 
 #include <ostream>

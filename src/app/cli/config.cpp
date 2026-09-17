@@ -45,8 +45,14 @@ std::filesystem::path ingestion_state_path() {
                   (data_dir() / "ingestion-state.json").string());
 }
 
+std::filesystem::path control_state_path() {
+    return env_or("ATPERSON_CONTROL_STATE",
+                  (data_dir() / "control-state.json").string());
+}
+
 std::vector<std::filesystem::path> durable_paths() {
-    return {data_dir(), state_path(), ledger_path(), ingestion_state_path()};
+    return {data_dir(), state_path(), ledger_path(), ingestion_state_path(),
+            control_state_path()};
 }
 
 int parse_limit(const char *value, int fallback) {

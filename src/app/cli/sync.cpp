@@ -10,13 +10,15 @@
 
 #include "client.hpp"
 #include "config.hpp"
-#include "state.hpp"
+#include "ingestion/state.hpp"
 #include "lock.hpp"
 #include "engine.hpp"
+#include "control/state.hpp"
 
 #include <iostream>
 #include <optional>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 
 namespace atperson {
@@ -28,6 +30,15 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
              const std::filesystem::path &ledger_file,
              const std::filesystem::path &state_file, int max_pages,
              const std::function<void(const LanguageGraph &)> &print_stats) {
+    /* Operator pause gate (#22): refuse new ingestion work while paused.
+     * Learned state is untouched; the operator resumes explicitly. */
+    const auto control_file = atperson::cli::control_state_path();
+    auto control = atperson::load_control_state(control_file);
+    if (control.paused) {
+        throw std::runtime_error(
+            "sync refused: runtime is paused (atperson control resume)");
+    }
+
     atperson::require_runtime_write_headroom(resource_status);
     const atperson::StateLock writer_lock(data_dir);
     const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
@@ -70,6 +81,8 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
     graph.save(model_path);
     ingestion.checkpoint.generation++;
     atperson::save_ingestion_state(ingestion, state_file);
+    control.last_sync_at = atperson::control_now_rfc3339();
+    atperson::save_control_state(control, control_file);
     out << "completed " << result.pages_completed << " page(s), " << result.observations_seen
         << " observation(s)" << (result.exhausted ? ", timeline exhausted" : ", catch-up pending")
         << "; learned from " << result.learned << " (skipped " << result.skipped

@@ -23,6 +23,7 @@ set(ATPERSON_APP_PRIVATE_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/atproto
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/audit
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/cli
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/control
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/ingestion
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/state
@@ -182,12 +183,14 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/maintenance.cpp
     src/app/cli/inspection.cpp
     src/app/cli/ingest.cpp
+    src/app/cli/control.cpp
     src/app/cli/cursor.cpp
     src/app/cli/sync.cpp
     src/app/atproto/client.cpp
     src/app/atproto/extract.cpp
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
+    src/app/control/state.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/state/lock.cpp
@@ -343,10 +346,10 @@ if(ATPERSON_BUILD_TESTS)
   add_test(NAME atperson-cpp COMMAND atperson-cpp-test)
 
   # Read-only rendering of authoritative C23 plan/context/decision traces.
-  add_executable(atperson-action_inspection_test tests/action/inspection.cpp)
-  target_link_libraries(atperson-action_inspection_test PRIVATE atperson-cpp)
-  target_include_directories(atperson-action_inspection_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
-  add_test(NAME atperson-action_inspection COMMAND atperson-action_inspection_test)
+  add_executable(atperson-action-inspection-test tests/action/inspection.cpp)
+  target_link_libraries(atperson-action-inspection-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-action-inspection-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-action-inspection COMMAND atperson-action-inspection-test)
 
   # Advisory audit: evidence/state marshalling, question schema, and response
   # parsing/rendering are offline-testable; only the transport is excluded
@@ -373,6 +376,14 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-sync-test PRIVATE atperson-cpp)
   target_include_directories(atperson-sync-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-sync COMMAND atperson-sync-test)
+
+  # Operator control state (#22): fail-closed defaults, write gate, approval
+  # binding, atomic persistence round-trip. Offline.
+  add_executable(atperson-control-test tests/control/control.cpp
+                                        src/app/control/state.cpp)
+  target_link_libraries(atperson-control-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-control-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-control COMMAND atperson-control-test)
 
   # Deterministic end-to-end lifecycle harness (issue #28): multi-run
   # scenarios over the real ledger/snapshot/state files with a scripted

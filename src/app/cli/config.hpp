@@ -23,6 +23,7 @@ std::filesystem::path data_dir();
 std::filesystem::path state_path();
 std::filesystem::path ledger_path();
 std::filesystem::path ingestion_state_path();
+std::filesystem::path control_state_path();
 
 std::vector<std::filesystem::path> durable_paths();
 

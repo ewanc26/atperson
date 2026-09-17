@@ -3,6 +3,7 @@
 #include "inspection.hpp"
 #include "audit/command.hpp"
 #include "cli/config.hpp"
+#include "cli/control.hpp"
 #include "cli/cursor.hpp"
 #include "cli/graph.hpp"
 #include "cli/ingest.hpp"
@@ -112,6 +113,15 @@ int main(int argc, char **argv) {
             return atperson::cli::run_cursor(std::cout, resource_status,
                                             atperson::cli::data_dir(),
                                             atperson::cli::ingestion_state_path(), sub);
+        }
+
+        if (command == "control") {
+            const std::string sub = argc >= 3 ? argv[2] : "status";
+            const std::string argument = argc >= 4 ? argv[3] : "";
+            return atperson::cli::run_control(std::cout, resource_status,
+                                              atperson::cli::data_dir(),
+                                              atperson::cli::control_state_path(), sub,
+                                              argument);
         }
 
         if (std::filesystem::exists(path)) {
