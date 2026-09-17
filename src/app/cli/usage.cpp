@@ -28,7 +28,8 @@ void print_usage(std::ostream &out) {
         << "  atperson control <status|pause|resume|writes <on|off>|dry-run <on|off>|"
            "approval <on|off>|approve <digest>|revoke <digest>|shutdown|cancel-shutdown>\n"
         << "  atperson outbound <status [kind]|rules|evaluate <kind> [target] [digest]|"
-           "admit <kind> [target] [digest]>\n\n"
+           "admit <kind> [target] [digest]>\n"
+        << "  atperson publish <action-file>\n\n"
         << "environment:\n"
         << "  ATPERSON_STATE            model snapshot path "
            "(default ~/.ewanc26/atperson/model.bin)\n"
@@ -42,6 +43,8 @@ void print_usage(std::ostream &out) {
            "(default ~/.ewanc26/atperson/outbound-policy.json)\n"
         << "  ATPERSON_OUTBOUND_BUDGET  outbound rate-budget state path "
            "(default ~/.ewanc26/atperson/outbound-budget.json)\n"
+        << "  ATPERSON_OUTBOUND_AUDIT   outbound execution audit log path "
+           "(default ~/.ewanc26/atperson/outbound-audit.jsonl)\n"
         << "  ATPERSON_HOME             data directory override "
            "(default ~/.ewanc26/atperson)\n"
         << "  ATPERSON_MEMORY_BUDGET_BYTES   graph growth memory override (default auto)\n"
@@ -70,7 +73,9 @@ void print_usage(std::ostream &out) {
         << "compact, withdraw, daemon) take an exclusive lock on the data directory;\n"
         << "read-only commands, operator `control` and the `outbound` policy/budget\n"
         << "commands (runtime metadata outside the state set) run without it and see\n"
-        << "state as of their read, so a running daemon can still be paused or shut down\n";
+        << "state as of their read, so a running daemon can still be paused or shut down.\n"
+        << "`publish` takes a separate outbound lock, so it never waits on the daemon's\n"
+        << "writer lock\n";
 }
 
 } // namespace cli

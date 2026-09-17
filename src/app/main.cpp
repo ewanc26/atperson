@@ -10,6 +10,7 @@
 #include "cli/ingest.hpp"
 #include "cli/ledger.hpp"
 #include "cli/outbound.hpp"
+#include "cli/publish.hpp"
 #include "cli/sync.hpp"
 #include "cli/usage.hpp"
 #include "runtime.hpp"
@@ -136,6 +137,18 @@ int main(int argc, char **argv) {
                 std::cout, atperson::cli::outbound_policy_path(),
                 atperson::cli::outbound_budget_path(), atperson::cli::control_state_path(),
                 sub, arguments, static_cast<std::int64_t>(std::time(nullptr)));
+        }
+
+        if (command == "publish") {
+            if (argc < 3) {
+                usage(std::cerr);
+                return 2;
+            }
+            return atperson::cli::run_publish(
+                std::cout, atperson::cli::data_dir(),
+                atperson::cli::outbound_policy_path(), atperson::cli::outbound_budget_path(),
+                atperson::cli::control_state_path(), atperson::cli::outbound_audit_path(),
+                argv[2], static_cast<std::int64_t>(std::time(nullptr)));
         }
 
         if (std::filesystem::exists(path)) {

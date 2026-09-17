@@ -30,8 +30,15 @@ class StateLockError : public std::runtime_error {
  * after the reader started. Only mutating commands take the lock. */
 class StateLock {
   public:
-    /* Acquires the lock or throws StateLockError. */
+    /* Acquires the state directory's default writer lock, or throws. */
     explicit StateLock(const std::filesystem::path &state_directory);
+
+    /* Acquires a named lockfile inside `state_directory`. Used by the outbound
+     * execution path (#25), which serialises its own budget read-modify-write
+     * without competing with the daemon's long-held writer lock. The name must
+     * be a bare filename: empty names and path separators are rejected. */
+    StateLock(const std::filesystem::path &state_directory, std::string lock_file_name);
+
     ~StateLock();
 
     StateLock(const StateLock &) = delete;

@@ -127,10 +127,17 @@ void write_lock_file(int fd, const std::string &boot) {
 
 } // namespace
 
-StateLock::StateLock(const std::filesystem::path &state_directory) {
+StateLock::StateLock(const std::filesystem::path &state_directory)
+    : StateLock(state_directory, kLockFileName) {}
+
+StateLock::StateLock(const std::filesystem::path &state_directory, std::string lock_file_name) {
+    if (lock_file_name.empty() || lock_file_name.find('/') != std::string::npos ||
+        lock_file_name.find('\\') != std::string::npos) {
+        throw StateLockError("invalid lock file name '" + lock_file_name + "'");
+    }
     std::error_code ec;
     std::filesystem::create_directories(state_directory, ec);
-    lock_path_ = state_directory / kLockFileName;
+    lock_path_ = state_directory / lock_file_name;
 
     const std::string boot = current_boot_marker();
 
