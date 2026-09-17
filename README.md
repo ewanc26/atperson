@@ -169,8 +169,10 @@ next save; v1-v3 are refused.
 The observation ledger is separate from the snapshot and is the authority for
 which external observations have been committed. It records source identity,
 author identity where available, observation time, content digest, schema
-version, and outcome. Its in-memory deduplication index is rebuilt from the log
-when opened.
+version, outcome, and conversation context (reply root/parent and quote target,
+metadata that is durable but never learnable). Its in-memory deduplication index
+is rebuilt from the log when opened, and a replay rebuild restores conversation
+context alongside learned state.
 
 Episodic memories remain linked to ledger IDs so remembered material retains a
 route back to its source evidence. Source deletion and unlearning are solved
