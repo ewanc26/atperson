@@ -405,6 +405,23 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson-e2e-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-e2e COMMAND atperson-e2e-test)
 
+  # Long-running ingestion daemon (#21): scheduling, bounded per-cycle work,
+  # retry backoff, snapshot cadence and graceful shutdown, driven through
+  # offline hooks over the real sync engine. No network.
+  add_executable(
+    atperson-daemon-test
+    tests/daemon/daemon.cpp
+    src/app/daemon/backoff.cpp
+    src/app/daemon/config.cpp
+    src/app/daemon/loop.cpp
+    src/app/ingestion/policy.cpp
+    src/app/ingestion/state.cpp
+    src/app/sync/engine.cpp)
+  target_compile_features(atperson-daemon-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-daemon-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-daemon-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-daemon COMMAND atperson-daemon-test)
+
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay
   # convergence, over reproducible pseudo-random inputs. Offline.
