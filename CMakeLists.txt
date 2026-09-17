@@ -469,6 +469,7 @@ if(ATPERSON_BUILD_TESTS)
     atperson-publish-test
     tests/outbound/execute.cpp
     src/app/control/state.cpp
+    src/app/journal/store.cpp
     src/app/outbound/action.cpp
     src/app/outbound/actions.cpp
     src/app/outbound/audit.cpp

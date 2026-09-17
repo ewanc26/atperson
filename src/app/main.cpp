@@ -148,6 +148,7 @@ int main(int argc, char **argv) {
                 std::cout, atperson::cli::data_dir(),
                 atperson::cli::outbound_policy_path(), atperson::cli::outbound_budget_path(),
                 atperson::cli::control_state_path(), atperson::cli::outbound_audit_path(),
+                atperson::cli::action_journal_path(),
                 argv[2], static_cast<std::int64_t>(std::time(nullptr)));
         }
 
