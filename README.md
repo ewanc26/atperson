@@ -1,158 +1,20 @@
 # atperson
 
-`atperson` is an experiment in building a persistent digital entity on the
-[AT Protocol](https://atproto.com/) whose learned state begins empty and grows
-through experience rather than from a hand-written persona or system prompt.
+`atperson` is an experiment in building a persistent digital entity on the [AT Protocol](https://atproto.com/) that starts with effectively nothing and develops its own learned state through experience.
 
-The project is intentionally split across **C23** and **C++23**:
+The point is not to wrap an LLM in a biography and call it a person. `atperson` starts without a seeded vocabulary, personality, ideology, preferences, opinions or life story. What it knows has to come from observations, and the state produced by those observations has to be durable, inspectable and reconstructable.
 
-- **C23 owns authoritative learned state**: vocabulary, the language graph,
-  trainable embeddings, neural association scoring, online learning, episodic
-  memory, familiarity, inspectable action scoring, the durable observation
-  ledger, and snapshot persistence.
-- **C++23 owns the application/runtime boundary**: RAII wrappers, lifecycle and
-  configuration, command-line orchestration, record extraction, and AT Protocol
-  integration.
-- **[Wolfram](https://github.com/ewanc26/wolfram) owns AT Protocol mechanics**:
-  sessions, XRPC, identity, repository operations, and Bluesky-facing client
-  behaviour are dependencies rather than reimplemented here.
+This is experimental software. `atperson` does **not** claim sentience or personhood, and autonomous network behaviour is deliberately still gated behind explicit policy and operator control.
 
-`atperson` does not claim sentience or personhood, and it does not currently
-publish autonomously. The aim is to make learning, memory, state, and eventual
-behaviour durable and inspectable so that development does not collapse into a
-hidden LLM prompt pretending to be a persistent individual.
+## Design
 
-Autonomous posts, replies, likes, follows, reposts, DMs and moderation are
-not yet implemented and remain fail-closed. They are an explicit roadmap goal,
-not a permanent absence: the outbound policy, rate budgets and Wolfram-backed
-write path that would gate them are being built deliberately, and no such
-behaviour will ship before those controls are in place and tested.
+The codebase has a strict C23/C++23 split:
 
-## `atperson` vs `digital-person`
+- **C23 owns learned state.** The language graph, trainable embeddings, online learning, episodic memory, familiarity, valence, action scoring, observation ledger and snapshot persistence live here.
+- **C++23 owns orchestration.** It handles lifecycle, configuration, RAII wrappers, the CLI, record extraction and the runtime around the core.
+- **[Wolfram](https://github.com/ewanc26/wolfram) owns AT Protocol mechanics.** Sessions, XRPC, identity and repository operations are dependencies rather than being reimplemented here.
 
-`atperson` and [ewanc26/digital-person](https://github.com/ewanc26/digital-person)
-are both about persistent digital presence on the AT Protocol, but they sit at
-opposite ends of the design space and are not interchangeable:
-
-| | `atperson` | `digital-person` |
-| --- | --- | --- |
-| **What it is** | A learning substrate: a C23 language graph, neural scorer, and observation ledger that grows from experience | An orchestration framework: a Letta agent with persistent memory blocks and platform adapters |
-| **Persona** | Starts empty. No biography, opinions, favourite things, or voice. Nothing is seeded. | Starts authored. Each `person/<name>/` has a filled `persona.md` — name, background, opinions, quirks |
-| **Voice** | None. There is no text generation layer at all. | Explicitly specified in `voice.md` — registers, cadence, human tells, imperfection as a signal |
-| **Memory** | Counters, familiarity, valence, and deterministic episodic recall over a replayable ledger | Letta memory blocks: long-term social context and relationship history |
-| **Learning** | Online gradient descent on a 16D embedding + tanh scorer, trained from observations | None — the agent's behaviour is shaped by its persona files and prompt, not by experience |
-| **Reconstructability** | Every learned state is rebuildable from the durable observation ledger; snapshots are versioned and validated | Memory blocks are persistent but not replayable from an authoritative event stream |
-| **Outbound** | Operator-led `publish` of a frozen, approved action document. Autonomous posts, replies, likes, follows, reposts, DMs and moderation are fail-closed and gated behind outbound policy, rate budgets and the Wolfram-backed write path | Autonomous cross-platform presence: posts, replies, blogs, email, Telegram. Posts when it has something to say |
-| **Language** | C23 core, C++23 runtime, Wolfram for AT Protocol mechanics | Python, Letta (formerly MemGPT), custom agent wrappers |
-| **Honesty at the boundary** | Not applicable — there is no claim to personhood | Explicit: if asked directly "are you AI?", the agent says yes |
-| **Status** | Experimental learning engine. Network path is read-only for ingestion | Experimental orchestration. Deployed person `faol` is live |
-
-The short version: `digital-person` is a *persona to run*, `atperson` is a
-*learner to grow*. They are complementary rather than competing — `atperson`
-could one day supply the experience-derived state that a `digital-person`-style
-orchestrator consumes, but it deliberately does not start with the biography,
-voice, or opinions that `digital-person` treats as the foundation of a person.
-
-## Status
-
-The project now has working implementations for the first five architectural
-stages, with later stages intentionally incomplete:
-
-| Stage | State | Current implementation |
-| --- | --- | --- |
-| Language graph | Implemented | Empty-start vocabulary, directed associations, trainable 16D embeddings, online neural scoring and negative sampling |
-| Observation ledger | Implemented | Crash-safe append-only C23 log, durable commit marker, provenance, outcomes, conversation context, cross-run `(source id + digest)` deduplication, and retained canonical payloads (format v3, replayable) |
-| Memory | First pass implemented | Source-linked episodic memories, token summaries, recall counters, deterministic eviction, and graph-backed semantic association |
-| Internal state | First pass implemented | Per-token familiarity learned purely from repeated exposure |
-| Action model | First pass implemented | Deterministic, read-only continuation candidates with inspectable score components |
-| Network behaviour | Not enabled | Wolfram-backed ingestion exists; autonomous likes, replies, follows, reposts, and posts do not |
-| Ingestion policy | Implemented | Explicit public-data policy: skip classes with machine-readable reasons, self-observation excluded, skipped items ledgered as `SKIPPED` |
-| Deterministic replay | Implemented | `atp_replay_ledger` + `atperson rebuild`: rebuild learned state from the ledger alone, explicit outcome semantics, atomic snapshot replacement, byte-identical rebuilds |
-| Withdrawal/unlearning | Implemented | `ATP_LEDGER_OUTCOME_WITHDRAWN` + `atperson withdraw <id|source|author>`: append-only idempotent exclusion, rebuild produces the state that would have existed without the withdrawn source |
-| Schema compatibility | Implemented | Per-entry learning schema + `atp_schema_can_replay` compatibility table; replay and snapshot load refuse foreign schemas with `ATP_ERR_SCHEMA`, never silently reinterpret |
-| Ledger compaction | Implemented | `atp_ledger_compact` + `atperson compact`: patches flatten to final outcomes, withdrawn payloads drop, ids stay stable; atomic and crash-safe, rebuild-equivalent |
-| Tokenization contract | Implemented | Schema-versioned Unicode tokenizer (utf8proc): NFKC_Casefold equivalence, category-based boundaries, UTF-8 sanitization; one implementation behind observation, action context, recall, and lookup |
-| Growth bounds | Implemented | O(1) hash indexes for node and edge lookup, configurable node/edge ceilings with whole-observation `ATP_ERR_CAPACITY` rejection, scale benchmarks (`ctest -L bench`) |
-| Long-running runtime | Implemented | `atperson daemon` runs repeated bounded cycles with retry backoff, snapshot cadence and graceful shutdown over the same ledger/cursor; operator `control` stays usable alongside it (see [`docs/daemon.md`](docs/daemon.md)) |
-| Outbound action policy | Implemented (inspection/admission only) | Default-deny per-kind policy with durable rate budgets, duplicate suppression and inspectable `allow`/`deny`/`defer` reasons; no network writes (see [`docs/outbound-policy.md`](docs/outbound-policy.md)) |
-| Outbound execution | Implemented (operator-led posts/replies) | `atperson publish` runs a frozen, approved action document through pause → policy → dry-run → control gates, then writes exactly that record via Wolfram; idempotent frozen rkey, budget on confirmed success only, credential-free append-only audit (see [`docs/outbound-execution.md`](docs/outbound-execution.md)) |
-| Action/outcome journal | Implemented | Durable, replayable record of the entity's own outbound attempts and their outcomes, with event linkage and explicit valence application; `atperson journal` lists actions/events/valence, `apply` writes one valence event, and `map` applies an operator-authored outcome-to-valence rule table (#56); `rebuild` replays journal valence after the ledger (see [`docs/action-journal.md`](docs/action-journal.md)) |
-| Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup with volume persistence and dynamic cgroup v1/v2 resource budgeting (see [`docs/docker.md`](docs/docker.md)) |
-
-The model begins with **zero words and zero relationships**. Neural parameters
-have small deterministic random initial values so learning can start, but there
-is no seeded vocabulary, biography, ideology, personality, or preference set.
-
-## Resource usage
-
-atperson derives runtime resource limits from the machine it is actually running
-on. The policy is runtime-only: it does not become learned state and is not
-persisted in model snapshots. Run `atperson resources` to see the detected
-hardware and the currently derived budget, including the durable path that is
-limiting writes.
-
-| What is detected | How |
-| --- | --- |
-| Effective CPU capacity | CPU count, including fractional CPU quotas |
-| Memory | Total and currently available RAM |
-| Filesystem | Capacity and free bytes for every path that can receive durable state |
-| cgroup limits | Linux cgroup v2 and v1 memory/CPU limits folded in when tighter than the host, so a container with a 1 GiB limit does not behave as if it owns all RAM |
-
-| What is dynamic | Behaviour |
-| --- | --- |
-| Graph growth budget | Memory keeps a host/container safety reserve first; atperson then permits graph growth from only part of the remaining available memory, split between future nodes and edges using conservative per-item reservations |
-| Write budget | Each durable filesystem keeps a dynamic free-space reserve; the tightest filesystem controls the process-wide write budget, and mutating commands fail before doing new work if any destination is inside its safety reserve |
-| Sync page size | Page size and the per-run observation budget shrink with disk, memory and effective CPU capacity; a sufficiently small quota can reduce a timeline page to one item |
-| Re-probing | Longer multi-page syncs re-probe before each page, so cgroup limits, memory pressure and disk headroom can change while a process is running without a restart |
-
-| What is deliberately not dynamic | Why |
-| --- | --- |
-| Tokenization and learning equations | Machine size may admit more bounded work, but must not make the same learned state mean something different |
-| Familiarity and episodic-memory retention rules | Model semantics, not resource policy |
-| Planner scoring, beam semantics and stop thresholds | Model semantics, not resource policy |
-| Replay ordering and schema compatibility | Determinism and compatibility are invariants |
-| Persona, preference and social state | Learned state is not derived from machine size |
-
-Operators may override individual limits with environment variables; empty values
-or `0` mean automatic. See [`docs/resources.md`](docs/resources.md).
-
-## What exists now
-
-The C23 core currently provides:
-
-- an initially empty directed token graph;
-- 16-dimensional trainable embeddings created only when a token is observed;
-- a small neural scorer trained online from observed bigrams with negative
-  sampling;
-- learned edge strength, exposure counts, and hashed source provenance;
-- a durable observation ledger whose append/commit ordering is designed for
-  crash recovery and restart-safe deduplication;
-- source-linked episodic memory with selective retention, weighted token
-  summaries, recall accounting, and deterministic least-recalled eviction;
-- per-token **familiarity**, an exponentially weighted exposure signal updated
-  when that token is encountered again;
-- per-token **valence**, an experience-derived score in `[-1, 1]` updated only
-  from explicit events (action outcomes, interactions, approach/avoidance) —
-  never from exposure — with inspectable evidence counters and a bounded
-  provenance log (see [`docs/valence.md`](docs/valence.md));
-- per-entry **conversation context**: reply root/parent and quote URIs
-  recorded alongside every mirrored ledger entry as planning metadata —
-  never trained on, with quoted text excluded from learning (see
-  [`docs/conversation-context.md`](docs/conversation-context.md));
-- a read-only **action candidate** API that ranks learned continuations from
-  context without mutating the graph;
-- versioned binary snapshots containing the complete mutable learning state,
-  including the ledger mirror, episodic memory, familiarity, and valence
-  state;
-- deterministic PRNG state and learning counters required for persistence and
-  reproducibility.
-
-The C++23 layer provides RAII wrappers for the graph and ledger, the CLI/runtime,
-and the Wolfram-backed AT Protocol ingestion path. Timeline observations are
-committed to the ledger before they are learned, preventing a restarted process
-from silently training on the same committed post again.
-
-## Architecture
+The rule I want to keep is simple: **C++ can orchestrate the entity, but it must not quietly become the authority for what the entity has learned.** Learned state and the evidence behind it stay in the C core.
 
 ```text
 AT Protocol network
@@ -163,10 +25,10 @@ AT Protocol network
 | - Wolfram session         |
 | - feed/record extraction  |
 | - lifecycle/config        |
-| - future network policy   |
+| - outbound control        |
 +-------------+-------------+
               |
-              | observations
+              | observations / actions
               v
 +---------------------------+
 | C23 learning core         |
@@ -175,78 +37,115 @@ AT Protocol network
 | - neural training         |
 | - observation ledger      |
 | - episodic memory         |
-| - familiarity state       |
-| - action candidate scores |
+| - familiarity + valence   |
+| - action scoring          |
 | - persistence             |
 +-------------+-------------+
               |
               v
-       durable state
+        durable state
 ```
 
-The architectural rule is simple: **C++ may orchestrate the entity, but it must
-not become the hidden authority for what the entity has learned.** Learned
-state and the evidence behind decisions stay in the C23 core.
+See [`docs/architecture.md`](docs/architecture.md) for the deeper architectural invariants and persistence model.
 
-See [`docs/architecture.md`](docs/architecture.md) for the invariants, scoring
-formulae, persistence details, and staged growth path.
+## Current state
 
-## Action model
+The project is already beyond the initial scaffold. The important pieces currently look like this:
 
-Stage 5 currently stops deliberately short of generating or publishing text.
-The C23 API in [`include/atperson/action.h`](include/atperson/action.h) exposes:
+| Area | State | Notes |
+| --- | --- | --- |
+| Language graph | Implemented | Empty-start vocabulary, directed associations, trainable 16D embeddings, online neural scoring and negative sampling |
+| Observation ledger | Implemented | Crash-safe append-only log with provenance, outcomes, canonical payloads and restart-safe deduplication |
+| Episodic memory | Implemented | Source-linked memories, weighted token summaries, recall accounting and deterministic eviction |
+| Familiarity | Implemented | Exposure-derived per-token familiarity |
+| Valence | Implemented | Explicit experience-derived values in `[-1, 1]`; exposure alone never changes valence |
+| Action model | First pass implemented | Deterministic, inspectable continuation candidates derived from learned state |
+| Deterministic replay | Implemented | Learned state can be rebuilt from the ledger alone |
+| Withdrawal / unlearning | Implemented | Sources can be durably withdrawn and excluded on rebuild |
+| Schema compatibility | Implemented | Replay refuses incompatible learning schemas instead of silently reinterpreting them |
+| Ledger compaction | Implemented | Final outcomes are flattened without changing rebuild semantics |
+| Unicode tokenisation | Implemented | Schema-versioned `utf8proc` tokenisation shared across learning, recall and lookup |
+| Growth limits | Implemented | Bounded node/edge growth with O(1) indexes and capacity rejection |
+| Dynamic resource policy | Implemented | Runtime budgets respond to CPU, RAM, filesystem headroom and Linux cgroups |
+| Long-running runtime | Implemented | `atperson daemon` performs bounded repeated sync cycles with backoff and graceful shutdown |
+| Outbound policy | Implemented | Default-deny policy, durable rate budgets, duplicate suppression and inspectable decisions |
+| Outbound execution | Operator-led | Approved frozen post/reply actions can be published through Wolfram with audit logging and idempotent record keys |
+| Action/outcome journal | Implemented | Outbound attempts and outcomes are durable and replayable into valence |
+| Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup |
+| Autonomous social behaviour | Not enabled | Autonomous posting, replies, likes, follows, reposts, DMs and moderation remain fail-closed |
 
-```c
-atp_status atp_graph_action_candidates(
-    const atp_graph *graph,
-    const char *context,
-    atp_action_candidate *out,
-    size_t capacity,
-    size_t *out_count);
-```
+The model begins with **zero words and zero relationships**. Neural parameters have small deterministic initial values so training can start, but there is no seeded vocabulary, biography, ideology, personality or preference set.
 
-Candidates come only from learned outgoing graph associations. Each result
-includes the final score plus the evidence used to construct it:
+## Why the ledger matters
 
-- learned association score;
-- familiarity score;
-- observation-support score;
-- summed supporting observations;
-- number of distinct context nodes supporting the candidate.
+The observation ledger is the authority for what external material has actually been committed. Learning happens on top of it, not instead of it.
 
-Queries are deterministic and read-only. Unknown context does not seed new
-vocabulary, and querying the action model does not train or mutate the graph.
-The C++ wrapper and `atperson candidates` command expose the same evidence
-without recomputing it outside the core; see
-[`docs/action-inspection.md`](docs/action-inspection.md). This is intended to
-become the evidence surface consumed by later sequence planning and network
-policy rather than being replaced by opaque prompt logic.
+That gives `atperson` a few properties I care about:
 
-## Persistence and memory
+- a crash does not silently train the same committed post twice;
+- learned state can be rebuilt from retained observations;
+- withdrawn material can be excluded and the state reconstructed as if it had never been learned;
+- schema changes can fail explicitly instead of corrupting old meaning;
+- episodic memories retain a route back to their source evidence;
+- skipped material remains distinguishable from material that was never seen.
 
-The current snapshot format is **v5**: a portable binary format. Integers are
-little-endian and floats are IEEE 754 bit patterns regardless of host
-architecture. The body is a sequence of framed sections (tag, length,
-payload) with lengths bounds-checked against the remaining file size and
-unknown tags skipped, followed by a trailing FNV-1a digest over the whole
-file. Snapshots persist the mutable language graph and neural state together
-with the mirrored observation ledger, episodic memory, familiarity values,
-counters, and PRNG state. v4 snapshots load portably and migrate to v5 on the
-next save; v1-v3 are refused.
+The current snapshot format is **v5**. It stores the mutable graph and neural state alongside the mirrored ledger state, memory, familiarity, valence, counters and deterministic PRNG state. The standalone ledger remains the durable observation authority.
 
-The observation ledger is separate from the snapshot and is the authority for
-which external observations have been committed. It records source identity,
-author identity where available, observation time, content digest, schema
-version, outcome, and conversation context (reply root/parent and quote target,
-metadata that is durable but never learnable). Its in-memory deduplication index
-is rebuilt from the log when opened, and a replay rebuild restores conversation
-context alongside learned state.
+## Learning and memory
 
-Episodic memories remain linked to ledger IDs so remembered material retains a
-route back to its source evidence. Source deletion and unlearning are solved
-by withdrawal plus rebuild: withdrawn observations are durably excluded from
-the next rebuild, so learned state is what the entity would have been without
-them.
+The C23 core currently provides:
+
+- an initially empty directed token graph;
+- 16-dimensional trainable embeddings created only when a token is observed;
+- a small online neural scorer trained from observed bigrams with negative sampling;
+- learned edge strength, exposure counts and hashed source provenance;
+- source-linked episodic memory with bounded deterministic retention;
+- per-token familiarity learned from repeated exposure;
+- per-token valence updated only by explicit events;
+- durable conversation context for replies and quotes without training on quoted text;
+- deterministic, read-only action candidate scoring;
+- versioned portable snapshots and deterministic replay state.
+
+The C++23 layer wraps that core and provides the CLI/runtime, configuration and Wolfram-backed AT Protocol ingestion and publishing paths.
+
+More detail lives in:
+
+- [`docs/valence.md`](docs/valence.md)
+- [`docs/conversation-context.md`](docs/conversation-context.md)
+- [`docs/action-inspection.md`](docs/action-inspection.md)
+- [`docs/action-journal.md`](docs/action-journal.md)
+
+## `atperson` vs `digital-person`
+
+[`ewanc26/digital-person`](https://github.com/ewanc26/digital-person) explores a similar broad idea from the opposite direction.
+
+| | `atperson` | `digital-person` |
+| --- | --- | --- |
+| Starting point | Empty learner | Authored persona |
+| Persona | Not seeded | Defined in files |
+| Voice | Emergent work; no hidden prompt persona | Explicitly described |
+| Memory | Replayable learned state + episodic memory | Letta memory blocks |
+| Learning | Online learning from observations | Behaviour primarily shaped by authored persona and agent context |
+| Core languages | C23 + C++23 | Python |
+| AT Protocol | Wolfram-backed runtime | Platform adapters |
+| Goal | Grow a persistent learned entity | Run a persistent authored digital person |
+
+The short version is that `digital-person` is a **persona to run**, while `atperson` is a **learner to grow**. They are related projects, but they are not interchangeable.
+
+## Resource policy
+
+`atperson` derives runtime limits from the machine or container it is actually running on. Resource policy does not become learned state and is never persisted as personality or preference.
+
+`atperson resources` reports the detected limits and derived budget. The runtime considers:
+
+- effective CPU capacity, including fractional quotas;
+- total and currently available memory;
+- free space on every filesystem that can receive durable state;
+- Linux cgroup v1/v2 CPU and memory limits when they are tighter than the host.
+
+These inputs affect graph growth headroom, write safety reserves, sync page size and bounded per-run work. They do **not** alter tokenisation, learning equations, familiarity semantics, planner scoring, replay ordering or schema compatibility.
+
+See [`docs/resources.md`](docs/resources.md).
 
 ## Build
 
@@ -258,7 +157,7 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-For core work without network dependencies:
+For core-only work without network dependencies:
 
 ```sh
 cmake -S . -B build-core -DATPERSON_BUILD_NETWORK=OFF
@@ -266,70 +165,23 @@ cmake --build build-core -j
 ctest --test-dir build-core --output-on-failure
 ```
 
-The build uses strict C23 and C++23. Unix builds explicitly request POSIX.1-2008
-for the ledger durability APIs rather than relying on GNU language extensions.
+The project uses strict C23 and C++23. Unix builds explicitly request POSIX.1-2008 for the durability APIs rather than relying on GNU language extensions.
 
-The Wolfram dependency is currently pinned to commit
-`9e63f76ab0b4f97f2cb5c62a5d0129b3d9023917`.
-
-GitHub Actions exercises Linux GCC, Linux Clang, macOS Apple Clang, an
-ASan+UBSan core build, and the full Wolfram-backed network build. See
-[`docs/ci-matrix.md`](docs/ci-matrix.md) for the supported CI matrix and what
-each job verifies.
+GitHub Actions covers Linux GCC, Linux Clang, macOS Apple Clang, ASan/UBSan and the Wolfram-backed network build. See [`docs/ci-matrix.md`](docs/ci-matrix.md).
 
 ## Runtime
 
-All atperson data lives under `~/.ewanc26/atperson/` by default: the model
-snapshot (`model.bin`), the observation ledger (`ledger.bin`), and the
-ingestion cursor (`ingestion-state.json`). Override individual paths with
-`ATPERSON_STATE`, `ATPERSON_LEDGER`, and `ATPERSON_INGESTION_STATE`, or the
-whole directory with `ATPERSON_HOME`.
+By default, state lives under:
 
-On first run atperson bootstraps the data directory (mode `0700`) and writes
-a `.env` template (mode `0600`) documenting every environment variable it
-reads — fill in `ATPERSON_IDENTIFIER` and `ATPERSON_APP_PASSWORD` there and
-source it before running `sync`:
-
-```sh
-set -a; . ~/.ewanc26/atperson/.env; set +a
+```text
+~/.ewanc26/atperson/
 ```
 
-The bootstrap is idempotent and never touches an existing directory or
-`.env`.
+The main files are the model snapshot (`model.bin`), observation ledger (`ledger.bin`) and ingestion cursor (`ingestion-state.json`). The whole directory can be moved with `ATPERSON_HOME`; individual paths can also be overridden.
 
-```sh
-./build/atperson stats
-./build/atperson ingest "hello world" local:first-observation
-./build/atperson ingest-file ./notes.txt
-./build/atperson assoc hello
-./build/atperson candidates "hello world" 10
-./build/atperson familiarity hello
-./build/atperson recall "hello world" 5
-./build/atperson recall "hello world" 5 0.5 100 on
-```
+On first run, `atperson` creates the data directory and a local `.env` template without overwriting existing files.
 
-`atperson audit "hello world"` optionally sends the same bounded decision
-trace to TypeSafe System One for a non-authoritative, operator-facing advisory
-judgment (see `docs/audit.md`). It requires `ATPERSON_TYPESAFE_API_KEY`, is
-opt-in, and never affects learned state or outbound policy.
-
-To inspect the entity's own outbound experience and applied valence:
-
-```sh
-./build/atperson journal actions
-./build/atperson journal events
-./build/atperson journal valence
-./build/atperson journal apply moon action 0.5 <action-id>
-./build/atperson journal map rules.json
-```
-
-`apply` writes one explicit valence event and journals it, so a later
-`rebuild` replays it after the ledger. `map` applies an operator-authored
-outcome-to-valence rule table to the recorded journal in one batch —
-idempotent, first-match-wins, skipping tokens the entity has never observed.
-See [`docs/action-journal.md`](docs/action-journal.md).
-
-To learn from the authenticated account's public home timeline:
+For authenticated timeline ingestion:
 
 ```sh
 export ATPERSON_IDENTIFIER="handle.example"
@@ -339,62 +191,45 @@ export ATPERSON_SERVICE="https://bsky.social" # optional
 ./build/atperson sync 5
 ```
 
-Credentials are read from environment variables rather than command-line
-arguments. Do not commit them.
+Credentials are read from environment variables, not command-line arguments. Do not commit them.
 
-`sync` consumes up to `max-pages` bounded timeline pages per run through
-Wolfram's cursor-aware timeline API. Each page is processed durably before
-its cursor is checkpointed, so a crash mid-page refetches the same page and
-ledger deduplication suppresses anything already committed. An interrupted
-traversal is resumed on the next run from the persisted cursor; once the
-timeline is exhausted the cursor is cleared and the next sync starts at the
-current head again. A cursor the service rejects is reported and discarded —
-the ledger, not the cursor, is the authority for what has been learned.
-
-Inspect or reset the catch-up position:
+A few useful local commands:
 
 ```sh
-./build/atperson cursor status
-./build/atperson cursor reset
+./build/atperson stats
+./build/atperson resources
+./build/atperson ingest "hello world" local:first-observation
+./build/atperson ingest-file ./notes.txt
+./build/atperson assoc hello
+./build/atperson candidates "hello world" 10
+./build/atperson familiarity hello
+./build/atperson recall "hello world" 5
 ```
 
-To run the same ingestion continuously with retry backoff and a snapshot
-cadence:
+### Continuous ingestion
 
 ```sh
-./build/atperson daemon          # until stopped (SIGINT/SIGTERM or control shutdown)
-./build/atperson daemon 5        # bounded: stop after 5 cycles
+./build/atperson daemon
+./build/atperson daemon 5
 ```
 
-The daemon holds the writer lock for its whole lifetime and re-reads operator
-control every cycle, so `atperson control pause` and `atperson control
-shutdown` work while it runs. Transport failures back off rather than busy
-loop; a fatal local persistence error stops the process instead of continuing
-on uncertain state. See [`docs/daemon.md`](docs/daemon.md) for the scheduling
-and backoff environment knobs.
+The daemon uses the same ledger and cursor as `sync`, holds the writer lock for its lifetime, re-reads operator control each cycle and backs off on transport failures rather than spinning.
+
+See [`docs/daemon.md`](docs/daemon.md).
 
 ### Rebuild
 
-Reconstruct learned state from the observation ledger alone — no network
-access, no snapshot required:
+Learned state can be reconstructed from the observation ledger without network access or an existing snapshot:
 
 ```sh
 ./build/atperson rebuild
 ```
 
-Entries replay in ledger id order through the same observe path `sync`
-uses, so the rebuilt graph is what the original run would have produced from
-the same bytes. `LEARNED` entries re-train from their retained payloads;
-`SKIPPED` entries mirror only; `PENDING`/`FAILED` are excluded. The new
-snapshot replaces the old one atomically — a failure at any point leaves the
-previous snapshot untouched, and two rebuilds of the same ledger produce
-byte-identical snapshots. A payload-less `LEARNED` entry (v1-migrated
-ledger) or an unimplemented schema version fails the rebuild rather than
-silently producing a graph that never saw those bytes.
+Replay uses the same observation path as live ingestion. The replacement snapshot is written atomically, and incompatible or incomplete replay data fails instead of quietly producing a different model.
 
 ### Withdrawal
 
-Durably exclude observations from future learned state:
+Observations can be durably excluded from future learned state:
 
 ```sh
 ./build/atperson withdraw id 42
@@ -402,110 +237,58 @@ Durably exclude observations from future learned state:
 ./build/atperson withdraw author did:plc:example
 ```
 
-Withdrawal is an append-only, idempotent ledger patch — log history is never
-rewritten, and the patch sequence on disk is the audit trail. It never
-mutates the live graph: run `atperson rebuild` to apply it, which excludes
-withdrawn observations from graph, neural training, familiarity, memory,
-counters, and the snapshot mirror. An edited record (same URI, new content)
-appends a fresh entry, so withdrawing old content doesn't block the edit.
+Withdrawal is append-only and idempotent. It does not mutate the live graph immediately; `atperson rebuild` applies the exclusion across the graph, neural state, familiarity, memory and counters.
 
-`sync` records each fetched post in the durable ledger before learning from it.
-Already committed `(source id + digest)` pairs are skipped on later runs. Empty
-records remain represented in the ledger but are not trained. Trainable posts
-flow through the episodic-memory path and can be recalled by overlapping known
-tokens.
+## Ingestion policy
 
-### Ingestion policy
+Every fetched record passes through an explicit policy before it can become a learning observation.
 
-Every fetched record passes an explicit policy layer before it can become an
-observation. Skipped classes, with their machine-readable reasons:
+The current policy excludes unsupported records, the authenticated account's own output, blocked/muted relationships, moderation-filtered material, empty text and non-text-only posts. Skipped records are still represented in the ledger with a machine-readable reason.
 
-| Reason | Skipped when |
-| --- | --- |
-| `unsupported-record` | the record is not an `app.bsky.feed.post` |
-| `self-authored` | the post is the authenticated account's own output |
-| `viewer-blocked` / `viewer-blocked-by` / `viewer-muted` | the account blocks or muted the author, or the author blocks the account |
-| `moderation-filtered` | a moderation decision filtered the post |
-| `empty-text` | the post has no text |
-| `non-text-only` | the post is images/video with no text |
+Self-observation is intentionally excluded. I do not want the entity repeatedly learning from its own output and turning that feedback loop into fake evidence of experience.
 
-Replies and reposts are learned and tagged with their reason. Self-observation
-is an explicit exclusion, not an accident: learning from the account's own
-output would create a feedback loop. Policy-skipped items are still recorded in
-the ledger with outcome `SKIPPED`, so observed-but-not-learned stays
-distinguishable from never-fetched, and timeline replays remain idempotent.
+## Outbound behaviour
 
-`sync` remains an explicitly-invoked, bounded run; `daemon` wraps the same
-traversal in a continuous loop. Ingestion is read-only: the runtime does not
-autonomously like, follow, reply, repost, or publish. The only write path is
-the operator-led `publish` below, which must clear the outbound policy and the
-operator `control` gate before a single record is written.
+An action candidate is evidence, not permission.
 
-### Outbound action policy
+The outbound layer has its own action vocabulary and applies operator-authored policy, durable rate budgets and duplicate suppression before anything can reach the network. Missing policy is **default-deny**.
 
-An accepted core plan is evidence, never permission. The outbound layer gives
-the runtime its own action vocabulary (`post`, `reply`, `like`, `repost`,
-`follow`, `unfollow`, `moderation`) and evaluates operator-authored policy and
-durable rate budgets before any write. It is **default-deny**: a missing
-policy file disables every kind. Decisions are `allow`, `deny` or `defer`
-with stable reason codes (`kind_disabled`, `unsupported_kind`,
-`duplicate_suppressed`, `cooldown_active`, `window_exhausted`), and every
-decision carries the budget state behind it. Rate budgets survive restart, so
-a crash cannot reset a window and permit a burst.
+Useful inspection commands include:
 
 ```sh
-./build/atperson outbound status          # enabled/disabled and current budget per kind
-./build/atperson outbound rules           # the effective policy document
+./build/atperson outbound status
+./build/atperson outbound rules
 ./build/atperson outbound evaluate reply at://did:plc:…/app.bsky.feed.post/… <digest>
 ./build/atperson outbound admit reply at://did:plc:…/app.bsky.feed.post/… <digest>
 ```
 
-`evaluate` is read-only; `admit` consumes budget only on `allow` and
-persists it. Both report the operator `control` gate and perform no network
-writes. See [`docs/outbound-policy.md`](docs/outbound-policy.md).
+`evaluate` is read-only. `admit` can consume budget on an allowed action, but neither performs a network write.
 
-### Outbound execution
+See [`docs/outbound-policy.md`](docs/outbound-policy.md).
 
-`atperson publish <action-file>` is the one path from an approved decision to a
-network write. It executes a frozen `atperson-outbound-action` v1 document —
-exact text, frozen record key, #22 approval digest — through the ordered gates
-(operator pause, #23 policy and rate budget, dry-run, #22 control approval) and
-only then writes the record through Wolfram:
+### Publishing
+
+`atperson publish <action-file>` is the current network write path. It executes a frozen, approved action document through the operator, policy, rate-budget and dry-run gates before calling Wolfram.
 
 ```sh
 ./build/atperson publish action.json
 ```
 
-Replies resolve their parent/root CIDs from the live records at execution time.
-The write uses `putRecord` under the frozen rkey, so a retry after an ambiguous
-failure replaces the same record instead of duplicating it, and the rate budget
-is consumed only on a confirmed success. Every attempt lands in a
-credential-free append-only audit log. See
-[`docs/outbound-execution.md`](docs/outbound-execution.md).
+Publishing is deliberately operator-led. Writes use a frozen record key so retries after ambiguous failures do not create duplicate posts, and attempts are recorded in a credential-free append-only audit log.
 
-Mutating commands (`ingest`, `ingest-file`, `sync`, `cursor reset`,
-`rebuild`, `compact`, `withdraw`, `daemon`) take an exclusive writer lock on
-the data directory before touching durable state, so two processes cannot
-mutate the same state concurrently. A lock left behind by a dead process is
-detected and reclaimed automatically. Read-only commands and operator
-`control` run without the lock and see state as of their own read — a
-concurrent writer may commit after the reader started.
+See [`docs/outbound-execution.md`](docs/outbound-execution.md).
 
 ## Current boundaries
 
-`atperson` intentionally does **not** currently:
+`atperson` currently does **not**:
 
 - read private messages or private data;
-- autonomously like, follow, reply, repost, or publish — `publish` is
-  operator-led, gated and audited, never a side effect of learning;
+- autonomously post, reply, like, follow, repost, DM or moderate;
 - use an LLM as a hidden personality or decision engine;
-- seed a biography, ideology, preferences, or opinions into learned state;
-- equate generated language with consciousness or personhood;
-- pretend source deletion and learned-contribution removal are solved.
+- seed a biography, ideology, preferences or opinions into learned state;
+- treat generated language as evidence of consciousness or personhood.
 
-The next meaningful work is not simply "let it post". The action model needs
-higher-level sequence planning and explicit network policy. Autonomous output
-should sit on top of those observable mechanisms, not bypass them.
+I do want the project to grow towards genuinely autonomous network behaviour, but not by skipping the hard parts. Sequence planning, policy, evidence, rate control, replay and operator-visible reasoning need to exist underneath it first.
 
 ## Licence
 
