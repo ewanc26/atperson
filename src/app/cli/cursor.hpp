@@ -14,7 +14,7 @@
 // Failure modes: std::runtime_error propagates from required_env/AtprotoClient
 // construction and from state load/save. Returns 0 on success.
 
-#include "resource_runtime.hpp"
+#include "runtime.hpp"
 
 #include <filesystem>
 #include <iosfwd>

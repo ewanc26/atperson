@@ -1,4 +1,4 @@
-#include "ingestion_policy.hpp"
+#include "policy.hpp"
 
 namespace atperson {
 

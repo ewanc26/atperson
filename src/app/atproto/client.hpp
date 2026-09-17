@@ -1,7 +1,7 @@
 #ifndef ATPERSON_ATPROTO_CLIENT_HPP
 #define ATPERSON_ATPROTO_CLIENT_HPP
 
-#include "sync_engine.hpp"
+#include "engine.hpp"
 
 #include <wolfram/wolfram.hpp>
 

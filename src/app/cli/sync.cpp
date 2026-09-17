@@ -8,11 +8,11 @@
 
 #include "sync.hpp"
 
-#include "atproto_client.hpp"
+#include "client.hpp"
 #include "config.hpp"
-#include "ingestion_state.hpp"
-#include "state_lock.hpp"
-#include "sync_engine.hpp"
+#include "state.hpp"
+#include "lock.hpp"
+#include "engine.hpp"
 
 #include <iostream>
 #include <optional>

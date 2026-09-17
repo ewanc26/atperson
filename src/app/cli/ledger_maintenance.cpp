@@ -1,13 +1,13 @@
 // Ledger maintenance command atoms: rebuild, compact, withdraw.
 //
-// Implementation of the contracts in ledger_maintenance.hpp. Every body here
+// Implementation of the contracts in ledger.hpp. Every body here
 // is moved byte-faithfully from the original single-file dispatch in
 // src/app/main.cpp; behaviour, ordering and output text are unchanged.
 
-#include "ledger_maintenance.hpp"
+#include "ledger.hpp"
 
 #include "atperson/ledger.hpp"
-#include "state_lock.hpp"
+#include "lock.hpp"
 
 #include <cstdint>
 #include <cstdlib>

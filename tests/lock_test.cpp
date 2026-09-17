@@ -4,7 +4,7 @@
  * holding the lock must block the parent, and after the child exits the
  * parent must acquire it. */
 
-#include "state_lock.hpp"
+#include "lock.hpp"
 
 #include <cassert>
 #include <chrono>

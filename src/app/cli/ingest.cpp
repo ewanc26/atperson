@@ -6,7 +6,7 @@
 
 #include "ingest.hpp"
 
-#include "state_lock.hpp"
+#include "lock.hpp"
 
 #include <cstring>
 #include <fstream>

@@ -6,10 +6,10 @@
 
 #include "cursor.hpp"
 
-#include "atproto_client.hpp"
+#include "client.hpp"
 #include "config.hpp"
-#include "ingestion_state.hpp"
-#include "state_lock.hpp"
+#include "state.hpp"
+#include "lock.hpp"
 
 #include <ostream>
 #include <string>

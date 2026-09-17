@@ -2,8 +2,8 @@
 #define ATPERSON_RESOURCE_RUNTIME_HPP
 
 #include "atperson/graph.hpp"
-#include "resource_budget.hpp"
-#include "system_resources.hpp"
+#include "budget.hpp"
+#include "system.hpp"
 
 #include <cstddef>
 #include <cstdint>

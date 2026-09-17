@@ -1,15 +1,15 @@
 #include "atperson/bootstrap.h"
 #include "atperson/graph.hpp"
-#include "action_inspection.hpp"
+#include "inspection.hpp"
 #include "audit/command.hpp"
 #include "cli/config.hpp"
 #include "cli/cursor.hpp"
-#include "cli/graph_inspection.hpp"
+#include "cli/graph.hpp"
 #include "cli/ingest.hpp"
-#include "cli/ledger_maintenance.hpp"
+#include "cli/ledger.hpp"
 #include "cli/sync.hpp"
 #include "cli/usage.hpp"
-#include "resource_runtime.hpp"
+#include "runtime.hpp"
 
 #include <cstdio>
 #include <cstdlib>

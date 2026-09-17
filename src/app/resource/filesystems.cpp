@@ -7,7 +7,7 @@
  * filesystem reading so budget derivation can select the tightest headroom.
  */
 
-#include "system_resources.hpp"
+#include "system.hpp"
 
 #include <system_error>
 

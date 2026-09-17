@@ -3,8 +3,8 @@
 
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
-#include "ingestion_policy.hpp"
-#include "ingestion_state.hpp"
+#include "policy.hpp"
+#include "state.hpp"
 
 #include <cstdint>
 #include <functional>

@@ -1,10 +1,10 @@
-#include "atproto_client.hpp"
+#include "client.hpp"
 
 #include <cJSON.h>
 #include <wolfram/agent.h>
 #include <wolfram/xrpc.h>
 
-#include "ingestion_policy.hpp"
+#include "policy.hpp"
 
 #include <algorithm>
 #include <memory>

@@ -1,4 +1,4 @@
-#include "action_inspection.hpp"
+#include "inspection.hpp"
 
 #include "atperson/core.h"
 #include "atperson/graph.hpp"

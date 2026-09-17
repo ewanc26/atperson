@@ -5,8 +5,8 @@
  * without a live network. */
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
-#include "ingestion_state.hpp"
-#include "sync_engine.hpp"
+#include "state.hpp"
+#include "engine.hpp"
 
 #include <cassert>
 #include <cstdio>

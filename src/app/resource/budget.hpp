@@ -1,7 +1,7 @@
 #ifndef ATPERSON_RESOURCE_BUDGET_HPP
 #define ATPERSON_RESOURCE_BUDGET_HPP
 
-#include "system_resources.hpp"
+#include "system.hpp"
 
 #include <atperson/core.h>
 

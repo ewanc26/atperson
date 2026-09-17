@@ -1,11 +1,11 @@
 // CLI read-only graph inspection commands: assoc, candidates, familiarity,
 // recall.
 //
-// Implementation of the contracts in graph_inspection.hpp. Every body here is
+// Implementation of the contracts in graph.hpp. Every body here is
 // moved byte-faithfully from the original single-file dispatch in
 // src/app/main.cpp; behaviour, ordering and output text are unchanged.
 
-#include "graph_inspection.hpp"
+#include "graph.hpp"
 
 #include "config.hpp"
 

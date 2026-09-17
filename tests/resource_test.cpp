@@ -1,6 +1,6 @@
-#include "resource_budget.hpp"
-#include "resource_runtime.hpp"
-#include "system_resources.hpp"
+#include "budget.hpp"
+#include "runtime.hpp"
+#include "system.hpp"
 
 #include <atperson/core.h>
 

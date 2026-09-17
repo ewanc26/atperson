@@ -15,7 +15,7 @@
 // success, 2 on argument errors after printing usage.
 
 #include "atperson/graph.hpp"
-#include "resource_runtime.hpp"
+#include "runtime.hpp"
 
 #include <filesystem>
 #include <functional>

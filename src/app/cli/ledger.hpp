@@ -15,7 +15,7 @@
 // std::runtime_error. Returns 0 on success, 2 on argument/usage errors.
 
 #include "atperson/graph.hpp"
-#include "resource_runtime.hpp"
+#include "runtime.hpp"
 
 #include <cstdint>
 #include <filesystem>

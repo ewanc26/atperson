@@ -1,4 +1,4 @@
-#include "ingestion_state.hpp"
+#include "state.hpp"
 
 #include <cJSON.h>
 

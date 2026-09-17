@@ -1,7 +1,7 @@
 /* Ingestion policy: every skip class produces its documented reason, and
  * eligible classes (plain posts, reposts, replies) are tagged. Everything
  * here runs offline — the policy consumes already-extracted fields. */
-#include "ingestion_policy.hpp"
+#include "policy.hpp"
 
 #include <cassert>
 #include <cstdio>
