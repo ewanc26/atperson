@@ -204,6 +204,13 @@ float atp_graph_familiarity(const atp_graph *graph, const char *token) {
     return graph->nodes[node].familiarity;
 }
 
+bool atp_graph_has_token(const atp_graph *graph, const char *token) {
+    if (!graph || !token) {
+        return false;
+    }
+    return atp_find_node(graph, token) >= 0;
+}
+
 typedef struct atp_ranked_edge {
     const atp_edge *edge;
     float score;

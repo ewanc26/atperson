@@ -68,6 +68,11 @@ journal_action_outcome_from_name(std::string_view name);
  * and used by the journal apply command. Unknown names return nullopt. */
 [[nodiscard]] std::optional<atp_valence_kind> valence_kind_from_name(std::string_view name);
 
+/* The canonical name for a valence kind; the same four spellings
+ * valence_kind_from_name accepts. Used by `journal map` (#56) so derived
+ * entries use the journal's kind vocabulary, never a third spelling. */
+[[nodiscard]] const char *valence_kind_name(atp_valence_kind kind) noexcept;
+
 /* One attempted outbound action. `id` is the frozen rkey from the #25 action
  * document: stable up front, idempotent under putRecord retry, and the tail
  * of the executed record's at-URI, so events link to actions by identifier
@@ -100,7 +105,11 @@ struct JournalEvent {
  * The journal stores what was applied so `rebuild` can replay it after the
  * ledger; it never applies anything itself. `kind` is a valence kind name
  * ("action", "interaction", "approach", "avoid"), `signal` the clamped
- * [-1, 1] value, `source` the journal action id or AT URI the event cites. */
+ * [-1, 1] value, `source` the journal action id or AT URI the event cites.
+ * `provenance` records how the entry was produced: empty for a hand-run
+ * `journal apply`, "map:<rule-id>" for an entry derived by `journal map`
+ * (#56). It is inspection metadata only — replay applies every valence
+ * entry identically regardless of provenance. */
 struct JournalValence {
     std::string token;
     std::string kind;
@@ -108,6 +117,7 @@ struct JournalValence {
     std::string source;
     std::uint64_t at_epoch{};
     std::string at; /* RFC 3339 UTC timestamp of the application */
+    std::string provenance; /* empty (apply) or "map:<rule-id>" (#56) */
 };
 
 /* Malformed or unsupported journal content. Corruption is reported, never

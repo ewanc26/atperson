@@ -241,6 +241,11 @@ float LanguageGraph::familiarity(std::string_view token) const noexcept {
     return atp_graph_familiarity(graph_, owned_token.c_str());
 }
 
+bool LanguageGraph::has_token(std::string_view token) const noexcept {
+    const std::string owned_token(token);
+    return atp_graph_has_token(graph_, owned_token.c_str());
+}
+
 void LanguageGraph::valence_event(std::string_view token, atp_valence_kind kind, float signal,
                                   std::uint64_t at_epoch, std::string_view source_id) {
     const std::string owned_token(token);

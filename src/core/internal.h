@@ -2,6 +2,7 @@
 #define ATPERSON_CORE_INTERNAL_H
 
 #include "atperson/core.h"
+#include "atperson/tokenize.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -10,15 +11,7 @@
 #define ATPERSON_HIDDEN_DIM 16u
 #define ATPERSON_INPUT_DIM (ATPERSON_EMBEDDING_DIM * 2u)
 
-/*
- * Shared tokenizer (src/core/tokenize.c). Calls emit once per token; emit
- * returning false stops the scan early. schema_version selects the
- * contract: 1 = legacy byte tokenizer, >= 2 = Unicode contract (see
- * tokenize.c header comment). All token-producing paths — observation,
- * action context, recall, lookup — must go through this one entry point.
- */
-void atp_tokenize(const char *text, uint32_t schema_version,
-                  bool (*emit)(void *userdata, const char *token), void *userdata);
+/* atp_tokenize is declared publicly in atperson/tokenize.h. */
 
 /*
  * Shared query helper (src/core/graph.c): tokenize a query under the

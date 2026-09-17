@@ -93,6 +93,14 @@ class LanguageGraph {
     [[nodiscard]] float familiarity(std::string_view token) const noexcept;
 
     /**
+     * True when `token` is in the graph's vocabulary (observed at least
+     * once). Read-only; never interns. Callers honouring the valence
+     * contract (experienced subjects only) check this before applying an
+     * event.
+     */
+    [[nodiscard]] bool has_token(std::string_view token) const noexcept;
+
+    /**
      * Record one explicit valence event (action outcome, interaction,
      * approach/avoidance) for a known token. Throws std::runtime_error on
      * failure; ATP_ERR_NOT_FOUND means the token has never been observed —

@@ -201,6 +201,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
     src/app/journal/command.cpp
+    src/app/journal/rules.cpp
     src/app/control/state.cpp
     src/app/daemon/backoff.cpp
     src/app/daemon/config.cpp
@@ -217,6 +218,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/execute.cpp
     src/app/state/lock.cpp
     src/app/sync/engine.cpp
+    src/app/state/time.cpp
     src/app/sync/linkage.cpp
     src/app/sync/parallel.cpp
     src/app/journal/store.cpp)
@@ -406,6 +408,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/sync/engine.cpp
+    src/app/state/time.cpp
     src/app/sync/linkage.cpp
     src/app/journal/store.cpp)
   target_link_libraries(atperson-sync-test PRIVATE atperson-cpp)
@@ -422,6 +425,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/sync/engine.cpp
+    src/app/state/time.cpp
     src/app/sync/linkage.cpp
     src/app/journal/store.cpp)
   target_compile_features(atperson-linkage-test PRIVATE cxx_std_23)
@@ -447,6 +451,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/sync/engine.cpp
+    src/app/state/time.cpp
     src/app/sync/linkage.cpp
     src/app/journal/store.cpp)
   target_link_libraries(atperson-e2e-test PRIVATE atperson-cpp)
@@ -465,6 +470,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/sync/engine.cpp
+    src/app/state/time.cpp
     src/app/sync/linkage.cpp
     src/app/journal/store.cpp)
   target_compile_features(atperson-daemon-test PRIVATE cxx_std_23)
@@ -533,6 +539,23 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-journal-test PRIVATE atperson-cpp)
   target_include_directories(atperson-journal-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-journal COMMAND atperson-journal-test)
+
+  # Outcome-to-valence mapping (#56): rule-table parsing, first-match-wins
+  # ordering, within-seconds windows, idempotency across restarts, the
+  # denied-outcome negative contract, and unknown-token skips through the
+  # real command surface. Offline, no network.
+  add_executable(
+    atperson-journal-rules-test
+    tests/journal/rules.cpp
+    src/app/journal/command.cpp
+    src/app/journal/rules.cpp
+    src/app/journal/store.cpp
+    src/app/state/lock.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-journal-rules-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-journal-rules-test PRIVATE atperson-cpp cjson)
+  target_include_directories(atperson-journal-rules-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-journal-rules COMMAND atperson-journal-rules-test)
 
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay

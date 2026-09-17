@@ -12,8 +12,11 @@
 //
 // `apply` is opt-in by construction: the operator names the token, the
 // valence kind, the signal and the source (a journal action id or an
-// AT URI). Nothing here derives valence from the journal automatically —
-// the journal records experience; the operator decides what it means.
+// AT URI). `map` (#56) is the batch form: the operator authors a rule
+// table mapping journal outcomes onto valence events, and `map` applies
+// it to the recorded journal. Both are explicit operator actions —
+// nothing derives valence from the journal automatically, and neither is
+// reachable from `publish`, `sync` or the daemon.
 //
 // Locking: `apply` takes the data-directory writer lock (same lock as
 // ingest/rebuild) across the graph mutation, the journal append and the
@@ -42,6 +45,10 @@ namespace journal {
  *   journal apply <token> <kind> <signal> <source-id>
  *                                  apply one explicit valence event and
  *                                  journal it (writer lock; saves the model)
+ *   journal map <rule-file>        apply an operator-authored outcome-to-
+ *                                  valence rule table to the journal and
+ *                                  append the derived valence entries
+ *                                  (writer lock; saves the model; #56)
  * Returns 0 on success, 2 on bad arguments. `now_unix` stamps the journal
  * entry; `now_rfc3339` stamps the event log.
  */

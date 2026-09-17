@@ -59,6 +59,36 @@ a valence-event ledger section must exist so rebuilds reconstruct valence
 deterministically from the same events. Until then, valence is inspectable
 state that does not influence decisions.
 
+## Mapping outcomes to valence (#56)
+
+Valence events enter the system through two explicit operator paths:
+`journal apply` (one event, named by hand) and `journal map` (a batch rule
+table applied to the recorded journal). Neither runs as a side effect of
+`publish`, `sync` or the daemon — the operator decides what experience means.
+
+`journal map <rule-file>` applies an operator-authored rule table to the
+journal's recorded outcomes. A rule names a trigger (the action's `outcome`,
+optionally a minimum count of later linked events and a window in seconds
+after the attempt) and a valence effect (`kind`, `signal`). Rules evaluate in
+table order, first match wins per action, and unmapped outcomes produce
+nothing. Example: an executed post that received a reply within 24 hours
+scores `interaction +0.5`; a denied post scores `action -0.5`.
+
+Two invariants carry over from the core contract:
+
+- **Experienced subjects only.** `map` applies the rule's signal to each
+  distinct token of the action's text that already exists in the vocabulary.
+  Unknown tokens are skipped, never interned — one mapping run cannot create
+  learned state.
+- **Idempotency.** Each derived entry is journalled with `provenance`
+  `map:<rule-id>` and deduplicated by (source, provenance, token), so running
+  `map` twice derives nothing new.
+
+The rule table is text the operator owns; atperson never persists it.
+`rebuild` replays the derived valence entries like any other journal valence
+entry — the mapping itself is not learned state. See
+`docs/action-journal.md` for the rule-table format and failure semantics.
+
 ## Provenance
 
 Every event appends to a bounded log (`ATPERSON_VALENCE_EVENT_CAPACITY` = 1024 entries, oldest evicted, evictions counted and exposed via `atp_graph_valence_log_evictions`). The log is queryable newest-first with kind, signal, epoch, token, and source id — enough to explain which observations changed the state recently. The folded counters are the complete accounting; the log is a bounded window, and its eviction counter reports the loss honestly.

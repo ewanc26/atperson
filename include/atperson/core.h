@@ -672,6 +672,14 @@ atp_status atp_graph_episode_at(const atp_graph *graph, size_t index, atp_episod
  */
 float atp_graph_familiarity(const atp_graph *graph, const char *token);
 
+/**
+ * True when `token` is in the graph's vocabulary (it has been observed at
+ * least once). Read-only; never interns. Runtime callers use this to honour
+ * the valence contract — valence attaches to experienced subjects only —
+ * without attempting an event and interpreting ATP_ERR_NOT_FOUND.
+ */
+bool atp_graph_has_token(const atp_graph *graph, const char *token);
+
 /*
  * Experience-derived valence (issue #13).
  *

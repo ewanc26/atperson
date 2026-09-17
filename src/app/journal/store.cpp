@@ -179,6 +179,7 @@ void parse_line(const std::string &line, JournalContents &out) {
         valence.source = required_string(root.get(), "source");
         valence.at_epoch = required_u64(root.get(), "at_epoch");
         valence.at = required_string(root.get(), "at");
+        valence.provenance = optional_string(root.get(), "provenance");
         out.valence.push_back(std::move(valence));
     } else {
         fail("journal entry has unknown type '" + type + "'");
@@ -238,6 +239,20 @@ std::optional<atp_valence_kind> valence_kind_from_name(std::string_view name) {
     return std::nullopt;
 }
 
+const char *valence_kind_name(atp_valence_kind kind) noexcept {
+    switch (kind) {
+    case ATP_VALENCE_ACTION:
+        return "action";
+    case ATP_VALENCE_INTERACTION:
+        return "interaction";
+    case ATP_VALENCE_APPROACH:
+        return "approach";
+    case ATP_VALENCE_AVOID:
+        return "avoid";
+    }
+    return "action";
+}
+
 std::string serialise_journal_action(const JournalAction &entry) {
     Json root(cJSON_CreateObject());
     if (!root) {
@@ -285,6 +300,9 @@ std::string serialise_journal_valence(const JournalValence &entry) {
     add_string(root.get(), "source", entry.source);
     cJSON_AddNumberToObject(root.get(), "at_epoch", static_cast<double>(entry.at_epoch));
     add_string(root.get(), "at", entry.at);
+    if (!entry.provenance.empty()) {
+        add_string(root.get(), "provenance", entry.provenance);
+    }
     return print_json(root.get(), "journal valence entry");
 }
 
