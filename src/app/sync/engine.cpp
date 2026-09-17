@@ -152,7 +152,8 @@ bool process_observation(LanguageGraph &graph, Ledger &ledger,
 }
 
 SyncResult run_sync(LanguageGraph &graph, Ledger &ledger, IngestionState &state,
-                    const SyncPageFetcher &fetch_page, const SyncLimits &limits) {
+                    const SyncPageFetcher &fetch_page, const SyncLimits &limits,
+                    const SyncLinker &link) {
     if (limits.page_size <= 0 || limits.max_pages <= 0) {
         throw std::runtime_error("sync limits must be positive");
     }
@@ -182,6 +183,13 @@ SyncResult run_sync(LanguageGraph &graph, Ledger &ledger, IngestionState &state,
         for (const auto &observation : page.items) {
             ++result.observations_seen;
             if (process_observation(graph, ledger, observation)) {
+                /* #27: link the observation to any executed action it
+                 * references, durably, before the page can be checkpointed.
+                 * Duplicates (already-committed observations) skip linkage:
+                 * their events were linked on first ingest. */
+                if (link) {
+                    link(observation);
+                }
                 const bool trainable = !observation.text.empty();
                 const bool policy_skipped =
                     observation.policy_reason != PolicyReason::Eligible &&

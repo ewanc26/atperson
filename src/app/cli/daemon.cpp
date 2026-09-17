@@ -9,6 +9,7 @@
 #include "daemon/signals.hpp"
 #include "engine.hpp"
 #include "ingestion/state.hpp"
+#include "linkage.hpp"
 #include "lock.hpp"
 
 #include <chrono>
@@ -131,7 +132,8 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
     };
 
     const DaemonRunReport report =
-        run_daemon(config, graph, ledger, ingestion, limits, fetch_page, persistence, hooks);
+        run_daemon(config, graph, ledger, ingestion, limits, fetch_page, persistence, hooks,
+                   make_journal_linker(action_journal_path()));
 
     if (report.stopped) {
         out << "daemon: shutdown requested; durable state flushed\n";

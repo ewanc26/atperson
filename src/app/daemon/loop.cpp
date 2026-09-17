@@ -7,7 +7,7 @@ namespace atperson {
 DaemonRunReport run_daemon(const DaemonConfig &config, LanguageGraph &graph, Ledger &ledger,
                            IngestionState &state, const SyncLimits &limits,
                            const SyncPageFetcher &fetch_page, const DaemonPersistence &persistence,
-                           const DaemonHooks &hooks) {
+                           const DaemonHooks &hooks, const SyncLinker &link) {
     validate_daemon_config(config);
 
     DaemonRunReport report;
@@ -39,7 +39,7 @@ DaemonRunReport run_daemon(const DaemonConfig &config, LanguageGraph &graph, Led
         }
 
         try {
-            const SyncResult result = run_sync(graph, ledger, state, fetch_page, cycle_limits);
+            const SyncResult result = run_sync(graph, ledger, state, fetch_page, cycle_limits, link);
             ++report.cycles;
             report.pages_completed += result.pages_completed;
             report.observations_seen += result.observations_seen;

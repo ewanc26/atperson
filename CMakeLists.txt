@@ -214,7 +214,9 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/evaluate.cpp
     src/app/outbound/execute.cpp
     src/app/state/lock.cpp
-    src/app/sync/engine.cpp)
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
   target_include_directories(atperson PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   target_link_libraries(atperson PRIVATE atperson-cpp wolfram-cpp)
   target_compile_features(atperson PRIVATE cxx_std_23)
@@ -400,10 +402,29 @@ if(ATPERSON_BUILD_TESTS)
     tests/sync/sync.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
-    src/app/sync/engine.cpp)
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
   target_link_libraries(atperson-sync-test PRIVATE atperson-cpp)
   target_include_directories(atperson-sync-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-sync COMMAND atperson-sync-test)
+
+  # Action-event linkage (#27): replies and quotes associate with executed
+  # outbound actions by stable at-URI, never by text. Parent/root/quote
+  # linkage, first-field-wins, duplicate suppression across restarts and
+  # the engine-integrated path. Offline.
+  add_executable(
+    atperson-linkage-test
+    tests/sync/linkage.cpp
+    src/app/ingestion/policy.cpp
+    src/app/ingestion/state.cpp
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
+  target_compile_features(atperson-linkage-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-linkage-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-linkage-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-linkage COMMAND atperson-linkage-test)
 
   # Operator control state (#22): fail-closed defaults, write gate, approval
   # binding, atomic persistence round-trip. Offline.
@@ -422,7 +443,9 @@ if(ATPERSON_BUILD_TESTS)
     tests/sync/lifecycle.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
-    src/app/sync/engine.cpp)
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
   target_link_libraries(atperson-e2e-test PRIVATE atperson-cpp)
   target_include_directories(atperson-e2e-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-e2e COMMAND atperson-e2e-test)
@@ -438,7 +461,9 @@ if(ATPERSON_BUILD_TESTS)
     src/app/daemon/loop.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
-    src/app/sync/engine.cpp)
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
   target_compile_features(atperson-daemon-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-daemon-test PRIVATE atperson-cpp)
   target_include_directories(atperson-daemon-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})

@@ -11,8 +11,10 @@
 #include "client.hpp"
 #include "config.hpp"
 #include "ingestion/state.hpp"
+#include "journal/store.hpp"
 #include "lock.hpp"
 #include "engine.hpp"
+#include "linkage.hpp"
 #include "control/state.hpp"
 
 #include <iostream>
@@ -77,7 +79,9 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
         }
     };
 
-    const auto result = atperson::run_sync(graph, ledger, ingestion, fetch_page, limits);
+    const auto result = atperson::run_sync(
+        graph, ledger, ingestion, fetch_page, limits,
+        atperson::make_journal_linker(atperson::cli::action_journal_path()));
     graph.save(model_path);
     ingestion.checkpoint.generation++;
     atperson::save_ingestion_state(ingestion, state_file);
