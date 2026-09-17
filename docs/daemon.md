@@ -104,5 +104,6 @@ Malformed, zero or self-contradictory values fail at startup.
 The daemon is still **read-only** with respect to the network: it ingests
 public timeline data into the learning graph. It does not post, reply, like,
 follow, repost, or moderate, and it is not a path around the fail-closed
-outbound policy. Autonomous output waits on explicit network policy and a
-Wolfram-backed write path, not on the daemon.
+outbound policy. Network writes happen only through the operator-led
+`publish` command, which is gated, audited and lock-independent of the daemon
+(see [`outbound-execution.md`](outbound-execution.md)).
