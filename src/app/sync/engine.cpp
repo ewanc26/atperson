@@ -110,11 +110,13 @@ bool process_observation(LanguageGraph &graph, Ledger &ledger,
     // Record the observation durably before training so a restarted process
     // can never re-train on it: the ledger is the authority for what has
     // already been committed. The canonical text is retained inline so the
-    // ledger is replayable — a rebuild can recover the exact bytes.
+    // ledger is replayable — a rebuild can recover the exact bytes — and the
+    // conversational context rides in the record too, so a replay rebuild
+    // restores reply/quote continuity as well.
     std::uint64_t id = 0u;
-    const auto result =
-        ledger.append(observation.source_uri, observation.author_did, observed_at, digest,
-                      ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_PENDING, observation.text, &id);
+    const auto result = ledger.append(observation.source_uri, observation.author_did, observed_at,
+                                      digest, ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_PENDING,
+                                      observation.text, observation.context, &id);
     if (result == LedgerResult::ExistsCommitted) {
         return false;
     }

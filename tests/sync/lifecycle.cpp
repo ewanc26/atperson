@@ -505,16 +505,15 @@ void test_conversation_context_survives_restarts_and_withdrawal() {
      * post and the quote. */
     assert(recovered_entries[1].source_id == std::string("at://e2e/ctx3"));
 
-    /* Known boundary, pinned: conversation context survives restarts from
-     * disk (the snapshot path) but NOT a replay rebuild. The ledger payload
-     * is canonical text only; context lives in the snapshot mirror. A
-     * ledger context section must exist before #27's action-outcome loop
-     * can rely on context surviving recovery — same shape as the valence
-     * boundary (docs/valence.md). Until then, rebuilds yield empty
-     * context, never stale or wrong context. */
+    /* Replay rebuild restores context (issue #49): the quote entry carries
+     * its quote target, and the withdrawn reply's context is gone with it.
+     * Context is never stale or wrong — a rebuilt graph has exactly the
+     * context the durable ledger recorded. */
     const auto rebuilt_quote = recovered.ledger_context(1u);
     assert(rebuilt_quote.reply_root_uri[0] == '\0');
-    assert(rebuilt_quote.quote_uri[0] == '\0');
+    assert(rebuilt_quote.quote_uri == std::string("at://did:plc:other/app.bsky.feed.post/3k2"));
+    const auto rebuilt_top = recovered.ledger_context(0u);
+    assert(rebuilt_top.reply_root_uri[0] == '\0' && rebuilt_top.quote_uri[0] == '\0');
 }
 
 /* ---------------------------------------------------------------- */

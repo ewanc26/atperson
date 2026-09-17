@@ -72,6 +72,24 @@ LedgerResult Ledger::append(std::string_view source_id, std::string_view author_
     return to_result(result);
 }
 
+LedgerResult Ledger::append(std::string_view source_id, std::string_view author_did,
+                            std::uint64_t observed_at, std::uint64_t content_digest,
+                            std::uint32_t schema_version, atp_ledger_outcome outcome,
+                            std::string_view payload, const ConversationContext &context,
+                            std::uint64_t *out_id) {
+    const std::string owned_source(source_id);
+    const std::string owned_author(author_did);
+    const atp_conversation_context raw_context = to_c_conversation_context(context);
+    atp_status status = ATP_OK;
+    atp_ledger_result result =
+        atp_ledger_append_with_context(ledger_, owned_source.c_str(), owned_author.c_str(),
+                                       observed_at, content_digest, schema_version, outcome,
+                                       payload.data(), payload.size(), &raw_context, out_id,
+                                       &status);
+    require(status, "append ledger entry");
+    return to_result(result);
+}
+
 void Ledger::set_outcome(std::uint64_t id, atp_ledger_outcome outcome) {
     require(atp_ledger_set_outcome(ledger_, id, outcome), "set ledger outcome");
 }
@@ -118,6 +136,12 @@ std::string Ledger::payload(std::uint64_t id) const {
     require(atp_ledger_entry_payload(ledger_, id, result.data(), result.size(), &length),
             "read ledger payload");
     return result;
+}
+
+atp_conversation_context Ledger::entry_context(std::uint64_t id) const {
+    atp_conversation_context context = {};
+    require(atp_ledger_entry_context(ledger_, id, &context), "read ledger entry context");
+    return context;
 }
 
 atp_compact_report Ledger::compact() {

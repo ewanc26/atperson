@@ -4,6 +4,7 @@
 #include "atperson/action.h"
 #include "atperson/action.hpp"
 #include "atperson/context.h"
+#include "atperson/conversation.hpp"
 #include "atperson/core.h"
 
 #include <cstddef>
@@ -23,19 +24,6 @@ struct Association {
     float score{};
     std::uint64_t observations{};
     std::uint64_t last_source_hash{};
-};
-
-/* Stable conversational identifiers for one observation (issue #24).
- * Planning metadata, not learnable content: the reply root/parent URIs and
- * quote target identify what a post responds to without flattening thread
- * structure into text. Context rides with the mirrored ledger entry for
- * later planning and audit; it is never trained on. Empty strings mean the
- * identifier is absent (a top-level post, a non-quote, or a parent deleted
- * before the fetch). */
-struct ConversationContext {
-    std::string reply_root_uri;
-    std::string reply_parent_uri;
-    std::string quote_uri;
 };
 
 class LanguageGraph {
