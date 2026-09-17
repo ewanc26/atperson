@@ -264,6 +264,12 @@ std::vector<std::uint64_t> LanguageGraph::episode_group_members(std::uint32_t gr
     return result;
 }
 
+atp_plasticity_report LanguageGraph::plasticity_report() const {
+    atp_plasticity_report report = {0};
+    require(atp_graph_plasticity_report(graph_, &report), "read plasticity report");
+    return report;
+}
+
 float LanguageGraph::familiarity(std::string_view token) const noexcept {
     const std::string owned_token(token);
     return atp_graph_familiarity(graph_, owned_token.c_str());

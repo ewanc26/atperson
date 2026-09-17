@@ -4,7 +4,81 @@
 #include <stdio.h>
 #include <string.h>
 
+static void test_plasticity_control(void) {
+    /* 1. Default config: plasticity control is disabled. */
+    atp_graph_config config = atp_graph_default_config();
+    assert(config.enable_plasticity_control == false);
+    config.seed = 100u;
+
+    atp_graph *g_off = atp_graph_create(&config);
+    assert(g_off != NULL);
+    assert(atp_graph_observe_text(g_off, "alpha beta gamma", "at://1") == ATP_OK);
+
+    atp_plasticity_report report_off = {0};
+    assert(atp_graph_plasticity_report(g_off, &report_off) == ATP_OK);
+    assert(report_off.steps_total == 0u);
+    assert(report_off.steps_protected == 0u);
+    assert(report_off.parameters_protected == 0u);
+    atp_graph_destroy(g_off);
+
+    /* 2. Plasticity control enabled: repeated training accumulates importance. */
+    config.enable_plasticity_control = true;
+    config.plasticity_threshold = 0.05f;
+    config.plasticity_scale = 0.0f; /* full protection when threshold exceeded */
+
+    atp_graph *g_on = atp_graph_create(&config);
+    assert(g_on != NULL);
+
+    for (int i = 0; i < 25; ++i) {
+        assert(atp_graph_observe_text(g_on, "alpha beta gamma delta", "at://batch") == ATP_OK);
+    }
+
+    atp_plasticity_report report_on = {0};
+    assert(atp_graph_plasticity_report(g_on, &report_on) == ATP_OK);
+    assert(report_on.steps_total > 0u);
+    assert(report_on.steps_protected > 0u);
+    assert(report_on.parameters_protected > 0u);
+
+    atp_association assoc_before[4] = {0};
+    size_t assoc_count = 0u;
+    assert(atp_graph_associations(g_on, "alpha", assoc_before, 4u, &assoc_count) == ATP_OK);
+    assert(assoc_count > 0u);
+    float initial_beta_score = assoc_before[0].score;
+
+    /* Observe a new conflicting sequence "alpha zebra". Protected parameters scale down update. */
+    for (int i = 0; i < 20; ++i) {
+        assert(atp_graph_observe_text(g_on, "alpha zebra", "at://conflicting") == ATP_OK);
+    }
+
+    atp_association assoc_after[4] = {0};
+    assert(atp_graph_associations(g_on, "alpha", assoc_after, 4u, &assoc_count) == ATP_OK);
+    assert(assoc_count > 0u);
+
+    /* 3. Rebuild/repeat determinism test. */
+    atp_graph *g_replay = atp_graph_create(&config);
+    for (int i = 0; i < 25; ++i) {
+        assert(atp_graph_observe_text(g_replay, "alpha beta gamma delta", "at://batch") == ATP_OK);
+    }
+    for (int i = 0; i < 20; ++i) {
+        assert(atp_graph_observe_text(g_replay, "alpha zebra", "at://conflicting") == ATP_OK);
+    }
+
+    atp_plasticity_report report_replay = {0};
+    assert(atp_graph_plasticity_report(g_replay, &report_replay) == ATP_OK);
+    atp_plasticity_report report_final = {0};
+    assert(atp_graph_plasticity_report(g_on, &report_final) == ATP_OK);
+
+    assert(report_replay.steps_total == report_final.steps_total);
+    assert(report_replay.steps_protected == report_final.steps_protected);
+    assert(report_replay.parameters_protected == report_final.parameters_protected);
+
+    atp_graph_destroy(g_on);
+    atp_graph_destroy(g_replay);
+}
+
 int main(void) {
+    test_plasticity_control();
+
     atp_graph_config config = atp_graph_default_config();
     config.seed = 42u;
 

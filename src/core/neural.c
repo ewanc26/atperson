@@ -101,22 +101,112 @@ float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target,
     }
 
     const float rate = graph->config.learning_rate;
+    const bool plasticity = graph->config.enable_plasticity_control;
+    const float threshold = graph->config.plasticity_threshold > 0.0f
+                                ? graph->config.plasticity_threshold
+                                : 0.5f;
+    const float scale = graph->config.plasticity_scale >= 0.0f
+                            ? graph->config.plasticity_scale
+                            : 0.1f;
+
+    bool step_was_protected = false;
+    if (plasticity) {
+        graph->plasticity_steps_total++;
+    }
+
     for (size_t h = 0; h < ATPERSON_HIDDEN_DIM; ++h) {
-        graph->network.hidden_output[h] -=
-            rate * output_gradient * hidden[h];
-        graph->network.hidden_bias[h] -= rate * hidden_gradient[h];
+        const float grad_out = output_gradient * hidden[h];
+        float rate_out = rate;
+        if (plasticity && graph->network.hidden_output_importance[h] > threshold) {
+            rate_out *= scale;
+            graph->plasticity_parameters_protected++;
+            step_was_protected = true;
+        }
+        graph->network.hidden_output[h] -= rate_out * grad_out;
+        if (plasticity) {
+            graph->network.hidden_output_importance[h] += fabsf(grad_out);
+        }
+
+        const float grad_bias = hidden_gradient[h];
+        float rate_bias = rate;
+        if (plasticity && graph->network.hidden_bias_importance[h] > threshold) {
+            rate_bias *= scale;
+            graph->plasticity_parameters_protected++;
+            step_was_protected = true;
+        }
+        graph->network.hidden_bias[h] -= rate_bias * grad_bias;
+        if (plasticity) {
+            graph->network.hidden_bias_importance[h] += fabsf(grad_bias);
+        }
+
         for (size_t i = 0; i < ATPERSON_INPUT_DIM; ++i) {
-            graph->network.input_hidden[h][i] -=
-                rate * hidden_gradient[h] * input[i];
+            const float grad_in = hidden_gradient[h] * input[i];
+            float rate_in = rate;
+            if (plasticity && graph->network.input_hidden_importance[h][i] > threshold) {
+                rate_in *= scale;
+                graph->plasticity_parameters_protected++;
+                step_was_protected = true;
+            }
+            graph->network.input_hidden[h][i] -= rate_in * grad_in;
+            if (plasticity) {
+                graph->network.input_hidden_importance[h][i] += fabsf(grad_in);
+            }
         }
     }
-    graph->network.output_bias -= rate * output_gradient;
+
+    {
+        const float grad_ob = output_gradient;
+        float rate_ob = rate;
+        if (plasticity && graph->network.output_bias_importance > threshold) {
+            rate_ob *= scale;
+            graph->plasticity_parameters_protected++;
+            step_was_protected = true;
+        }
+        graph->network.output_bias -= rate_ob * grad_ob;
+        if (plasticity) {
+            graph->network.output_bias_importance += fabsf(grad_ob);
+        }
+    }
 
     for (size_t i = 0; i < ATPERSON_EMBEDDING_DIM; ++i) {
-        graph->nodes[source].embedding[i] -= rate * input_gradient[i];
-        graph->nodes[target].embedding[i] -=
-            rate * input_gradient[ATPERSON_EMBEDDING_DIM + i];
+        const float grad_src = input_gradient[i];
+        float rate_src = rate;
+        if (plasticity && graph->nodes[source].embedding_importance[i] > threshold) {
+            rate_src *= scale;
+            graph->plasticity_parameters_protected++;
+            step_was_protected = true;
+        }
+        graph->nodes[source].embedding[i] -= rate_src * grad_src;
+        if (plasticity) {
+            graph->nodes[source].embedding_importance[i] += fabsf(grad_src);
+        }
+
+        const float grad_tgt = input_gradient[ATPERSON_EMBEDDING_DIM + i];
+        float rate_tgt = rate;
+        if (plasticity && graph->nodes[target].embedding_importance[i] > threshold) {
+            rate_tgt *= scale;
+            graph->plasticity_parameters_protected++;
+            step_was_protected = true;
+        }
+        graph->nodes[target].embedding[i] -= rate_tgt * grad_tgt;
+        if (plasticity) {
+            graph->nodes[target].embedding_importance[i] += fabsf(grad_tgt);
+        }
+    }
+
+    if (plasticity && step_was_protected) {
+        graph->plasticity_steps_protected++;
     }
 
     return loss;
+}
+
+atp_status atp_graph_plasticity_report(const atp_graph *graph, atp_plasticity_report *out_report) {
+    if (!graph || !out_report) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    out_report->steps_total = graph->plasticity_steps_total;
+    out_report->steps_protected = graph->plasticity_steps_protected;
+    out_report->parameters_protected = graph->plasticity_parameters_protected;
+    return ATP_OK;
 }

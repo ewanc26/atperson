@@ -183,7 +183,21 @@ typedef struct atp_graph_config {
      */
     size_t node_capacity_max;
     size_t edge_capacity_max;
+    /*
+     * Plasticity control (issue #59). Mitigates catastrophic forgetting in
+     * online scorer parameter and embedding updates. Off by default (false/0.0).
+     */
+    bool enable_plasticity_control;
+    float plasticity_threshold;
+    float plasticity_scale;
 } atp_graph_config;
+
+/** Statistics for online scorer plasticity control (issue #59). */
+typedef struct atp_plasticity_report {
+    uint64_t steps_total;
+    uint64_t steps_protected;
+    uint64_t parameters_protected;
+} atp_plasticity_report;
 
 typedef struct atp_graph_stats {
     size_t node_count;
@@ -285,6 +299,9 @@ atp_status atp_graph_observe_text(atp_graph *graph, const char *text, const char
 
 /** Read aggregate graph/training statistics. */
 atp_graph_stats atp_graph_get_stats(const atp_graph *graph);
+
+/** Read plasticity control statistics (issue #59). */
+atp_status atp_graph_plasticity_report(const atp_graph *graph, atp_plasticity_report *out_report);
 
 /**
  * Return the strongest outgoing associations for `token`.

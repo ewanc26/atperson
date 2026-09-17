@@ -45,6 +45,7 @@ typedef struct atp_node {
     /* Exponentially weighted exposure score; updated on every observation. */
     float familiarity;
     float embedding[ATPERSON_EMBEDDING_DIM];
+    float embedding_importance[ATPERSON_EMBEDDING_DIM];
 } atp_node;
 
 typedef struct atp_edge {
@@ -89,6 +90,10 @@ typedef struct atp_network {
     float hidden_bias[ATPERSON_HIDDEN_DIM];
     float hidden_output[ATPERSON_HIDDEN_DIM];
     float output_bias;
+    float input_hidden_importance[ATPERSON_HIDDEN_DIM][ATPERSON_INPUT_DIM];
+    float hidden_bias_importance[ATPERSON_HIDDEN_DIM];
+    float hidden_output_importance[ATPERSON_HIDDEN_DIM];
+    float output_bias_importance;
 } atp_network;
 
 struct atp_graph {
@@ -154,6 +159,11 @@ struct atp_graph {
     uint64_t training_steps;
     double loss_total;
     uint64_t capacity_rejections;
+
+    /* Plasticity statistics (issue #59). */
+    uint64_t plasticity_steps_total;
+    uint64_t plasticity_steps_protected;
+    uint64_t plasticity_parameters_protected;
 };
 
 uint64_t atp_rng_next(atp_graph *graph);
