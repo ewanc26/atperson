@@ -222,6 +222,22 @@ std::optional<JournalActionOutcome> journal_action_outcome_from_name(std::string
     return std::nullopt;
 }
 
+std::optional<atp_valence_kind> valence_kind_from_name(std::string_view name) {
+    if (name == "action") {
+        return ATP_VALENCE_ACTION;
+    }
+    if (name == "interaction") {
+        return ATP_VALENCE_INTERACTION;
+    }
+    if (name == "approach") {
+        return ATP_VALENCE_APPROACH;
+    }
+    if (name == "avoid") {
+        return ATP_VALENCE_AVOID;
+    }
+    return std::nullopt;
+}
+
 std::string serialise_journal_action(const JournalAction &entry) {
     Json root(cJSON_CreateObject());
     if (!root) {

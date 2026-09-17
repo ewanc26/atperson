@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
             return atperson::cli::run_rebuild(
                 std::cout, resource_status, atperson::cli::data_dir(),
                 atperson::cli::ledger_path(), path, resource_paths, resource_overrides,
-                print_stats);
+                atperson::cli::action_journal_path(), print_stats);
         }
 
         if (command == "compact") {

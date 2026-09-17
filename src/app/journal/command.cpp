@@ -62,22 +62,6 @@ void print_valence(std::ostream &out, const JournalContents &journal,
     }
 }
 
-[[nodiscard]] std::optional<atp_valence_kind> parse_valence_kind(std::string_view name) {
-    if (name == "action") {
-        return ATP_VALENCE_ACTION;
-    }
-    if (name == "interaction") {
-        return ATP_VALENCE_INTERACTION;
-    }
-    if (name == "approach") {
-        return ATP_VALENCE_APPROACH;
-    }
-    if (name == "avoid") {
-        return ATP_VALENCE_AVOID;
-    }
-    return std::nullopt;
-}
-
 [[nodiscard]] std::optional<float> parse_signal(std::string_view text) {
     try {
         const std::string owned(text);
@@ -126,7 +110,7 @@ int run_journal_command(std::ostream &out, LanguageGraph &graph,
             return 2;
         }
         const std::string token(arguments[0]);
-        const std::optional<atp_valence_kind> kind = parse_valence_kind(arguments[1]);
+        const std::optional<atp_valence_kind> kind = valence_kind_from_name(arguments[1]);
         if (!kind.has_value()) {
             return 2;
         }

@@ -6,7 +6,10 @@
 
 #include "ledger.hpp"
 
+#include "atperson/core.h"
+#include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
+#include "journal/store.hpp"
 #include "lock.hpp"
 
 #include <cstdint>
@@ -28,6 +31,7 @@ int run_rebuild(
     const std::filesystem::path &model_path,
     const std::vector<std::filesystem::path> &resource_paths,
     const ResourceOverrides &resource_overrides,
+    const std::filesystem::path &journal_file,
     const std::function<void(const LanguageGraph &)> &print_stats) {
     atperson::require_runtime_write_headroom(resource_status);
     const atperson::StateLock writer_lock(data_dir);
@@ -41,11 +45,29 @@ int run_rebuild(
         rebuilt, resource_paths, resource_overrides);
     atperson::require_runtime_write_headroom(rebuild_resources);
     const auto report = rebuilt.replay(ledger);
+
+    /* Replay the journal's explicit valence events after the ledger so the
+     * rebuilt state includes experience-derived valence. The journal is the
+     * authority for self-authored experience; the ledger is the authority for
+     * third-party observation. Replay order is deterministic: ledger entries
+     * in id order, then journal valence entries in append order. */
+    const JournalContents journal = atperson::load_journal(journal_file);
+    for (const JournalValence &entry : journal.valence) {
+        const std::optional<atp_valence_kind> kind = valence_kind_from_name(entry.kind);
+        if (!kind.has_value()) {
+            throw std::runtime_error("journal valence entry has unknown kind '" +
+                                     entry.kind + "'");
+        }
+        rebuilt.valence_event(entry.token, kind.value(), entry.signal,
+                              entry.at_epoch, entry.source);
+    }
+
     rebuilt.save(model_path);
     out << "replayed " << report.replayed << " observation(s) from the ledger"
         << " (mirrored " << report.mirrored << " skipped, excluded "
         << report.excluded_pending << " pending, " << report.excluded_failed
         << " failed, " << report.excluded_withdrawn << " withdrawn)\n";
+    out << "replayed " << journal.valence.size() << " valence event(s) from the journal\n";
     print_stats(rebuilt);
     return 0;
 }

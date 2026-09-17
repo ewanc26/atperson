@@ -33,6 +33,7 @@ int run_rebuild(std::ostream &out, const RuntimeResourceStatus &resource_status,
                 const std::filesystem::path &model_path,
                 const std::vector<std::filesystem::path> &resource_paths,
                 const ResourceOverrides &resource_overrides,
+                const std::filesystem::path &journal_file,
                 const std::function<void(const LanguageGraph &)> &print_stats);
 
 int run_compact(std::ostream &out, const RuntimeResourceStatus &resource_status,

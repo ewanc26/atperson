@@ -40,6 +40,8 @@
 // impossible field combinations; std::runtime_error for I/O failure. A failed
 // append is reported loudly and never rewrites earlier entries.
 
+#include "atperson/core.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -60,6 +62,11 @@ enum class JournalActionOutcome { Executed, Denied, Deferred, Failed, DryRun };
 [[nodiscard]] const char *journal_action_outcome_name(JournalActionOutcome outcome) noexcept;
 [[nodiscard]] std::optional<JournalActionOutcome>
 journal_action_outcome_from_name(std::string_view name);
+
+/* Map a valence kind name ("action", "interaction", "approach", "avoid") to
+ * the C23 atp_valence_kind enum. Symmetric to journal_action_outcome_from_name
+ * and used by the journal apply command. Unknown names return nullopt. */
+[[nodiscard]] std::optional<atp_valence_kind> valence_kind_from_name(std::string_view name);
 
 /* One attempted outbound action. `id` is the frozen rkey from the #25 action
  * document: stable up front, idempotent under putRecord retry, and the tail
