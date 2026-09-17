@@ -5,6 +5,7 @@
 #include "cli/config.hpp"
 #include "cli/control.hpp"
 #include "cli/cursor.hpp"
+#include "cli/daemon.hpp"
 #include "cli/graph.hpp"
 #include "cli/ingest.hpp"
 #include "cli/ledger.hpp"
@@ -119,7 +120,6 @@ int main(int argc, char **argv) {
             const std::string sub = argc >= 3 ? argv[2] : "status";
             const std::string argument = argc >= 4 ? argv[3] : "";
             return atperson::cli::run_control(std::cout, resource_status,
-                                              atperson::cli::data_dir(),
                                               atperson::cli::control_state_path(), sub,
                                               argument);
         }
@@ -230,6 +230,15 @@ int main(int argc, char **argv) {
                                           atperson::cli::ledger_path(),
                                           atperson::cli::ingestion_state_path(), max_pages,
                                           print_stats);
+        }
+
+        if (command == "daemon") {
+            const int max_cycles =
+                argc >= 3 ? atperson::cli::parse_limit(argv[2], 0) : 0;
+            return atperson::cli::run_daemon_command(
+                std::cout, std::cerr, resource_status, atperson::cli::data_dir(), graph,
+                path, atperson::cli::ledger_path(), atperson::cli::ingestion_state_path(),
+                max_cycles, print_stats);
         }
 
         usage(std::cerr);

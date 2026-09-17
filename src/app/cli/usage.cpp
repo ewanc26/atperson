@@ -20,6 +20,7 @@ void print_usage(std::ostream &out) {
         << "  atperson familiarity <token>\n"
         << "  atperson recall <query> [limit]\n"
         << "  atperson sync [max-pages]\n"
+        << "  atperson daemon [max-cycles]\n"
         << "  atperson rebuild\n"
         << "  atperson compact\n"
         << "  atperson withdraw <id|source|author> <target>\n"
@@ -44,13 +45,25 @@ void print_usage(std::ostream &out) {
         << "  ATPERSON_SYNC_PAGE_SIZE        items per timeline page (default auto)\n"
         << "  ATPERSON_SYNC_MAX_OBSERVATIONS per-run sync observation budget (default auto)\n"
         << "  ATPERSON_SERVICE       PDS/service URL (default https://bsky.social)\n"
-        << "  ATPERSON_IDENTIFIER    handle or email for sync\n"
-        << "  ATPERSON_APP_PASSWORD  app password for sync\n\n"
+        << "  ATPERSON_IDENTIFIER    handle or email for sync/daemon\n"
+        << "  ATPERSON_APP_PASSWORD  app password for sync/daemon\n\n"
+        << "  ATPERSON_DAEMON_PAGES_PER_CYCLE  pages per daemon sync cycle (default 1)\n"
+        << "  ATPERSON_DAEMON_POLL_MS          wait after an exhausted cycle "
+           "(default 300000)\n"
+        << "  ATPERSON_DAEMON_CATCHUP_MS       wait while catch-up is pending (default 0)\n"
+        << "  ATPERSON_DAEMON_MAX_CYCLES       stop after N cycles (default 0 = unbounded)\n"
+        << "  ATPERSON_DAEMON_SNAPSHOT_EVERY   snapshot cadence in cycles (default 1)\n"
+        << "  ATPERSON_DAEMON_BACKOFF_INITIAL_MS  first retry delay (default 1000)\n"
+        << "  ATPERSON_DAEMON_BACKOFF_MAX_MS      retry delay ceiling (default 300000)\n"
+        << "  ATPERSON_DAEMON_BACKOFF_FACTOR      exponential retry factor (default 2.0)\n"
+        << "  ATPERSON_DAEMON_BACKOFF_JITTER      jitter fraction in [0,1] (default 0.2)\n\n"
         << "  ATPERSON_TYPESAFE_API_KEY   opt-in key for the advisory `audit` command\n"
         << "  ATPERSON_TYPESAFE_ENDPOINT  advisory audit endpoint "
            "(default https://api.typesafe.ai/v1/systemone)\n\n"
-        << "mutating commands take an exclusive lock on the data directory;\n"
-        << "read-only commands run without it and see state as of their read\n";
+        << "state-mutating commands (ingest, ingest-file, sync, cursor reset, rebuild,\n"
+        << "compact, withdraw, daemon) take an exclusive lock on the data directory;\n"
+        << "read-only commands and operator `control` run without it and see state as\n"
+        << "of their read, so a running daemon can still be paused or shut down\n";
 }
 
 } // namespace cli
