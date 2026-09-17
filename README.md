@@ -22,6 +22,37 @@ publish autonomously. The aim is to make learning, memory, state, and eventual
 behaviour durable and inspectable so that development does not collapse into a
 hidden LLM prompt pretending to be a persistent individual.
 
+Autonomous posts, replies, likes, follows, reposts, DMs and moderation are
+not yet implemented and remain fail-closed. They are an explicit roadmap goal,
+not a permanent absence: the outbound policy, rate budgets and Wolfram-backed
+write path that would gate them are being built deliberately, and no such
+behaviour will ship before those controls are in place and tested.
+
+## `atperson` vs `digital-person`
+
+`atperson` and [ewanc26/digital-person](https://github.com/ewanc26/digital-person)
+are both about persistent digital presence on the AT Protocol, but they sit at
+opposite ends of the design space and are not interchangeable:
+
+| | `atperson` | `digital-person` |
+| --- | --- | --- |
+| **What it is** | A learning substrate: a C23 language graph, neural scorer, and observation ledger that grows from experience | An orchestration framework: a Letta agent with persistent memory blocks and platform adapters |
+| **Persona** | Starts empty. No biography, opinions, favourite things, or voice. Nothing is seeded. | Starts authored. Each `person/<name>/` has a filled `persona.md` — name, background, opinions, quirks |
+| **Voice** | None. There is no text generation layer at all. | Explicitly specified in `voice.md` — registers, cadence, human tells, imperfection as a signal |
+| **Memory** | Counters, familiarity, valence, and deterministic episodic recall over a replayable ledger | Letta memory blocks: long-term social context and relationship history |
+| **Learning** | Online gradient descent on a 16D embedding + tanh scorer, trained from observations | None — the agent's behaviour is shaped by its persona files and prompt, not by experience |
+| **Reconstructability** | Every learned state is rebuildable from the durable observation ledger; snapshots are versioned and validated | Memory blocks are persistent but not replayable from an authoritative event stream |
+| **Outbound** | Operator-led `publish` of a frozen, approved action document. Autonomous posts, replies, likes, follows, reposts, DMs and moderation are fail-closed and gated behind outbound policy, rate budgets and the Wolfram-backed write path | Autonomous cross-platform presence: posts, replies, blogs, email, Telegram. Posts when it has something to say |
+| **Language** | C23 core, C++23 runtime, Wolfram for AT Protocol mechanics | Python, Letta (formerly MemGPT), custom agent wrappers |
+| **Honesty at the boundary** | Not applicable — there is no claim to personhood | Explicit: if asked directly "are you AI?", the agent says yes |
+| **Status** | Experimental learning engine. Network path is read-only for ingestion | Experimental orchestration. Deployed person `faol` is live |
+
+The short version: `digital-person` is a *persona to run*, `atperson` is a
+*learner to grow*. They are complementary rather than competing — `atperson`
+could one day supply the experience-derived state that a `digital-person`-style
+orchestrator consumes, but it deliberately does not start with the biography,
+voice, or opinions that `digital-person` treats as the foundation of a person.
+
 ## Status
 
 The project now has working implementations for the first five architectural
