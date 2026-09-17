@@ -368,6 +368,20 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson_sync_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson_sync COMMAND atperson_sync_test)
 
+  # Deterministic end-to-end lifecycle harness (issue #28): multi-run
+  # scenarios over the real ledger/snapshot/state files with a scripted
+  # feed fixture — restarts, crash recovery, withdrawal flows, planning
+  # abstention, and cross-run determinism. Offline, no network.
+  add_executable(
+    atperson_e2e_test
+    tests/e2e_harness.cpp
+    src/app/ingestion/policy.cpp
+    src/app/ingestion/state.cpp
+    src/app/sync/engine.cpp)
+  target_link_libraries(atperson_e2e_test PRIVATE atperson_cpp)
+  target_include_directories(atperson_e2e_test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson_e2e COMMAND atperson_e2e_test)
+
   # Ingestion policy: every skip class produces the documented reason and
   # eligible classes are tagged (repost/reply). Offline, no network.
   add_executable(
