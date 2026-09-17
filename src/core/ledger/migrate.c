@@ -179,8 +179,6 @@ static bool atp_grow_legacy_entries(atp_ledger_entry **entries, unsigned char **
 
 atp_status atp_ledger_migrate(atp_ledger *ledger, unsigned source_version) {
     const bool is_v1 = source_version == ATP_LEDGER_V1_VERSION;
-    const unsigned char file_magic_7 =
-        is_v1 ? ATP_LEDGER_V1_FILE_MAGIC_7 : ATP_LEDGER_V2_FILE_MAGIC_7;
     const unsigned char off_magic_7 =
         is_v1 ? ATP_LEDGER_V1_OFF_MAGIC_7 : ATP_LEDGER_V2_OFF_MAGIC_7;
     const size_t body_limit =

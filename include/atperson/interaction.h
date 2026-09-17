@@ -90,7 +90,7 @@ static inline atp_status atp_graph_interaction_lookup(const atp_graph *graph,
     uint64_t last_seen_at = 0u;
     const size_t ledger_count = atp_graph_ledger_count(graph);
     for (size_t i = 0u; i < ledger_count; ++i) {
-        atp_ledger_entry entry = {0};
+        atp_ledger_entry entry = {};
         const atp_status status = atp_graph_ledger_entry(graph, i, &entry);
         if (status != ATP_OK) {
             return status;
@@ -121,7 +121,7 @@ static inline atp_status atp_graph_interaction_lookup(const atp_graph *graph,
     uint64_t remembered = 0u;
     const size_t episode_count = atp_graph_episode_count(graph);
     for (size_t i = 0u; i < episode_count; ++i) {
-        atp_episode episode = {0};
+        atp_episode episode = {};
         const atp_status status = atp_graph_episode_at(graph, i, &episode);
         if (status != ATP_OK) {
             return status;
