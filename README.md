@@ -43,6 +43,7 @@ stages, with later stages intentionally incomplete:
 | Tokenization contract | Implemented | Schema-versioned Unicode tokenizer (utf8proc): NFKC_Casefold equivalence, category-based boundaries, UTF-8 sanitization; one implementation behind observation, action context, recall, and lookup |
 | Growth bounds | Implemented | O(1) hash indexes for node and edge lookup, configurable node/edge ceilings with whole-observation `ATP_ERR_CAPACITY` rejection, scale benchmarks (`ctest -L bench`) |
 | Long-running runtime | Implemented | `atperson daemon` runs repeated bounded cycles with retry backoff, snapshot cadence and graceful shutdown over the same ledger/cursor; operator `control` stays usable alongside it (see [`docs/daemon.md`](docs/daemon.md)) |
+| Outbound action policy | Implemented (inspection/admission only) | Default-deny per-kind policy with durable rate budgets, duplicate suppression and inspectable `allow`/`deny`/`defer` reasons; no network writes (see [`docs/outbound-policy.md`](docs/outbound-policy.md)) |
 
 The model begins with **zero words and zero relationships**. Neural parameters
 have small deterministic random initial values so learning can start, but there
@@ -353,8 +354,31 @@ distinguishable from never-fetched, and timeline replays remain idempotent.
 `sync` remains an explicitly-invoked, bounded run; `daemon` wraps the same
 traversal in a continuous loop. Network behaviour is still read-only: the
 runtime ingests public data and does not autonomously like, follow, reply,
-repost, or publish. Autonomous output still waits on explicit action policy
-and a Wolfram-backed write path.
+repost, or publish. Autonomous output still waits on a Wolfram-backed write
+path; the outbound policy below is the decision layer that path must call.
+
+### Outbound action policy
+
+An accepted core plan is evidence, never permission. The outbound layer gives
+the runtime its own action vocabulary (`post`, `reply`, `like`, `repost`,
+`follow`, `unfollow`, `moderation`) and evaluates operator-authored policy and
+durable rate budgets before any write. It is **default-deny**: a missing
+policy file disables every kind. Decisions are `allow`, `deny` or `defer`
+with stable reason codes (`kind_disabled`, `unsupported_kind`,
+`duplicate_suppressed`, `cooldown_active`, `window_exhausted`), and every
+decision carries the budget state behind it. Rate budgets survive restart, so
+a crash cannot reset a window and permit a burst.
+
+```sh
+./build/atperson outbound status          # enabled/disabled and current budget per kind
+./build/atperson outbound rules           # the effective policy document
+./build/atperson outbound evaluate reply at://did:plc:…/app.bsky.feed.post/… <digest>
+./build/atperson outbound admit reply at://did:plc:…/app.bsky.feed.post/… <digest>
+```
+
+`evaluate` is read-only; `admit` consumes budget only on `allow` and
+persists it. Both report the operator `control` gate and perform no network
+writes. See [`docs/outbound-policy.md`](docs/outbound-policy.md).
 
 Mutating commands (`ingest`, `ingest-file`, `sync`, `cursor reset`,
 `rebuild`, `compact`, `withdraw`, `daemon`) take an exclusive writer lock on

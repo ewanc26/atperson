@@ -95,6 +95,12 @@ state is runtime metadata outside the state set, and an operator must be able
 to pause or request shutdown while a daemon owns the lock; control saves are
 atomic, so concurrent operator use stays self-consistent.
 
+The `outbound` policy and rate-budget commands follow the same rule: the
+outbound policy file and budget state are runtime metadata outside the state
+set, so `atperson outbound` evaluates, admits and persists budgets without the
+writer lock while a daemon runs. Admission is a single serialisation point;
+see [`docs/outbound-policy.md`](outbound-policy.md).
+
 Stale detection: a lockfile whose owner pid is dead, or whose boot marker
 differs from the current boot (the machine rebooted), is provably stale and
 reclaimed. A lockfile owned by a live process is respected — acquisition
