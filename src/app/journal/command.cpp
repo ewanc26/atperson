@@ -13,6 +13,7 @@
 #include "lock.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <iomanip>
 #include <ios>
