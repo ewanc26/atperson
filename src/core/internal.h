@@ -32,6 +32,13 @@ bool atp_edge_index_maybe_grow(atp_graph *graph);
 void atp_edge_index_insert(atp_graph *graph, uint32_t edge_index);
 bool atp_graph_rebuild_indexes(atp_graph *graph);
 
+/* Derived episode group index (issue #55), src/core/graph/groups.c. */
+bool atp_episode_groups_rebuild(atp_graph *graph);
+bool atp_episode_groups_append(atp_graph *graph);
+void atp_episode_groups_note_eviction(atp_graph *graph, size_t episode_index);
+uint32_t atp_episode_group_of(const atp_graph *graph, size_t episode_index);
+void atp_episode_groups_destroy(atp_graph *graph);
+
 typedef struct atp_node {
     char *token;
     uint64_t observations;
@@ -121,6 +128,17 @@ struct atp_graph {
     size_t episode_capacity; /* allocated buffer capacity */
     size_t episode_max;      /* configured upper bound */
     uint64_t episode_evictions;
+
+    /* Derived episode group index (issue #55). Membership is rebuilt from
+     * the episode array on load and on eviction; per-group eviction
+     * counters survive rebuilds keyed by group key. */
+    atp_episode_group *groups;
+    size_t group_count;
+    size_t group_capacity;
+    uint32_t *group_table_slots; /* key hash -> group id, linear probing */
+    size_t group_table_capacity; /* power of two, or 0 */
+    uint32_t *episode_group_ids;  /* parallel to episodes */
+    size_t group_member_capacity;
 
     atp_valence_record *valence_records;
     size_t valence_record_count;

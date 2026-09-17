@@ -20,6 +20,7 @@ void print_usage(std::ostream &out) {
         << "  atperson context <text> [source-id] [author-did]\n"
         << "  atperson familiarity <token>\n"
         << "  atperson recall <query> [limit] [min-overlap] [max-prefilter] [on|off]\n"
+        << "  atperson groups\n"
         << "  atperson sync [max-pages]\n"
         << "  atperson daemon [max-cycles]\n"
         << "  atperson rebuild\n"

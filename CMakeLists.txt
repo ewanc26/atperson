@@ -36,6 +36,7 @@ add_library(
   atperson-core
   src/core/graph/lifecycle.c
   src/core/graph/index.c
+  src/core/graph/groups.c
   src/core/graph/store.c
   src/core/graph/observe.c
   src/core/graph/query.c

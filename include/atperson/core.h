@@ -628,6 +628,25 @@ typedef struct atp_episode {
     char author_did[ATPERSON_LEDGER_AUTHOR_BYTES];
 } atp_episode;
 
+/** Distinct summary tokens tracked per episode group before the union is
+ * treated as saturated (always scanned, keeping the prefilter
+ * conservative). */
+#define ATPERSON_GROUP_TOKEN_MAX 32u
+
+/**
+ * One derived episode group (issue #55). Episodes whose summary-token sets
+ * are identical share a group. `key` is the FNV-1a hash of the summary node
+ * indices; `tokens` is the union of member summary tokens, used to prefilter
+ * recall. All fields are derived from persisted episode fields -- a rebuilt
+ * graph reproduces identical groups.
+ */
+typedef struct atp_episode_group {
+    uint64_t key;
+    uint32_t tokens[ATPERSON_GROUP_TOKEN_MAX];
+    uint32_t token_count;
+    uint64_t evictions;
+} atp_episode_group;
+
 /**
  * Learn from one textual observation and decide whether to remember it as an
  * episode (a single tokenisation pass).
@@ -668,13 +687,17 @@ typedef enum atp_recall_gate {
 } atp_recall_gate;
 
 /** Evidence for one recall call: how many episodes existed, were scanned,
- * matched with nonzero overlap, and survived the gate. */
+ * matched with nonzero overlap, and survived the gate. `groups_total` and
+ * `groups_scanned` report the group-index prefilter (issue #55): how many
+ * groups existed and how many survived the token-overlap prefilter. */
 typedef struct atp_recall_report {
     size_t episodes_total;
     size_t episodes_scanned;
     size_t episodes_matched;
     size_t episodes_returned;
     atp_recall_gate gate;
+    size_t groups_total;
+    size_t groups_scanned;
 } atp_recall_report;
 
 /**
@@ -692,6 +715,23 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
 
 /** Number of episodes currently in memory. */
 size_t atp_graph_episode_count(const atp_graph *graph);
+
+/**
+ * Derived episode groups (issue #55). `out` receives up to `capacity`
+ * groups; `*out_count` receives the total group count (which may exceed
+ * capacity). Groups are ordered by first member in episode insertion
+ * order. Membership is derived from persisted episode fields alone.
+ */
+atp_status atp_graph_episode_groups(const atp_graph *graph, atp_episode_group *out,
+                                    size_t capacity, size_t *out_count);
+
+/**
+ * Copy the ledger ids of the episodes in group `group_id`, in insertion
+ * order, into `out` (up to `capacity`); `*out_count` receives the member
+ * count. `ATP_ERR_NOT_FOUND` when the group id is out of range.
+ */
+atp_status atp_graph_episode_group_members(const atp_graph *graph, uint32_t group_id,
+                                           uint64_t *out, size_t capacity, size_t *out_count);
 
 /** Copy the i-th remembered episode (0-based, in insertion order). */
 atp_status atp_graph_episode_at(const atp_graph *graph, size_t index, atp_episode *out_episode);

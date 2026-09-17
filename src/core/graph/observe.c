@@ -218,12 +218,15 @@ static void atp_evict_episode(atp_graph *graph) {
             victim = i;
         }
     }
+    atp_episode_groups_note_eviction(graph, victim);
     if (victim + 1u < graph->episode_count) {
         memmove(&graph->episodes[victim], &graph->episodes[victim + 1u],
                 (graph->episode_count - victim - 1u) * sizeof(graph->episodes[0]));
     }
     graph->episode_count--;
     graph->episode_evictions++;
+    /* The memmove invalidated the parallel group-member array. */
+    (void)atp_episode_groups_rebuild(graph);
 }
 
 /* Episode-building variant of the observe walk: also counts distinct tokens
@@ -317,5 +320,9 @@ atp_status atp_graph_observe_with_memory(atp_graph *graph, const char *text, con
         return ATP_ERR_OUT_OF_MEMORY;
     }
     graph->episodes[graph->episode_count++] = episode;
+    /* Keep the derived group index in step with the appended episode. A
+     * failed append degrades recall to the linear scan (the index reads as
+     * absent), never to wrong results. */
+    (void)atp_episode_groups_append(graph);
     return ATP_OK;
 }

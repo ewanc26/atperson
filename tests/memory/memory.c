@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <string.h>
@@ -490,11 +491,154 @@ static void test_ranked_recall_ties_and_use_are_deterministic(void) {
     atp_graph_destroy(graph);
 }
 
+static void test_episode_groups(void) {
+    /* Empty graph: zero groups, recall report carries zero group counts. */
+    atp_graph *graph = graph_with_capacity(0u);
+    atp_episode_group groups[8] = {0};
+    size_t group_count = 0u;
+    assert(atp_graph_episode_groups(graph, groups, 8u, &group_count) == ATP_OK);
+    assert(group_count == 0u);
+
+    atp_recall_report report = {0};
+    atp_episode results[4] = {0};
+    size_t count = 0u;
+    assert(atp_graph_recall(graph, "anything", 10u, NULL, &report, results, 4u, &count) ==
+           ATP_OK);
+    assert(count == 0u);
+    assert(report.groups_total == 0u);
+    assert(report.groups_scanned == 0u);
+
+    /* Disjoint groups: distinct summary sets land in distinct groups. */
+    bool remembered = false;
+    assert(atp_graph_observe_with_memory(graph, "alpha beta", "at://t/1", "did:plc:a", 10u, 5001u,
+                                         ATPERSON_SCHEMA_VERSION, 1u, &remembered) == ATP_OK);
+    assert(atp_graph_observe_with_memory(graph, "alpha beta", "at://t/2", "did:plc:a", 20u, 5002u,
+                                         ATPERSON_SCHEMA_VERSION, 2u, &remembered) == ATP_OK);
+    assert(atp_graph_observe_with_memory(graph, "gamma delta", "at://t/3", "did:plc:a", 30u, 5003u,
+                                         ATPERSON_SCHEMA_VERSION, 3u, &remembered) == ATP_OK);
+    assert(atp_graph_episode_count(graph) == 3u);
+
+    assert(atp_graph_episode_groups(graph, groups, 8u, &group_count) == ATP_OK);
+    assert(group_count == 2u); /* {alpha,beta} twice, {gamma,delta} once */
+
+    /* Members are listed in insertion order with ledger ids. */
+    uint64_t members[4] = {0};
+    size_t member_count = 0u;
+    assert(atp_graph_episode_group_members(graph, 0u, members, 4u, &member_count) == ATP_OK);
+    assert(member_count == 2u);
+    assert(members[0] == 1u);
+    assert(members[1] == 2u);
+    assert(atp_graph_episode_group_members(graph, 1u, members, 4u, &member_count) == ATP_OK);
+    assert(member_count == 1u);
+    assert(members[0] == 3u);
+
+    /* Out-of-range group id is NOT_FOUND. */
+    assert(atp_graph_episode_group_members(graph, 9u, members, 4u, &member_count) ==
+           ATP_ERR_NOT_FOUND);
+
+    /* Group prefilter: a query overlapping only group 0 skips group 1. */
+    memset(&report, 0, sizeof(report));
+    count = 0u;
+    assert(atp_graph_recall(graph, "alpha", 40u, NULL, &report, results, 4u, &count) == ATP_OK);
+    assert(count == 2u);
+    assert(report.groups_total == 2u);
+    assert(report.groups_scanned == 1u);
+    /* Results identical to the linear scan: both alpha-beta episodes. */
+    assert(results[0].ledger_id == 2u);
+    assert(results[1].ledger_id == 1u);
+
+    /* A query overlapping nothing scans zero groups. */
+    memset(&report, 0, sizeof(report));
+    count = 0u;
+    assert(atp_graph_recall(graph, "omega absent", 41u, NULL, &report, results, 4u, &count) ==
+           ATP_OK);
+    assert(count == 0u);
+    assert(report.groups_total == 2u);
+    assert(report.groups_scanned == 0u);
+
+    atp_graph_destroy(graph);
+}
+
+static void test_episode_groups_snapshot_roundtrip_and_eviction(void) {
+    /* Groups are derived state: a snapshot round-trip reproduces them. */
+    atp_graph *graph = graph_with_capacity(3u);
+    bool remembered = false;
+    assert(atp_graph_observe_with_memory(graph, "alpha beta", "at://t/1", "did:plc:a", 10u, 6001u,
+                                         ATPERSON_SCHEMA_VERSION, 1u, &remembered) == ATP_OK);
+    assert(atp_graph_observe_with_memory(graph, "alpha beta", "at://t/2", "did:plc:a", 20u, 6002u,
+                                         ATPERSON_SCHEMA_VERSION, 2u, &remembered) == ATP_OK);
+    assert(atp_graph_observe_with_memory(graph, "gamma delta", "at://t/3", "did:plc:a", 30u, 6003u,
+                                         ATPERSON_SCHEMA_VERSION, 3u, &remembered) == ATP_OK);
+
+    char path[] = "atperson-groups-test.bin";
+    remove(path);
+
+    atp_graph *loaded = NULL;
+    atp_status status = ATP_OK;
+    assert(atp_graph_save(graph, path) == ATP_OK);
+    loaded = atp_graph_load(path, &status);
+    assert(loaded != NULL);
+    assert(status == ATP_OK);
+
+    atp_episode_group before[8] = {0};
+    atp_episode_group after[8] = {0};
+    size_t before_count = 0u;
+    size_t after_count = 0u;
+    assert(atp_graph_episode_groups(graph, before, 8u, &before_count) == ATP_OK);
+    assert(atp_graph_episode_groups(loaded, after, 8u, &after_count) == ATP_OK);
+    assert(before_count == after_count);
+    assert(before_count == 2u);
+    for (size_t g = 0u; g < before_count; ++g) {
+        assert(before[g].key == after[g].key);
+        assert(before[g].token_count == after[g].token_count);
+        for (uint32_t t = 0u; t < before[g].token_count; ++t) {
+            assert(before[g].tokens[t] == after[g].tokens[t]);
+        }
+    }
+
+    /* Recall on the loaded graph returns the same ranked episodes. */
+    atp_episode live_results[4] = {0};
+    atp_episode loaded_results[4] = {0};
+    size_t live_count = 0u;
+    size_t loaded_count = 0u;
+    assert(atp_graph_recall(graph, "alpha gamma", 50u, NULL, NULL, live_results, 4u,
+                           &live_count) == ATP_OK);
+    assert(atp_graph_recall(loaded, "alpha gamma", 50u, NULL, NULL, loaded_results, 4u,
+                           &loaded_count) == ATP_OK);
+    assert(live_count == loaded_count);
+    for (size_t i = 0u; i < live_count; ++i) {
+        assert(live_results[i].ledger_id == loaded_results[i].ledger_id);
+    }
+
+    /* Eviction with group membership: filling capacity evicts the
+     * least-recalled episode and keeps membership consistent. */
+    assert(atp_graph_observe_with_memory(loaded, "epsilon zeta", "at://t/4", "did:plc:a", 40u,
+                                         6004u, ATPERSON_SCHEMA_VERSION, 4u, &remembered) ==
+           ATP_OK);
+    assert(atp_graph_episode_count(loaded) == 3u); /* one eviction happened */
+    assert(atp_graph_episode_groups(loaded, after, 8u, &after_count) == ATP_OK);
+    size_t total_members = 0u;
+    for (size_t g = 0u; g < after_count; ++g) {
+        uint64_t members[4] = {0};
+        size_t member_count = 0u;
+        assert(atp_graph_episode_group_members(loaded, (uint32_t)g, members, 4u, &member_count) ==
+               ATP_OK);
+        total_members += member_count;
+    }
+    assert(total_members == 3u); /* every episode in exactly one group */
+
+    atp_graph_destroy(graph);
+    atp_graph_destroy(loaded);
+    remove(path);
+}
+
 int main(void) {
     test_selection_policy();
     test_recall_ordering_and_counters();
     test_recall_limit_and_empty();
     test_recall_gate_config();
+    test_episode_groups();
+    test_episode_groups_snapshot_roundtrip_and_eviction();
     test_eviction_prefers_least_recalled();
     test_snapshot_roundtrip();
     test_ranked_recall_surfaces_semantic_memory_with_components();

@@ -17,7 +17,7 @@ static bool atp_decode_header(atp_reader *reader, atp_graph_config *config, uint
     uint32_t hidden_dim = 0u;
     uint32_t input_dim = 0u;
     uint32_t episode_capacity = 0u;
-    return atp_reader_u32(reader, &embedding_dim) && embedding_dim == ATPERSON_EMBEDDING_DIM &&
+    const bool ok = atp_reader_u32(reader, &embedding_dim) && embedding_dim == ATPERSON_EMBEDDING_DIM &&
            atp_reader_u32(reader, &hidden_dim) && hidden_dim == ATPERSON_HIDDEN_DIM &&
            atp_reader_u32(reader, &input_dim) && input_dim == ATPERSON_INPUT_DIM &&
            atp_reader_u64(reader, &config->seed) &&
@@ -29,6 +29,10 @@ static bool atp_decode_header(atp_reader *reader, atp_graph_config *config, uint
            atp_reader_u64(reader, token_observations) &&
            atp_reader_u64(reader, training_steps) && atp_reader_f64(reader, loss_total) &&
            atp_reader_u64(reader, episode_evictions);
+    if (ok) {
+        config->episode_capacity = episode_capacity;
+    }
+    return ok;
 }
 
 bool atp_decode_network(atp_reader *reader, atp_graph *graph) {
@@ -400,6 +404,9 @@ atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *statu
         return atp_load_failure(graph, status, ATP_ERR_FORMAT);
     }
     if (!atp_graph_rebuild_indexes(graph)) {
+        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
+    }
+    if (!atp_episode_groups_rebuild(graph)) {
         return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
     }
 

@@ -147,6 +147,11 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
     }
 
     if (query_count == 0u) {
+        /* No known tokens: zero overlap with every group. */
+        if (report) {
+            report->groups_total = graph->group_count;
+            report->groups_scanned = 0u;
+        }
         free(query_nodes);
         return ATP_OK;
     }
@@ -165,13 +170,58 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
         report->episodes_scanned = scan_count;
     }
 
+    /* Group-index prefilter (issue #55): skip episodes whose group's union
+     * token set has zero overlap with the query. Conservative by
+     * construction -- a scoring episode's summary tokens are in its
+     * group's union -- so results are identical to the linear scan. Falls
+     * back to the linear scan when the index is absent or a surviving
+     * group's token set is saturated. */
+    uint8_t *scan_episode = NULL;
+    if (graph->episode_group_ids && graph->group_count > 0u) {
+        scan_episode = calloc(graph->episode_count, sizeof(*scan_episode));
+        if (scan_episode) {
+            size_t groups_scanned = 0u;
+            for (size_t g = 0u; g < graph->group_count; ++g) {
+                const atp_episode_group *group = &graph->groups[g];
+                bool overlap = group->token_count == ATPERSON_GROUP_TOKEN_MAX;
+                if (!overlap) {
+                    for (uint32_t t = 0u; t < group->token_count && !overlap; ++t) {
+                        for (size_t q = 0u; q < query_count; ++q) {
+                            if (group->tokens[t] == query_nodes[q]) {
+                                overlap = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!overlap) {
+                    continue;
+                }
+                groups_scanned++;
+                for (size_t i = 0u; i < graph->episode_count; ++i) {
+                    if (graph->episode_group_ids[i] == (uint32_t)g) {
+                        scan_episode[i] = 1u;
+                    }
+                }
+            }
+            if (report) {
+                report->groups_total = graph->group_count;
+                report->groups_scanned = groups_scanned;
+            }
+        }
+    }
+
     atp_recall_match *matches = malloc(scan_count * sizeof(*matches));
     if (!matches) {
+        free(scan_episode);
         free(query_nodes);
         return ATP_ERR_OUT_OF_MEMORY;
     }
     size_t match_count = 0u;
     for (size_t i = scan_start; i < graph->episode_count; ++i) {
+        if (scan_episode && !scan_episode[i]) {
+            continue;
+        }
         const atp_episode *episode = &graph->episodes[i];
         float score = 0.0f;
         for (uint32_t s = 0u; s < episode->token_count; ++s) {
@@ -198,6 +248,7 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
         }
     }
     free(query_nodes);
+    free(scan_episode);
     if (report) {
         report->episodes_matched = match_count;
         if (policy->min_overlap > 0.0f) {

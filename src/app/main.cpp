@@ -273,6 +273,10 @@ int main(int argc, char **argv) {
                 argc >= 7 ? argv[6] : nullptr, static_cast<std::uint64_t>(std::time(nullptr)));
         }
 
+        if (command == "groups") {
+            return atperson::cli::run_groups(std::cout, resource_status, graph);
+        }
+
         if (command == "sync") {
             const int max_pages = argc >= 3 ? atperson::cli::parse_limit(argv[2], 1) : 1;
             return atperson::cli::run_sync(std::cout, std::cerr, resource_status,

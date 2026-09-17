@@ -242,6 +242,28 @@ std::vector<atp_episode> LanguageGraph::episodes() const {
     return result;
 }
 
+std::vector<atp_episode_group> LanguageGraph::episode_groups() const {
+    std::size_t count = 0u;
+    require(atp_graph_episode_groups(graph_, nullptr, 0u, &count), "count episode groups");
+    std::vector<atp_episode_group> result(count);
+    require(atp_graph_episode_groups(graph_, result.data(), result.size(), &count),
+            "read episode groups");
+    result.resize(count);
+    return result;
+}
+
+std::vector<std::uint64_t> LanguageGraph::episode_group_members(std::uint32_t group_id) const {
+    std::size_t count = 0u;
+    require(atp_graph_episode_group_members(graph_, group_id, nullptr, 0u, &count),
+            "count episode group members");
+    std::vector<std::uint64_t> result(count);
+    require(atp_graph_episode_group_members(graph_, group_id, count ? result.data() : nullptr,
+                                            result.size(), &count),
+            "read episode group members");
+    result.resize(count);
+    return result;
+}
+
 float LanguageGraph::familiarity(std::string_view token) const noexcept {
     const std::string owned_token(token);
     return atp_graph_familiarity(graph_, owned_token.c_str());

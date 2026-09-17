@@ -197,6 +197,9 @@ atp_graph *atp_load_v4(const unsigned char *data, size_t size, atp_status *statu
     if (!atp_graph_rebuild_indexes(graph)) {
         return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
     }
+    if (!atp_episode_groups_rebuild(graph)) {
+        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
+    }
 
     if (status) {
         *status = ATP_OK;

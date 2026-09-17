@@ -1,5 +1,5 @@
 // CLI read-only graph inspection commands: assoc, candidates, familiarity,
-// recall.
+// recall, groups.
 //
 // Implementation of the contracts in graph.hpp. Every body here is
 // moved byte-faithfully from the original single-file dispatch in
@@ -125,8 +125,30 @@ int run_recall(std::ostream &out, const RuntimeResourceStatus &resource_status,
     out << "recall-report gate=" << recall_gate_name(report.gate)
         << " total=" << report.episodes_total << " scanned=" << report.episodes_scanned
         << " matched=" << report.episodes_matched << " returned=" << report.episodes_returned
+        << " groups-total=" << report.groups_total
+        << " groups-scanned=" << report.groups_scanned
         << " min-overlap=" << std::fixed << std::setprecision(2) << config.min_overlap
         << " max-prefilter=" << config.max_prefilter << '\n';
+    return 0;
+}
+
+int run_groups(std::ostream &out, const RuntimeResourceStatus &resource_status,
+               const LanguageGraph &graph) {
+    const auto groups = graph.episode_groups();
+    atperson::require_runtime_inspection_limit(resource_status, groups.size() + 1u);
+    for (std::size_t g = 0u; g < groups.size(); ++g) {
+        const auto members = graph.episode_group_members(static_cast<std::uint32_t>(g));
+        out << "group " << g << '\t' << "key 0x" << std::hex << groups[g].key << std::dec
+            << '\t' << "tokens " << groups[g].token_count << '\t' << "members " << members.size()
+            << '\t' << "evictions " << groups[g].evictions << '\t';
+        for (std::size_t m = 0u; m < members.size(); ++m) {
+            if (m > 0u) {
+                out << ',';
+            }
+            out << members[m];
+        }
+        out << '\n';
+    }
     return 0;
 }
 

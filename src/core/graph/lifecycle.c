@@ -61,6 +61,7 @@ void atp_graph_destroy(atp_graph *graph) {
     free(graph->ledger_entries);
     free(graph->ledger_contexts);
     free(graph->episodes);
+    atp_episode_groups_destroy(graph);
     free(graph->valence_records);
     free(graph->valence_events);
     free(graph);

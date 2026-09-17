@@ -95,6 +95,12 @@ class LanguageGraph {
     /** All remembered episodes in insertion order. */
     [[nodiscard]] std::vector<atp_episode> episodes() const;
 
+    /** Derived episode groups (issue #55), ordered by first member. */
+    [[nodiscard]] std::vector<atp_episode_group> episode_groups() const;
+
+    /** Ledger ids of the episodes in `group_id`, in insertion order. */
+    [[nodiscard]] std::vector<std::uint64_t> episode_group_members(std::uint32_t group_id) const;
+
     /**
      * Slowly learned familiarity score for `token` (exponentially weighted
      * exposure), 0.0 when the token is unknown. Read-only.

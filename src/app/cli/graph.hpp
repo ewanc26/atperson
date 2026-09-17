@@ -39,6 +39,9 @@ int run_recall(std::ostream &out, const RuntimeResourceStatus &resource_status,
                const char *min_overlap_value, const char *max_prefilter_value,
                const char *enable_value, std::uint64_t at_epoch);
 
+int run_groups(std::ostream &out, const RuntimeResourceStatus &resource_status,
+               const LanguageGraph &graph);
+
 } // namespace cli
 } // namespace atperson
 
