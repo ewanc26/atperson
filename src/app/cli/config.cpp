@@ -60,9 +60,15 @@ std::filesystem::path outbound_budget_path() {
                   (data_dir() / "outbound-budget.json").string());
 }
 
+std::filesystem::path outbound_audit_path() {
+    return env_or("ATPERSON_OUTBOUND_AUDIT",
+                  (data_dir() / "outbound-audit.jsonl").string());
+}
+
 std::vector<std::filesystem::path> durable_paths() {
     return {data_dir(), state_path(), ledger_path(), ingestion_state_path(),
-            control_state_path(), outbound_policy_path(), outbound_budget_path()};
+            control_state_path(), outbound_policy_path(), outbound_budget_path(),
+            outbound_audit_path()};
 }
 
 int parse_limit(const char *value, int fallback) {

@@ -26,6 +26,7 @@ std::filesystem::path ingestion_state_path();
 std::filesystem::path control_state_path();
 std::filesystem::path outbound_policy_path();
 std::filesystem::path outbound_budget_path();
+std::filesystem::path outbound_audit_path();
 
 std::vector<std::filesystem::path> durable_paths();
 

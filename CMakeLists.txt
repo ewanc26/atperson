@@ -190,10 +190,12 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/cursor.cpp
     src/app/cli/daemon.cpp
     src/app/cli/outbound.cpp
+    src/app/cli/publish.cpp
     src/app/cli/sync.cpp
     src/app/atproto/client.cpp
     src/app/atproto/extract.cpp
     src/app/atproto/session.cpp
+    src/app/atproto/writer.cpp
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
     src/app/control/state.cpp
@@ -203,10 +205,13 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/daemon/signals.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
+    src/app/outbound/action.cpp
     src/app/outbound/actions.cpp
+    src/app/outbound/audit.cpp
     src/app/outbound/budget.cpp
     src/app/outbound/config.cpp
     src/app/outbound/evaluate.cpp
+    src/app/outbound/execute.cpp
     src/app/state/lock.cpp
     src/app/sync/engine.cpp)
   target_include_directories(atperson PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
@@ -454,6 +459,26 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-outbound-test PRIVATE atperson-cpp)
   target_include_directories(atperson-outbound-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-outbound COMMAND atperson-outbound-test)
+
+  # Outbound execution (#25): the ordered gate chain (pause, policy, dry-run,
+  # #22 approval), fail-closed refusal, budget recorded only on confirmed
+  # success, idempotent frozen rkey, reply CID resolution and the audit log.
+  # Offline: the network is a fake OutboundWriter, no Wolfram.
+  add_executable(
+    atperson-publish-test
+    tests/outbound/execute.cpp
+    src/app/control/state.cpp
+    src/app/outbound/action.cpp
+    src/app/outbound/actions.cpp
+    src/app/outbound/audit.cpp
+    src/app/outbound/budget.cpp
+    src/app/outbound/config.cpp
+    src/app/outbound/evaluate.cpp
+    src/app/outbound/execute.cpp)
+  target_compile_features(atperson-publish-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-publish-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-publish-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-publish COMMAND atperson-publish-test)
 
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay
