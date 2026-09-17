@@ -193,6 +193,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/sync.cpp
     src/app/atproto/client.cpp
     src/app/atproto/extract.cpp
+    src/app/atproto/session.cpp
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
     src/app/control/state.cpp

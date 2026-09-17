@@ -5,12 +5,13 @@
 #include <wolfram/xrpc.h>
 
 #include "extract.hpp"
+#include "session.hpp"
 
 #include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <string_view>
+#include <utility>
 
 namespace atperson {
 
@@ -32,12 +33,6 @@ struct JsonDelete {
 
 using Json = std::unique_ptr<cJSON, JsonDelete>;
 
-std::runtime_error wolfram_error(std::string_view operation, wf_status status) {
-    return std::runtime_error(std::string(operation) +
-                              " failed with Wolfram status " +
-                              std::to_string(static_cast<int>(status)));
-}
-
 } // namespace
 
 TimelineHttpError::TimelineHttpError(long status, const std::string &message)
@@ -45,26 +40,10 @@ TimelineHttpError::TimelineHttpError(long status, const std::string &message)
 
 AtprotoClient::AtprotoClient(std::string service, std::string identifier,
                              std::string app_password)
-    : agent_(wf_agent_new(service.c_str())) {
-    if (!agent_) {
-        throw std::runtime_error("failed to create Wolfram agent");
-    }
-
-    const wf_status status =
-        wf_agent_login(agent_.get(), identifier.c_str(), app_password.c_str());
-    if (status != WF_OK) {
-        throw wolfram_error("AT Protocol login", status);
-    }
-
-    const char *did = wf_agent_get_did(agent_.get());
-    if (!did || !did[0]) {
-        throw std::runtime_error("AT Protocol login did not yield an account DID");
-    }
-    did_ = did;
-}
+    : session_(std::move(service), std::move(identifier), std::move(app_password)) {}
 
 std::string AtprotoClient::account_did() const {
-    return did_;
+    return session_.did();
 }
 
 SyncPage AtprotoClient::fetch_timeline_page(const std::optional<std::string> &cursor,
@@ -73,13 +52,13 @@ SyncPage AtprotoClient::fetch_timeline_page(const std::optional<std::string> &cu
 
     ResponseGuard response;
     const wf_status status = wf_agent_get_timeline(
-        agent_.get(), limit, cursor ? cursor->c_str() : nullptr, nullptr,
+        session_.agent(), limit, cursor ? cursor->c_str() : nullptr, nullptr,
         &response.response);
     if (status == WF_ERR_HTTP) {
         // The service rejected the request. A persisted cursor that the
         // server no longer accepts lands here; the caller resets to the
         // head and relies on ledger dedup.
-        const char *error = wf_agent_last_error(agent_.get());
+        const char *error = wf_agent_last_error(session_.agent());
         throw TimelineHttpError(
             response.response.status,
             std::string("timeline fetch rejected with HTTP ") +
@@ -113,7 +92,7 @@ SyncPage AtprotoClient::fetch_timeline_page(const std::optional<std::string> &cu
          * loop only owns transport-adjacent iteration. Items too malformed
          * to reference anything are skipped entirely. */
         SyncObservation observation;
-        if (extract_feed_item(item, did_, observation)) {
+        if (extract_feed_item(item, session_.did(), observation)) {
             page.items.push_back(std::move(observation));
         }
     }

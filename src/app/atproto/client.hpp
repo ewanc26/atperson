@@ -2,8 +2,7 @@
 #define ATPERSON_ATPROTO_CLIENT_HPP
 
 #include "engine.hpp"
-
-#include <wolfram/wolfram.hpp>
+#include "session.hpp"
 
 #include <optional>
 #include <stdexcept>
@@ -39,8 +38,7 @@ class AtprotoClient {
         const std::optional<std::string> &cursor, int limit = 50);
 
   private:
-    wolfram::wf_agent_handle agent_;
-    std::string did_;
+    WolframSession session_;
 };
 
 } // namespace atperson
