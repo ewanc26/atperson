@@ -643,12 +643,51 @@ atp_status atp_graph_observe_with_memory(atp_graph *graph, const char *text, con
                                          uint64_t ledger_id, bool *out_remembered);
 
 /**
+ * Evidence-gated recall policy. The default (`atp_recall_default_config`)
+ * reproduces the historical eager behaviour byte-identically: no minimum
+ * overlap, no episode prefilter bound, recall enabled.
+ *
+ * `min_overlap` is the minimum exact-overlap score an episode must reach to
+ * be returned. `max_prefilter` bounds how many of the most recent episodes
+ * are scanned; 0 means unbounded. `disable` skips recall entirely.
+ */
+typedef struct atp_recall_config {
+    float min_overlap;
+    size_t max_prefilter;
+    bool disable;
+} atp_recall_config;
+
+atp_recall_config atp_recall_default_config(void);
+
+/** Why recall returned what it did. */
+typedef enum atp_recall_gate {
+    ATP_RECALL_GATE_NONE = 0,
+    ATP_RECALL_GATE_DISABLED,
+    ATP_RECALL_GATE_PREFILTER,
+    ATP_RECALL_GATE_MIN_OVERLAP,
+} atp_recall_gate;
+
+/** Evidence for one recall call: how many episodes existed, were scanned,
+ * matched with nonzero overlap, and survived the gate. */
+typedef struct atp_recall_report {
+    size_t episodes_total;
+    size_t episodes_scanned;
+    size_t episodes_matched;
+    size_t episodes_returned;
+    atp_recall_gate gate;
+} atp_recall_report;
+
+/**
  * Recall the episodes whose summary tokens overlap the query, strongest
  * overlap first (ties broken by recency, then ledger id). Recalled episodes
  * get their `recall_count` incremented and `last_recall_at` set to `at_epoch`;
  * query tokens are matched without mutating the vocabulary.
+ *
+ * `config` is optional (NULL = default eager behaviour). `report`, when
+ * non-NULL, receives the scan/gate evidence for this call.
  */
 atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epoch,
+                            const atp_recall_config *config, atp_recall_report *report,
                             atp_episode *out, size_t capacity, size_t *out_count);
 
 /** Number of episodes currently in memory. */

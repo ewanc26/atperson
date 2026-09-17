@@ -265,7 +265,7 @@ static void test_graph_normalization_identity(void) {
     /* Recall with either spelling finds the episode. */
     atp_episode episodes[4];
     size_t count = 0u;
-    assert(atp_graph_recall(graph, "CAF\xC3\x89", 0u, episodes, 4u, &count) == ATP_OK);
+    assert(atp_graph_recall(graph, "CAF\xC3\x89", 0u, NULL, NULL, episodes, 4u, &count) == ATP_OK);
     assert(count >= 1u);
 
     atp_graph_destroy(graph);
@@ -295,7 +295,7 @@ static void test_graph_recall_normalization(void) {
     /* Uppercase and typographic variants still recall. */
     atp_episode episodes[4];
     size_t count = 0u;
-    assert(atp_graph_recall(graph, "WEREWOLF", 0u, episodes, 4u, &count) == ATP_OK);
+    assert(atp_graph_recall(graph, "WEREWOLF", 0u, NULL, NULL, episodes, 4u, &count) == ATP_OK);
     assert(count >= 1u);
 
     atp_graph_destroy(graph);

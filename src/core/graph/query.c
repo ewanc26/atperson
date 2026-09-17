@@ -100,13 +100,35 @@ atp_status atp_graph_query_nodes(const atp_graph *graph, const char *query, uint
     return ATP_OK;
 }
 
+atp_recall_config atp_recall_default_config(void) {
+    return (atp_recall_config){
+        .min_overlap = 0.0f,
+        .max_prefilter = 0u,
+        .disable = false,
+    };
+}
+
 atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epoch,
+                            const atp_recall_config *config, atp_recall_report *report,
                             atp_episode *out, size_t capacity, size_t *out_count) {
+    const atp_recall_config defaults = atp_recall_default_config();
+    const atp_recall_config *policy = config ? config : &defaults;
+
+    if (report) {
+        memset(report, 0, sizeof(*report));
+        report->episodes_total = graph ? graph->episode_count : 0u;
+    }
     if (out_count) {
         *out_count = 0u;
     }
     if (!graph || !query || (!out && capacity > 0u)) {
         return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (policy->disable) {
+        if (report) {
+            report->gate = ATP_RECALL_GATE_DISABLED;
+        }
+        return ATP_OK;
     }
     if (capacity == 0u) {
         return ATP_OK;
@@ -129,13 +151,27 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
         return ATP_OK;
     }
 
-    atp_recall_match *matches = malloc(graph->episode_count * sizeof(*matches));
+    /* Prefilter bound: scan only the most recent episodes. Episodes are kept
+     * in insertion order, so the most recent are the tail of the array. */
+    size_t scan_start = 0u;
+    if (policy->max_prefilter > 0u && policy->max_prefilter < graph->episode_count) {
+        scan_start = graph->episode_count - policy->max_prefilter;
+        if (report) {
+            report->gate = ATP_RECALL_GATE_PREFILTER;
+        }
+    }
+    const size_t scan_count = graph->episode_count - scan_start;
+    if (report) {
+        report->episodes_scanned = scan_count;
+    }
+
+    atp_recall_match *matches = malloc(scan_count * sizeof(*matches));
     if (!matches) {
         free(query_nodes);
         return ATP_ERR_OUT_OF_MEMORY;
     }
     size_t match_count = 0u;
-    for (size_t i = 0u; i < graph->episode_count; ++i) {
+    for (size_t i = scan_start; i < graph->episode_count; ++i) {
         const atp_episode *episode = &graph->episodes[i];
         float score = 0.0f;
         for (uint32_t s = 0u; s < episode->token_count; ++s) {
@@ -150,7 +186,9 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
                 }
             }
         }
-        if (score > 0.0f) {
+        /* Base eligibility is a nonzero overlap (the historical behaviour);
+         * a configured gate additionally requires the minimum overlap. */
+        if (score > 0.0f && score >= policy->min_overlap) {
             matches[match_count++] = (atp_recall_match){
                 .episode_index = i,
                 .score = score,
@@ -160,6 +198,12 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
         }
     }
     free(query_nodes);
+    if (report) {
+        report->episodes_matched = match_count;
+        if (policy->min_overlap > 0.0f) {
+            report->gate = ATP_RECALL_GATE_MIN_OVERLAP;
+        }
+    }
 
     qsort(matches, match_count, sizeof(*matches), atp_recall_match_compare);
     const size_t written = match_count < capacity ? match_count : capacity;
@@ -172,6 +216,9 @@ atp_status atp_graph_recall(atp_graph *graph, const char *query, uint64_t at_epo
         episode->last_recall_at = at_epoch;
     }
     free(matches);
+    if (report) {
+        report->episodes_returned = written;
+    }
     if (out_count) {
         *out_count = written;
     }

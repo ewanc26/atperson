@@ -262,9 +262,15 @@ int main(int argc, char **argv) {
                 usage(std::cerr);
                 return 2;
             }
+            if (argc > 7) {
+                std::cerr << "recall usage: recall <query> [limit] [min-overlap] "
+                             "[max-prefilter] [on|off]\n";
+                return 2;
+            }
             return atperson::cli::run_recall(
                 std::cout, resource_status, graph, argv[2], argc >= 4 ? argv[3] : nullptr,
-                static_cast<std::uint64_t>(std::time(nullptr)));
+                argc >= 5 ? argv[4] : nullptr, argc >= 6 ? argv[5] : nullptr,
+                argc >= 7 ? argv[6] : nullptr, static_cast<std::uint64_t>(std::time(nullptr)));
         }
 
         if (command == "sync") {

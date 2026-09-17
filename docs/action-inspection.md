@@ -40,14 +40,15 @@ Raw plans are intentionally inspectable even when they contain a cycle that woul
 ## Guarded decision trace
 
 ```sh
-./build/atperson decide "alpha delta" [max-tokens] [beam-width]
+./build/atperson decide "alpha delta" [max-tokens] [beam-width] [min-candidate] [min-support] [max-drop] [max-consecutive]
 ```
 
-This calls `atp_graph_action_decide` with the C23 guard defaults. It reports:
+This calls `atp_graph_action_decide` with the C23 guard config. The four trailing arguments tune the abstention boundary at call time; omitted values keep the C23 defaults (`0.15`, `0.25`, `0.40`, `1`), so existing decisions are byte-identical for fixed inputs. It reports:
 
 - `outcome: plan` or `outcome: abstain`;
 - the explicit abstain reason;
 - raw and viable plan counts;
+- the effective guard thresholds that produced the decision;
 - stop reason and triggering step;
 - observed candidate/support scores and configured thresholds;
 - score-drop evidence;

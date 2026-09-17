@@ -214,6 +214,12 @@ bool LanguageGraph::remember(std::string_view text, std::string_view source_id,
 
 std::vector<atp_episode> LanguageGraph::recall(std::string_view query, std::uint64_t at_epoch,
                                                std::size_t limit) {
+    return recall(query, at_epoch, nullptr, nullptr, limit);
+}
+
+std::vector<atp_episode> LanguageGraph::recall(std::string_view query, std::uint64_t at_epoch,
+                                               const atp_recall_config *config,
+                                               atp_recall_report *report, std::size_t limit) {
     if (limit == 0u) {
         return {};
     }
@@ -221,8 +227,8 @@ std::vector<atp_episode> LanguageGraph::recall(std::string_view query, std::uint
     std::vector<atp_episode> result(limit);
     std::size_t count = 0u;
     const std::string owned_query(query);
-    require(atp_graph_recall(graph_, owned_query.c_str(), at_epoch, result.data(), result.size(),
-                             &count),
+    require(atp_graph_recall(graph_, owned_query.c_str(), at_epoch, config, report,
+                             result.data(), result.size(), &count),
             "recall episodes");
     result.resize(count);
     return result;

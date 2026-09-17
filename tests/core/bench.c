@@ -120,7 +120,7 @@ static void bench_recall(atp_graph *graph, size_t vocab) {
     for (size_t i = 0u; i < queries; ++i) {
         snprintf(query, sizeof(query), "w%zu w%zu", (i * 7919u) % vocab,
                  (i * 104729u) % vocab);
-        atp_graph_recall(graph, query, (uint64_t)i * 1000ull, NULL, 0u, NULL);
+        atp_graph_recall(graph, query, (uint64_t)i * 1000ull, NULL, NULL, NULL, 0u, NULL);
     }
     double dt = now_seconds() - t0;
     printf("  recall: %5zu queries in %6.1fms (%.1f us/query)\n", queries, dt * 1e3,

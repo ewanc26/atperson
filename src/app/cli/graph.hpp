@@ -36,7 +36,8 @@ int run_familiarity(std::ostream &out, const LanguageGraph &graph, std::string_v
 
 int run_recall(std::ostream &out, const RuntimeResourceStatus &resource_status,
                LanguageGraph &graph, std::string_view query, const char *limit_value,
-               std::uint64_t at_epoch);
+               const char *min_overlap_value, const char *max_prefilter_value,
+               const char *enable_value, std::uint64_t at_epoch);
 
 } // namespace cli
 } // namespace atperson

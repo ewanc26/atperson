@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <iomanip>
 #include <stdexcept>
 #include <string>
@@ -59,6 +60,16 @@ std::size_t parse_bounded(std::string_view value, std::size_t minimum, std::size
         throw std::runtime_error(std::string(name) + " must be between " +
                                  std::to_string(minimum) + " and " +
                                  std::to_string(maximum));
+    }
+    return parsed;
+}
+
+float parse_float_argument(std::string_view value, std::string_view name) {
+    float parsed = 0.0f;
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (result.ec != std::errc{} || result.ptr != value.data() + value.size() ||
+        !std::isfinite(parsed)) {
+        throw std::runtime_error(std::string(name) + " must be a finite number");
     }
     return parsed;
 }
@@ -242,7 +253,10 @@ int run_action_inspection_command(std::ostream &out, const LanguageGraph &graph,
         }
         const auto config = plan_config_from_arguments(arguments);
         const auto plans = graph.action_plans(arguments[0], config);
-        out << "layer: learned-core\nnetwork-policy: not-evaluated\nplans: " << plans.size() << '\n';
+        out << "layer: learned-core\nnetwork-policy: not-evaluated\nplans: " << plans.size()
+            << '\n'
+            << "planner-config max-tokens=" << config.max_tokens
+            << " beam-width=" << config.beam_width << '\n';
         for (std::size_t i = 0u; i < plans.size(); ++i) {
             print_plan(out, plans[i], i);
         }
@@ -250,17 +264,49 @@ int run_action_inspection_command(std::ostream &out, const LanguageGraph &graph,
     }
 
     if (command == "decide") {
-        if (arguments.empty() || arguments.size() > 3u) {
-            throw std::runtime_error("decide usage: decide <context> [max-tokens] [beam-width]");
+        if (arguments.empty() || arguments.size() > 7u) {
+            throw std::runtime_error(
+                "decide usage: decide <context> [max-tokens] [beam-width] [min-candidate] "
+                "[min-support] [max-drop] [max-consecutive]");
         }
         atp_action_decision_config config = atp_action_decision_default_config();
         config.planner = plan_config_from_arguments(arguments);
+        if (arguments.size() >= 4u) {
+            const float value = parse_float_argument(arguments[3], "min-candidate");
+            if (value < 0.0f || value > 1.0f) {
+                throw std::runtime_error("min-candidate must be between 0 and 1");
+            }
+            config.guards.min_candidate_score = value;
+        }
+        if (arguments.size() >= 5u) {
+            const float value = parse_float_argument(arguments[4], "min-support");
+            if (value < 0.0f || value > 1.0f) {
+                throw std::runtime_error("min-support must be between 0 and 1");
+            }
+            config.guards.min_support_score = value;
+        }
+        if (arguments.size() >= 6u) {
+            const float value = parse_float_argument(arguments[5], "max-drop");
+            if (value < 0.0f || value > 1.0f) {
+                throw std::runtime_error("max-drop must be between 0 and 1");
+            }
+            config.guards.max_score_drop = value;
+        }
+        if (arguments.size() >= 7u) {
+            const std::size_t value =
+                parse_bounded(arguments[6], 1u, 2u, "max-consecutive");
+            config.guards.max_consecutive_occurrences = value;
+        }
         const auto decision = graph.action_decide(arguments[0], config);
         out << "layer: learned-core\nnetwork-policy: not-evaluated\n"
             << "outcome: " << (decision.abstained ? "abstain" : "plan") << '\n'
             << "abstain-reason: " << abstain_name(decision.abstain_reason) << '\n'
             << "raw-plans: " << decision.raw_plan_count << '\n'
-            << "viable-plans: " << decision.viable_plan_count << '\n';
+            << "viable-plans: " << decision.viable_plan_count << '\n'
+            << "guard-thresholds min-candidate=" << std::fixed << std::setprecision(2)
+            << config.guards.min_candidate_score << " min-support="
+            << config.guards.min_support_score << " max-drop=" << config.guards.max_score_drop
+            << " max-consecutive=" << config.guards.max_consecutive_occurrences << '\n';
         print_stop_evidence(out, decision.evidence);
         if (!decision.abstained) {
             print_plan(out, decision.plan, 0u);

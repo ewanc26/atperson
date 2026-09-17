@@ -304,6 +304,7 @@ The bootstrap is idempotent and never touches an existing directory or
 ./build/atperson candidates "hello world" 10
 ./build/atperson familiarity hello
 ./build/atperson recall "hello world" 5
+./build/atperson recall "hello world" 5 0.5 100 on
 ```
 
 `atperson audit "hello world"` optionally sends the same bounded decision

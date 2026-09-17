@@ -83,6 +83,15 @@ class LanguageGraph {
     [[nodiscard]] std::vector<atp_episode> recall(std::string_view query, std::uint64_t at_epoch,
                                                   std::size_t limit = 10);
 
+    /**
+     * Evidence-gated recall. `config` selects the gate policy (NULL = default
+     * eager behaviour); `report`, when non-NULL, receives the scan/gate
+     * evidence for the call.
+     */
+    [[nodiscard]] std::vector<atp_episode> recall(std::string_view query, std::uint64_t at_epoch,
+                                                  const atp_recall_config *config,
+                                                  atp_recall_report *report, std::size_t limit);
+
     /** All remembered episodes in insertion order. */
     [[nodiscard]] std::vector<atp_episode> episodes() const;
 

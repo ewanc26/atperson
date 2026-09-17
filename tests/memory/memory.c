@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <string.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -89,7 +90,7 @@ static void test_recall_ordering_and_counters(void) {
      * Recency breaks the 2-vs-2 tie: episode 3 (t=30) before episode 2. */
     atp_episode results[3] = {0};
     size_t count = 0u;
-    assert(atp_graph_recall(graph, "alpha beta gamma delta", 100u, results, 3u, &count) == ATP_OK);
+    assert(atp_graph_recall(graph, "alpha beta gamma delta", 100u, NULL, NULL, results, 3u, &count) == ATP_OK);
     assert(count == 3u);
     assert(results[0].ledger_id == 1u);
     assert(results[1].ledger_id == 3u);
@@ -105,7 +106,7 @@ static void test_recall_ordering_and_counters(void) {
     /* "alpha" scores 1 in both episode 2 (t=20) and episode 1 (t=10); recency
      * breaks the tie. The returned copies reflect the pre-increment state;
      * the stored episodes carry the incremented counters. */
-    assert(atp_graph_recall(graph, "alpha", 999u, results, 3u, &count) == ATP_OK);
+    assert(atp_graph_recall(graph, "alpha", 999u, NULL, NULL, results, 3u, &count) == ATP_OK);
     assert(count == 2u);
     assert(results[0].ledger_id == 2u);
     assert(results[1].ledger_id == 1u);
@@ -119,7 +120,7 @@ static void test_recall_ordering_and_counters(void) {
     assert(stored.last_recall_at == 999u);
 
     /* Query matching never mutates the vocabulary. */
-    assert(atp_graph_recall(graph, "quux nope", 1000u, results, 3u, &count) == ATP_OK);
+    assert(atp_graph_recall(graph, "quux nope", 1000u, NULL, NULL, results, 3u, &count) == ATP_OK);
     assert(count == 0u);
     assert(atp_graph_get_stats(graph).node_count == nodes_before);
 
@@ -134,14 +135,127 @@ static void test_recall_limit_and_empty(void) {
 
     atp_episode results[2] = {0};
     size_t count = 0u;
-    assert(atp_graph_recall(graph, "only one", 5u, results, 2u, &count) == ATP_OK);
+    assert(atp_graph_recall(graph, "only one", 5u, NULL, NULL, results, 2u, &count) == ATP_OK);
     assert(count == 1u);
 
     /* Unknown query tokens cannot match anything. */
     count = 0u;
-    assert(atp_graph_recall(graph, "absent", 6u, results, 2u, &count) == ATP_OK);
+    assert(atp_graph_recall(graph, "absent", 6u, NULL, NULL, results, 2u, &count) == ATP_OK);
     assert(count == 0u);
     assert(atp_graph_episode_count(graph) == 1u);
+
+    atp_graph_destroy(graph);
+}
+
+static void test_recall_gate_config(void) {
+    /* Default config must reproduce the eager behaviour exactly. */
+    atp_graph *graph = graph_with_capacity(0u);
+    bool remembered = false;
+    assert(atp_graph_observe_with_memory(graph, "alpha beta", "at://t/1", "did:plc:a", 10u, 3001u,
+                                         ATPERSON_SCHEMA_VERSION, 1u, &remembered) == ATP_OK);
+    assert(atp_graph_observe_with_memory(graph, "alpha beta", "at://t/2", "did:plc:a", 20u, 3002u,
+                                         ATPERSON_SCHEMA_VERSION, 2u, &remembered) == ATP_OK);
+    assert(atp_graph_observe_with_memory(graph, "gamma delta", "at://t/3", "did:plc:a", 30u, 3003u,
+                                         ATPERSON_SCHEMA_VERSION, 3u, &remembered) == ATP_OK);
+
+    atp_episode results[3] = {0};
+    size_t count = 0u;
+    atp_recall_report report = {0};
+
+    const atp_recall_config defaults = atp_recall_default_config();
+    assert(defaults.min_overlap == 0.0f);
+    assert(defaults.max_prefilter == 0u);
+    assert(!defaults.disable);
+
+    /* Gate off: NULL config and default config agree, byte-identically. */
+    atp_episode null_results[3] = {0};
+    size_t null_count = 0u;
+    assert(atp_graph_recall(graph, "alpha", 50u, NULL, NULL, null_results, 3u, &null_count) ==
+           ATP_OK);
+    assert(atp_graph_recall(graph, "alpha", 50u, &defaults, &report, results, 3u, &count) ==
+           ATP_OK);
+    assert(count == null_count);
+    for (size_t i = 0u; i < count; ++i) {
+        assert(results[i].ledger_id == null_results[i].ledger_id);
+    }
+    assert(report.episodes_total == 3u);
+    assert(report.episodes_scanned == 3u);
+    assert(report.episodes_matched == 2u);
+    assert(report.episodes_returned == 2u);
+    assert(report.gate == ATP_RECALL_GATE_NONE);
+
+    /* Disable: no results, named gate reason, no counter mutation. */
+    atp_recall_config disabled = defaults;
+    disabled.disable = true;
+    count = 0u;
+    memset(&report, 0, sizeof(report));
+    assert(atp_graph_recall(graph, "alpha", 51u, &disabled, &report, results, 3u, &count) ==
+           ATP_OK);
+    assert(count == 0u);
+    assert(report.gate == ATP_RECALL_GATE_DISABLED);
+    assert(report.episodes_total == 3u);
+    assert(report.episodes_scanned == 0u);
+    atp_episode probe = {0};
+    assert(atp_graph_episode_at(graph, 0u, &probe) == ATP_OK);
+    /* Two eager calls above (NULL config + default config) each matched
+     * episode 1; the disabled call must not have bumped anything. */
+    assert(probe.recall_count == 2u);
+    assert(probe.last_recall_at == 50u);
+
+    /* Min-overlap gate excludes all matches: empty result, named reason. */
+    atp_recall_config strict = defaults;
+    strict.min_overlap = 100.0f;
+    count = 0u;
+    memset(&report, 0, sizeof(report));
+    assert(atp_graph_recall(graph, "alpha", 52u, &strict, &report, results, 3u, &count) ==
+           ATP_OK);
+    assert(count == 0u);
+    assert(report.gate == ATP_RECALL_GATE_MIN_OVERLAP);
+    assert(report.episodes_matched == 0u);
+    assert(report.episodes_returned == 0u);
+
+    /* Min-overlap gate with partial matches: only strong episodes survive.
+     * "alpha beta gamma" scores 2 in episodes 1 and 2, 1 in episode 3. */
+    atp_recall_config partial = defaults;
+    partial.min_overlap = 1.5f;
+    count = 0u;
+    memset(&report, 0, sizeof(report));
+    assert(atp_graph_recall(graph, "alpha beta gamma", 53u, &partial, &report, results, 3u,
+                            &count) == ATP_OK);
+    assert(count == 2u);
+    assert(results[0].ledger_id == 2u); /* recency breaks the 2-vs-2 tie */
+    assert(results[1].ledger_id == 1u);
+    assert(report.gate == ATP_RECALL_GATE_MIN_OVERLAP);
+    assert(report.episodes_matched == 2u);
+    assert(report.episodes_returned == 2u);
+
+    /* Prefilter bound: only the most recent N episodes are scanned. */
+    atp_recall_config bounded = defaults;
+    bounded.max_prefilter = 1u;
+    count = 0u;
+    memset(&report, 0, sizeof(report));
+    assert(atp_graph_recall(graph, "alpha", 54u, &bounded, &report, results, 3u, &count) ==
+           ATP_OK);
+    assert(count == 0u); /* episode 3 (gamma delta) is the only one scanned */
+    assert(report.gate == ATP_RECALL_GATE_PREFILTER);
+    assert(report.episodes_scanned == 1u);
+    assert(report.episodes_total == 3u);
+
+    /* Repeated calls with a fixed config are deterministic. */
+    atp_episode first_pass[3] = {0};
+    atp_episode second_pass[3] = {0};
+    size_t first_count = 0u;
+    size_t second_count = 0u;
+    atp_recall_config repeatable = defaults;
+    repeatable.min_overlap = 0.5f;
+    assert(atp_graph_recall(graph, "alpha beta gamma", 55u, &repeatable, NULL, first_pass, 3u,
+                            &first_count) == ATP_OK);
+    assert(atp_graph_recall(graph, "alpha beta gamma", 55u, &repeatable, NULL, second_pass, 3u,
+                            &second_count) == ATP_OK);
+    assert(first_count == second_count);
+    for (size_t i = 0u; i < first_count; ++i) {
+        assert(first_pass[i].ledger_id == second_pass[i].ledger_id);
+    }
 
     atp_graph_destroy(graph);
 }
@@ -160,7 +274,7 @@ static void test_eviction_prefers_least_recalled(void) {
     /* Bump the recall count of episode 2. */
     atp_episode results[1] = {0};
     size_t count = 0u;
-    assert(atp_graph_recall(graph, "two", 50u, results, 1u, &count) == ATP_OK);
+    assert(atp_graph_recall(graph, "two", 50u, NULL, NULL, results, 1u, &count) == ATP_OK);
     assert(count == 1u);
     assert(results[0].ledger_id == 2u);
 
@@ -197,7 +311,7 @@ static void test_snapshot_roundtrip(void) {
 
     atp_episode results[2] = {0};
     size_t count = 0u;
-    assert(atp_graph_recall(graph, "round trip", 77u, results, 2u, &count) == ATP_OK);
+    assert(atp_graph_recall(graph, "round trip", 77u, NULL, NULL, results, 2u, &count) == ATP_OK);
     assert(count == 2u);
     assert(results[0].ledger_id == 1u);
     assert(results[1].ledger_id == 2u);
@@ -380,6 +494,7 @@ int main(void) {
     test_selection_policy();
     test_recall_ordering_and_counters();
     test_recall_limit_and_empty();
+    test_recall_gate_config();
     test_eviction_prefers_least_recalled();
     test_snapshot_roundtrip();
     test_ranked_recall_surfaces_semantic_memory_with_components();
