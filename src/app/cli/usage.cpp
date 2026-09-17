@@ -26,7 +26,9 @@ void print_usage(std::ostream &out) {
         << "  atperson withdraw <id|source|author> <target>\n"
         << "  atperson cursor [status|reset]\n"
         << "  atperson control <status|pause|resume|writes <on|off>|dry-run <on|off>|"
-           "approval <on|off>|approve <digest>|revoke <digest>|shutdown|cancel-shutdown>\n\n"
+           "approval <on|off>|approve <digest>|revoke <digest>|shutdown|cancel-shutdown>\n"
+        << "  atperson outbound <status [kind]|rules|evaluate <kind> [target] [digest]|"
+           "admit <kind> [target] [digest]>\n\n"
         << "environment:\n"
         << "  ATPERSON_STATE            model snapshot path "
            "(default ~/.ewanc26/atperson/model.bin)\n"
@@ -36,6 +38,10 @@ void print_usage(std::ostream &out) {
            "(default ~/.ewanc26/atperson/ingestion-state.json)\n"
         << "  ATPERSON_CONTROL_STATE    operator control path "
            "(default ~/.ewanc26/atperson/control-state.json)\n"
+        << "  ATPERSON_OUTBOUND_POLICY  outbound action policy path "
+           "(default ~/.ewanc26/atperson/outbound-policy.json)\n"
+        << "  ATPERSON_OUTBOUND_BUDGET  outbound rate-budget state path "
+           "(default ~/.ewanc26/atperson/outbound-budget.json)\n"
         << "  ATPERSON_HOME             data directory override "
            "(default ~/.ewanc26/atperson)\n"
         << "  ATPERSON_MEMORY_BUDGET_BYTES   graph growth memory override (default auto)\n"
@@ -62,8 +68,9 @@ void print_usage(std::ostream &out) {
            "(default https://api.typesafe.ai/v1/systemone)\n\n"
         << "state-mutating commands (ingest, ingest-file, sync, cursor reset, rebuild,\n"
         << "compact, withdraw, daemon) take an exclusive lock on the data directory;\n"
-        << "read-only commands and operator `control` run without it and see state as\n"
-        << "of their read, so a running daemon can still be paused or shut down\n";
+        << "read-only commands, operator `control` and the `outbound` policy/budget\n"
+        << "commands (runtime metadata outside the state set) run without it and see\n"
+        << "state as of their read, so a running daemon can still be paused or shut down\n";
 }
 
 } // namespace cli

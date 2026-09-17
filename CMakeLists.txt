@@ -26,6 +26,7 @@ set(ATPERSON_APP_PRIVATE_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/control
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/daemon
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/ingestion
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/outbound
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/state
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/sync)
@@ -188,6 +189,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/control.cpp
     src/app/cli/cursor.cpp
     src/app/cli/daemon.cpp
+    src/app/cli/outbound.cpp
     src/app/cli/sync.cpp
     src/app/atproto/client.cpp
     src/app/atproto/extract.cpp
@@ -200,6 +202,10 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/daemon/signals.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
+    src/app/outbound/actions.cpp
+    src/app/outbound/budget.cpp
+    src/app/outbound/config.cpp
+    src/app/outbound/evaluate.cpp
     src/app/state/lock.cpp
     src/app/sync/engine.cpp)
   target_include_directories(atperson PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
