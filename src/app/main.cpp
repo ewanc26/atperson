@@ -13,6 +13,8 @@
 #include "cli/publish.hpp"
 #include "cli/sync.hpp"
 #include "cli/usage.hpp"
+#include "control/state.hpp"
+#include "journal/command.hpp"
 #include "runtime.hpp"
 
 #include <cstdio>
@@ -192,6 +194,20 @@ int main(int argc, char **argv) {
                 arguments.emplace_back(argv[i]);
             }
             return atperson::audit::run_audit_command(std::cout, graph, command, arguments);
+        }
+
+        if (command == "journal") {
+            const std::string sub = argc >= 3 ? argv[2] : "actions";
+            std::vector<std::string_view> arguments;
+            arguments.reserve(argc > 3 ? static_cast<std::size_t>(argc - 3) : 0u);
+            for (int i = 3; i < argc; ++i) {
+                arguments.emplace_back(argv[i]);
+            }
+            const auto now = static_cast<std::int64_t>(std::time(nullptr));
+            return atperson::journal::run_journal_command(
+                std::cout, graph, atperson::cli::action_journal_path(),
+                atperson::cli::data_dir(), path, sub, arguments.data(), arguments.size(),
+                now, atperson::control_now_rfc3339());
         }
 
         if (command == "ingest") {

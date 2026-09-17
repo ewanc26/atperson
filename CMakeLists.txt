@@ -199,6 +199,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/atproto/writer.cpp
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
+    src/app/journal/command.cpp
     src/app/control/state.cpp
     src/app/daemon/backoff.cpp
     src/app/daemon/config.cpp
