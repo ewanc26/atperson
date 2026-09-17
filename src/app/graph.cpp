@@ -178,20 +178,7 @@ void LanguageGraph::record_ledger_entry(const atp_ledger_entry &entry) {
 
 void LanguageGraph::record_ledger_entry(const atp_ledger_entry &entry,
                                         const ConversationContext &context) {
-    atp_conversation_context raw = {};
-    const auto copy_uri = [](char *dst, size_t capacity, const std::string &uri) {
-        if (uri.size() >= capacity) {
-            return false;
-        }
-        std::memcpy(dst, uri.data(), uri.size());
-        dst[uri.size()] = '\0';
-        return true;
-    };
-    if (!copy_uri(raw.reply_root_uri, sizeof(raw.reply_root_uri), context.reply_root_uri) ||
-        !copy_uri(raw.reply_parent_uri, sizeof(raw.reply_parent_uri), context.reply_parent_uri) ||
-        !copy_uri(raw.quote_uri, sizeof(raw.quote_uri), context.quote_uri)) {
-        throw std::runtime_error("record ledger entry: conversation context URI too long");
-    }
+    const atp_conversation_context raw = to_c_conversation_context(context);
     require(atp_graph_add_ledger_entry_with_context(graph_, &entry, &raw),
             "record ledger entry");
 }

@@ -1,6 +1,7 @@
 #ifndef ATPERSON_LEDGER_HPP
 #define ATPERSON_LEDGER_HPP
 
+#include "atperson/conversation.hpp"
 #include "atperson/core.h"
 
 #include <cstdint>
@@ -46,6 +47,18 @@ class Ledger {
                                       std::uint32_t schema_version, atp_ledger_outcome outcome,
                                       std::string_view payload, std::uint64_t *out_id);
 
+    /**
+     * As append(), but also retains the observation's conversational context
+     * (issue #24/#49) inline in the entry record, so a replay rebuild restores
+     * it. URIs longer than ATPERSON_CONTEXT_URI_BYTES-1 throw. Throws on real
+     * errors; an empty context is equivalent to append().
+     */
+    [[nodiscard]] LedgerResult append(std::string_view source_id, std::string_view author_did,
+                                      std::uint64_t observed_at, std::uint64_t content_digest,
+                                      std::uint32_t schema_version, atp_ledger_outcome outcome,
+                                      std::string_view payload, const ConversationContext &context,
+                                      std::uint64_t *out_id);
+
     /** Append a durable outcome patch for an existing entry. Throws on error. */
     void set_outcome(std::uint64_t id, atp_ledger_outcome outcome);
 
@@ -90,6 +103,12 @@ class Ledger {
      * digest on read.
      */
     [[nodiscard]] std::string payload(std::uint64_t id) const;
+
+    /**
+     * The conversational context retained with entry `id` (issue #24/#49).
+     * Absent identifiers are empty. Throws on an unknown id.
+     */
+    [[nodiscard]] atp_conversation_context entry_context(std::uint64_t id) const;
 
     /** Borrowed C handle (for core functions that take a ledger). */
     [[nodiscard]] const atp_ledger *handle() const noexcept { return ledger_; }
