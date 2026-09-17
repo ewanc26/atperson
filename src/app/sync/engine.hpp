@@ -5,6 +5,7 @@
 #include "atperson/ledger.hpp"
 #include "policy.hpp"
 #include "ingestion/state.hpp"
+#include "linkage.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -76,13 +77,17 @@ bool process_observation(LanguageGraph &graph, Ledger &ledger,
  * Ordering invariant: every observation in a page is processed durably before
  * the page's cursor is checkpointed. A mid-page failure aborts without
  * advancing the persisted cursor, so the same page is refetched on restart and
- * ledger deduplication suppresses anything already committed.
+ * ledger deduplication suppresses anything already committed. Action-event
+ * linkage (#27) runs under the same invariant: `link` fires per observation
+ * after its ledger commit, and a linkage failure aborts the page like any
+ * other persistence failure.
  *
  * The ledger remains the authority for what has been learned; the cursor
  * only controls fetching progress.
  */
 SyncResult run_sync(LanguageGraph &graph, Ledger &ledger, IngestionState &state,
-                    const SyncPageFetcher &fetch_page, const SyncLimits &limits);
+                    const SyncPageFetcher &fetch_page, const SyncLimits &limits,
+                    const SyncLinker &link = nullptr);
 
 } // namespace atperson
 

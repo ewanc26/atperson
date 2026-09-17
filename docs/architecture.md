@@ -58,6 +58,9 @@ The C++ layer owns concerns that should not become part of the model itself:
   the deduplication;
 - the runtime ingestion cursor (see below);
 - the state-directory writer lock (see below);
+- the action/outcome journal (#27): the durable, replayable record of the
+  entity's own outbound attempts and their outcomes, with event linkage and
+  explicit valence application;
 - future network-action policy, rate limiting, and presentation. Learned
   candidate scoring remains in C23.
 
@@ -82,8 +85,9 @@ lives in the core layer where it can be tested without the runtime.
 
 The snapshot, ledger, commit marker, and ingestion cursor form one logical
 state set. Every state-mutating command (`ingest`, `ingest-file`, `sync`,
-`cursor reset`, `rebuild`, `compact`, `withdraw`, `daemon`) acquires an
-exclusive lock on the data directory before touching durable state: a
+`cursor reset`, `rebuild`, `compact`, `withdraw`, `daemon`, `journal
+apply`) acquires an exclusive lock on the data directory before touching
+durable state: a
 `.writer-lock` file created with `O_CREAT|O_EXCL`, recording the owner's pid,
 a boot marker, and the acquisition time. Release removes the file; RAII
 guarantees release on normal exit, exception, or stack unwind. The daemon
@@ -305,11 +309,14 @@ replayed — the training input is gone — and fails the whole rebuild with
 producing a graph that never saw those bytes.
 
 The CLI surfaces this as `atperson rebuild`: it takes the writer lock,
-replays the ledger into a fresh graph, and saves the result atomically
-(tmp + fsync + rename, the same path `atp_graph_save` always uses). A
-failure at any point — unreplayable entry, digest mismatch — leaves the
-previous snapshot untouched; the rebuilt snapshot replaces it only on
-success. Two rebuilds of the same ledger produce byte-identical snapshots.
+replays the ledger into a fresh graph, then replays the action/outcome
+journal's explicit valence entries (see
+[`docs/action-journal.md`](action-journal.md)), and saves the result
+atomically (tmp + fsync + rename, the same path `atp_graph_save` always
+uses). A failure at any point — unreplayable entry, digest mismatch — leaves
+the previous snapshot untouched; the rebuilt snapshot replaces it only on
+success. Two rebuilds of the same ledger and journal produce
+byte-identical snapshots.
 
 ### Learning-schema compatibility
 

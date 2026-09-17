@@ -3,6 +3,7 @@
  * and the credential-free audit log. Offline: the network is a fake writer. */
 #include "outbound/execute.hpp"
 #include "control/state.hpp"
+#include "journal/store.hpp"
 #include "outbound/action.hpp"
 #include "outbound/audit.hpp"
 #include "outbound/budget.hpp"
@@ -21,6 +22,9 @@ namespace {
 
 using atperson::ActionBudget;
 using atperson::ControlState;
+using atperson::JournalAction;
+using atperson::JournalActionOutcome;
+using atperson::JournalContents;
 using atperson::OutboundAction;
 using atperson::OutboundActionKind;
 using atperson::OutboundAuditEntry;
@@ -459,6 +463,49 @@ void test_action_file_load() {
     std::printf("ok action file load\n");
 }
 
+/* #27: the journal records every publish attempt with the rkey as the
+ * stable action id, and the executed record's at-URI is what later event
+ * linkage keys on. */
+void test_journal_records_every_attempt() {
+    const auto dir = scratch_dir("journal");
+    const auto path = dir / "action-journal.jsonl";
+
+    JournalAction executed;
+    executed.id = "3kabc";
+    executed.kind = "post";
+    executed.text = "the exact approved text";
+    executed.digest = "0123456789abcdef";
+    executed.outcome = JournalActionOutcome::Executed;
+    executed.reason = "allow";
+    executed.uri = "at://did:plc:self/app.bsky.feed.post/3kabc";
+    executed.cid = "bafyreiexample";
+    executed.at = "2026-09-17T00:00:00Z";
+    atperson::append_journal_action(path, executed);
+
+    JournalAction denied = executed;
+    denied.id = "3kdef";
+    denied.outcome = JournalActionOutcome::Denied;
+    denied.reason = "approval_required";
+    denied.uri.clear();
+    denied.cid.clear();
+    atperson::append_journal_action(path, denied);
+
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.actions.size() == 2u);
+    assert(!journal.repaired_torn_tail);
+
+    /* Executed and denied attempts are distinguishable, and the executed
+     * action is found by its result URI for event linkage. */
+    const JournalAction *found =
+        atperson::journal_find_action_by_uri(journal, "at://did:plc:self/app.bsky.feed.post/3kabc");
+    assert(found != nullptr);
+    assert(found->id == "3kabc");
+    assert(found->outcome == JournalActionOutcome::Executed);
+    assert(atperson::journal_find_action_by_uri(
+               journal, "at://did:plc:self/app.bsky.feed.post/3kdef") == nullptr);
+    std::printf("ok journal records every attempt\n");
+}
+
 } // namespace
 
 int main() {
@@ -476,6 +523,7 @@ int main() {
     test_reply_resolves_cids_and_builds_strong_refs();
     test_resolve_failure_is_failed_and_unbudgeted();
     test_audit_log_is_append_only();
+    test_journal_records_every_attempt();
     test_action_file_load();
     std::printf("all outbound execution tests passed\n");
     return 0;

@@ -16,6 +16,7 @@
 #include "atperson/ledger.hpp"
 #include "ingestion/state.hpp"
 #include "engine.hpp"
+#include "journal/store.hpp"
 
 #include <cassert>
 #include <cstdio>
@@ -517,6 +518,87 @@ void test_conversation_context_survives_restarts_and_withdrawal() {
 }
 
 /* ---------------------------------------------------------------- */
+/* Scenario: journal valence survives a rebuild                     */
+/* ---------------------------------------------------------------- */
+
+void test_journal_valence_survives_rebuild() {
+    /* Issue #27 regression: the action/outcome journal is the authority for
+     * self-authored experience. An explicit valence event applied through
+     * `atperson journal apply` is recorded in the journal and folded into
+     * the live graph, but a plain rebuild from the ledger alone would drop
+     * it — the ledger records observations, not valence. The rebuild command
+     * must therefore replay the journal's valence entries after the ledger
+     * so the rebuilt state includes them.
+     *
+     * This scenario pins that contract end-to-end: apply a valence event,
+     * rebuild from the ledger+journal, and assert the valence state is
+     * present in the recovered graph. */
+    Scenario scenario("valence");
+    ScriptedFeed feed({
+        {{obs("at://e2e/v1", "alpha beta"), obs("at://e2e/v2", "beta gamma")},
+         std::nullopt},
+    });
+    (void)scenario.run(feed, 1);
+
+    /* The tokens were observed, so valence attaches to experienced subjects. */
+    const auto graph = atperson::LanguageGraph::load(scenario.model_file);
+    assert(graph.familiarity("alpha") > 0.0f);
+    assert(!graph.valence("alpha").has_value());
+
+    /* Apply one explicit valence event and journal it. */
+    const auto journal_path = scenario.dir / "action-journal.jsonl";
+    atperson::JournalValence entry;
+    entry.token = "alpha";
+    entry.kind = "action";
+    entry.signal = 0.8f;
+    entry.source = "at://e2e/v1";
+    entry.at_epoch = 1758122400u;
+    entry.at = "2026-09-17T19:00:00Z";
+    atperson::append_journal_valence(journal_path, entry);
+
+    /* A freshly observed graph accepts valence for a known token. The live
+     * graph here is independent of the scenario's snapshot — it exists only
+     * to demonstrate that the journal entry is a valid valence event. */
+    atperson::LanguageGraph live;
+    live.observe("alpha beta");
+    live.valence_event("alpha", ATP_VALENCE_ACTION, 0.8f, 1758122400u, "at://e2e/v1");
+    assert(live.valence("alpha").has_value());
+
+    /* Rebuild from the ledger alone drops valence: the rebuilt graph is what
+     * the ledger alone would produce. */
+    atperson::Ledger ledger(scenario.ledger_file);
+    atperson::LanguageGraph ledger_only;
+    (void)ledger_only.replay(ledger);
+    assert(!ledger_only.valence("alpha").has_value());
+
+    /* Rebuild from the ledger AND the journal replays the valence event, so
+     * the recovered graph carries the folded score. */
+    atperson::LanguageGraph rebuilt;
+    (void)rebuilt.replay(ledger);
+    const atperson::JournalContents journal = atperson::load_journal(journal_path);
+    assert(journal.valence.size() == 1u);
+    for (const atperson::JournalValence &valence : journal.valence) {
+        const std::optional<atp_valence_kind> kind =
+            atperson::valence_kind_from_name(valence.kind);
+        assert(kind.has_value());
+        rebuilt.valence_event(valence.token, kind.value(), valence.signal,
+                              valence.at_epoch, valence.source);
+    }
+    const auto recovered = rebuilt.valence("alpha");
+    assert(recovered.has_value());
+    assert(recovered->valence > 0.0f);
+    assert(recovered->positive_events == 1u);
+    rebuilt.save(scenario.model_file);
+
+    /* The saved snapshot carries the valence state: a restart from disk
+     * reads it back. */
+    const auto restarted = atperson::LanguageGraph::load(scenario.model_file);
+    const auto restarted_valence = restarted.valence("alpha");
+    assert(restarted_valence.has_value());
+    assert(restarted_valence->valence == recovered->valence);
+}
+
+/* ---------------------------------------------------------------- */
 
 } // namespace
 
@@ -529,6 +611,7 @@ int main() {
     test_planning_abstention_on_recovered_state();
     test_equivalent_runs_produce_equivalent_final_state();
     test_conversation_context_survives_restarts_and_withdrawal();
+    test_journal_valence_survives_rebuild();
 
     std::printf("e2e harness passed\n");
     return 0;

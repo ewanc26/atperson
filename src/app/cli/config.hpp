@@ -28,6 +28,10 @@ std::filesystem::path outbound_policy_path();
 std::filesystem::path outbound_budget_path();
 std::filesystem::path outbound_audit_path();
 
+/* Action/outcome journal (#27): durable experience provenance for the
+ * entity's own outbound attempts. */
+std::filesystem::path action_journal_path();
+
 std::vector<std::filesystem::path> durable_paths();
 
 int parse_limit(const char *value, int fallback);

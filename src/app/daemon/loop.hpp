@@ -72,13 +72,15 @@ struct DaemonRunReport {
  * Run the ingestion loop until shutdown, a fatal error, or the configured
  * cycle bound. `limits` is the per-cycle traversal budget (page size and
  * observation cap come from the resource budget; max_pages from
- * DaemonConfig::pages_per_cycle). Returns the report; throws on fatal
- * (non-retryable) errors.
+ * DaemonConfig::pages_per_cycle). `link` is the #27 action-event linker,
+ * fired per observation under the same durability invariant as the ledger
+ * commit; a null linker disables linkage. Returns the report; throws on
+ * fatal (non-retryable) errors.
  */
 DaemonRunReport run_daemon(const DaemonConfig &config, LanguageGraph &graph, Ledger &ledger,
                            IngestionState &state, const SyncLimits &limits,
                            const SyncPageFetcher &fetch_page, const DaemonPersistence &persistence,
-                           const DaemonHooks &hooks);
+                           const DaemonHooks &hooks, const SyncLinker &link = nullptr);
 
 } // namespace atperson
 

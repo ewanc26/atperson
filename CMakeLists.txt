@@ -26,6 +26,7 @@ set(ATPERSON_APP_PRIVATE_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/control
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/daemon
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/ingestion
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/journal
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/outbound
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/state
@@ -198,6 +199,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/atproto/writer.cpp
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
+    src/app/journal/command.cpp
     src/app/control/state.cpp
     src/app/daemon/backoff.cpp
     src/app/daemon/config.cpp
@@ -213,7 +215,9 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/evaluate.cpp
     src/app/outbound/execute.cpp
     src/app/state/lock.cpp
-    src/app/sync/engine.cpp)
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
   target_include_directories(atperson PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   target_link_libraries(atperson PRIVATE atperson-cpp wolfram-cpp)
   target_compile_features(atperson PRIVATE cxx_std_23)
@@ -399,10 +403,29 @@ if(ATPERSON_BUILD_TESTS)
     tests/sync/sync.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
-    src/app/sync/engine.cpp)
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
   target_link_libraries(atperson-sync-test PRIVATE atperson-cpp)
   target_include_directories(atperson-sync-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-sync COMMAND atperson-sync-test)
+
+  # Action-event linkage (#27): replies and quotes associate with executed
+  # outbound actions by stable at-URI, never by text. Parent/root/quote
+  # linkage, first-field-wins, duplicate suppression across restarts and
+  # the engine-integrated path. Offline.
+  add_executable(
+    atperson-linkage-test
+    tests/sync/linkage.cpp
+    src/app/ingestion/policy.cpp
+    src/app/ingestion/state.cpp
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
+  target_compile_features(atperson-linkage-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-linkage-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-linkage-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-linkage COMMAND atperson-linkage-test)
 
   # Operator control state (#22): fail-closed defaults, write gate, approval
   # binding, atomic persistence round-trip. Offline.
@@ -421,7 +444,9 @@ if(ATPERSON_BUILD_TESTS)
     tests/sync/lifecycle.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
-    src/app/sync/engine.cpp)
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
   target_link_libraries(atperson-e2e-test PRIVATE atperson-cpp)
   target_include_directories(atperson-e2e-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-e2e COMMAND atperson-e2e-test)
@@ -437,7 +462,9 @@ if(ATPERSON_BUILD_TESTS)
     src/app/daemon/loop.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
-    src/app/sync/engine.cpp)
+    src/app/sync/engine.cpp
+    src/app/sync/linkage.cpp
+    src/app/journal/store.cpp)
   target_compile_features(atperson-daemon-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-daemon-test PRIVATE atperson-cpp)
   target_include_directories(atperson-daemon-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
@@ -468,6 +495,7 @@ if(ATPERSON_BUILD_TESTS)
     atperson-publish-test
     tests/outbound/execute.cpp
     src/app/control/state.cpp
+    src/app/journal/store.cpp
     src/app/outbound/action.cpp
     src/app/outbound/actions.cpp
     src/app/outbound/audit.cpp
@@ -479,6 +507,19 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-publish-test PRIVATE atperson-cpp)
   target_include_directories(atperson-publish-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-publish COMMAND atperson-publish-test)
+
+  # Action/outcome journal (#27): durable append-only record of the entity's
+  # own outbound attempts, public events that reference executed records and
+  # explicit valence applications. Round-trip, torn-tail recovery, linkage
+  # lookup and dedup. Offline, no network.
+  add_executable(
+    atperson-journal-test
+    tests/journal/store.cpp
+    src/app/journal/store.cpp)
+  target_compile_features(atperson-journal-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-journal-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-journal-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-journal COMMAND atperson-journal-test)
 
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay

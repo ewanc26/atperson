@@ -13,6 +13,8 @@
 #include "cli/publish.hpp"
 #include "cli/sync.hpp"
 #include "cli/usage.hpp"
+#include "control/state.hpp"
+#include "journal/command.hpp"
 #include "runtime.hpp"
 
 #include <cstdio>
@@ -87,7 +89,7 @@ int main(int argc, char **argv) {
             return atperson::cli::run_rebuild(
                 std::cout, resource_status, atperson::cli::data_dir(),
                 atperson::cli::ledger_path(), path, resource_paths, resource_overrides,
-                print_stats);
+                atperson::cli::action_journal_path(), print_stats);
         }
 
         if (command == "compact") {
@@ -148,6 +150,7 @@ int main(int argc, char **argv) {
                 std::cout, atperson::cli::data_dir(),
                 atperson::cli::outbound_policy_path(), atperson::cli::outbound_budget_path(),
                 atperson::cli::control_state_path(), atperson::cli::outbound_audit_path(),
+                atperson::cli::action_journal_path(),
                 argv[2], static_cast<std::int64_t>(std::time(nullptr)));
         }
 
@@ -191,6 +194,20 @@ int main(int argc, char **argv) {
                 arguments.emplace_back(argv[i]);
             }
             return atperson::audit::run_audit_command(std::cout, graph, command, arguments);
+        }
+
+        if (command == "journal") {
+            const std::string sub = argc >= 3 ? argv[2] : "actions";
+            std::vector<std::string_view> arguments;
+            arguments.reserve(argc > 3 ? static_cast<std::size_t>(argc - 3) : 0u);
+            for (int i = 3; i < argc; ++i) {
+                arguments.emplace_back(argv[i]);
+            }
+            const auto now = static_cast<std::int64_t>(std::time(nullptr));
+            return atperson::journal::run_journal_command(
+                std::cout, graph, atperson::cli::action_journal_path(),
+                atperson::cli::data_dir(), path, sub, arguments.data(), arguments.size(),
+                now, atperson::control_now_rfc3339());
         }
 
         if (command == "ingest") {

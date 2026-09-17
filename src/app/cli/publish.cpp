@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "control/state.hpp"
+#include "journal/store.hpp"
 #include "lock.hpp"
 #include "outbound/action.hpp"
 #include "outbound/audit.hpp"
@@ -56,11 +57,28 @@ OutboundAuditOutcome audit_outcome(OutboundExecutionOutcome outcome) {
     return OutboundAuditOutcome::Denied;
 }
 
+JournalActionOutcome journal_action_outcome(OutboundExecutionOutcome outcome) {
+    switch (outcome) {
+    case OutboundExecutionOutcome::Executed:
+        return JournalActionOutcome::Executed;
+    case OutboundExecutionOutcome::DryRun:
+        return JournalActionOutcome::DryRun;
+    case OutboundExecutionOutcome::Denied:
+        return JournalActionOutcome::Denied;
+    case OutboundExecutionOutcome::Deferred:
+        return JournalActionOutcome::Deferred;
+    case OutboundExecutionOutcome::Failed:
+        return JournalActionOutcome::Failed;
+    }
+    return JournalActionOutcome::Denied;
+}
+
 } // namespace
 
 int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
                 const std::filesystem::path &policy_file, const std::filesystem::path &budget_file,
                 const std::filesystem::path &control_file, const std::filesystem::path &audit_file,
+                const std::filesystem::path &journal_file,
                 const std::filesystem::path &action_file, std::int64_t now) {
     const ControlState control = load_control_state(control_file);
     const OutboundPolicy policy = load_outbound_policy(policy_file);
@@ -103,6 +121,21 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
     entry.uri = result.written.uri;
     entry.cid = result.written.cid;
     append_outbound_audit(audit_file, entry);
+
+    /* The journal (#27) records the same attempt as durable experience
+     * provenance: the rkey is the stable action id, and the executed
+     * record's at-URI is what later event linkage keys on. */
+    JournalAction journal_entry;
+    journal_entry.id = action.rkey;
+    journal_entry.kind = outbound_kind_name(action.kind);
+    journal_entry.text = action.text;
+    journal_entry.digest = action.digest;
+    journal_entry.outcome = journal_action_outcome(result.outcome);
+    journal_entry.reason = result.reason_code;
+    journal_entry.uri = result.written.uri;
+    journal_entry.cid = result.written.cid;
+    journal_entry.at = rfc3339_from_unix(now);
+    append_journal_action(journal_file, journal_entry);
 
     out << "outcome: " << outbound_execution_outcome_name(result.outcome) << '\n'
         << "reason: " << result.reason_code << '\n'
