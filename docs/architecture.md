@@ -81,12 +81,19 @@ lives in the core layer where it can be tested without the runtime.
 ## State-directory writer lock
 
 The snapshot, ledger, commit marker, and ingestion cursor form one logical
-state set. Every mutating command (`ingest`, `ingest-file`, `sync`,
-`cursor reset`) acquires an exclusive lock on the data directory before
-touching durable state: a `.writer-lock` file created with `O_CREAT|O_EXCL`,
-recording the owner's pid, a boot marker, and the acquisition time. Release
-removes the file; RAII guarantees release on normal exit, exception, or
-stack unwind.
+state set. Every state-mutating command (`ingest`, `ingest-file`, `sync`,
+`cursor reset`, `rebuild`, `compact`, `withdraw`, `daemon`) acquires an
+exclusive lock on the data directory before touching durable state: a
+`.writer-lock` file created with `O_CREAT|O_EXCL`, recording the owner's pid,
+a boot marker, and the acquisition time. Release removes the file; RAII
+guarantees release on normal exit, exception, or stack unwind. The daemon
+holds the lock for its entire lifetime, not per cycle, so no other process
+can load a stale in-memory snapshot and later clobber it.
+
+Operator `control` deliberately does **not** take the writer lock. Control
+state is runtime metadata outside the state set, and an operator must be able
+to pause or request shutdown while a daemon owns the lock; control saves are
+atomic, so concurrent operator use stays self-consistent.
 
 Stale detection: a lockfile whose owner pid is dead, or whose boot marker
 differs from the current boot (the machine rebooted), is provably stale and
@@ -467,7 +474,10 @@ memory is linked to it by ledger id.
 `~/.ewanc26/atperson/ingestion-state.json` (versioned JSON format
 `atperson-ingestion-state`, override with `ATPERSON_INGESTION_STATE`). The
 cursor is C++ runtime metadata, never learned C23 state: it is not part of
-the model snapshot and cannot influence the graph.
+the model snapshot and cannot influence the graph. `atperson daemon` drives
+the same traversal in repeated cycles; scheduling, retry backoff and snapshot
+cadence are runtime concerns documented in
+[`docs/daemon.md`](daemon.md).
 
 The authority hierarchy is explicit:
 
