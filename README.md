@@ -45,6 +45,7 @@ stages, with later stages intentionally incomplete:
 | Long-running runtime | Implemented | `atperson daemon` runs repeated bounded cycles with retry backoff, snapshot cadence and graceful shutdown over the same ledger/cursor; operator `control` stays usable alongside it (see [`docs/daemon.md`](docs/daemon.md)) |
 | Outbound action policy | Implemented (inspection/admission only) | Default-deny per-kind policy with durable rate budgets, duplicate suppression and inspectable `allow`/`deny`/`defer` reasons; no network writes (see [`docs/outbound-policy.md`](docs/outbound-policy.md)) |
 | Outbound execution | Implemented (operator-led posts/replies) | `atperson publish` runs a frozen, approved action document through pause → policy → dry-run → control gates, then writes exactly that record via Wolfram; idempotent frozen rkey, budget on confirmed success only, credential-free append-only audit (see [`docs/outbound-execution.md`](docs/outbound-execution.md)) |
+| Action/outcome journal | Implemented | Durable, replayable record of the entity's own outbound attempts and their outcomes, with event linkage and explicit valence application; `atperson journal` lists actions/events/valence and `apply` writes one valence event; `rebuild` replays journal valence after the ledger (see [`docs/action-journal.md`](docs/action-journal.md)) |
 
 The model begins with **zero words and zero relationships**. Neural parameters
 have small deterministic random initial values so learning can start, but there
@@ -245,6 +246,19 @@ The bootstrap is idempotent and never touches an existing directory or
 trace to TypeSafe System One for a non-authoritative, operator-facing advisory
 judgment (see `docs/audit.md`). It requires `ATPERSON_TYPESAFE_API_KEY`, is
 opt-in, and never affects learned state or outbound policy.
+
+To inspect the entity's own outbound experience and applied valence:
+
+```sh
+./build/atperson journal actions
+./build/atperson journal events
+./build/atperson journal valence
+./build/atperson journal apply moon action 0.5 <action-id>
+```
+
+`apply` writes one explicit valence event and journals it, so a later
+`rebuild` replays it after the ledger. See
+[`docs/action-journal.md`](docs/action-journal.md).
 
 To learn from the authenticated account's public home timeline:
 

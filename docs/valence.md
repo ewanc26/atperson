@@ -41,9 +41,23 @@ Loaded state is exact: scores, counters, and the log round-trip byte-for-byte, a
 
 ## Replay semantics
 
-**Defined boundary:** ledger replay reconstructs learned state from the observation ledger, and the ledger records observations — not valence events. A rebuilt graph therefore has empty valence. This is deliberate and documented rather than a gap to paper over: valence is experience-derived state whose evidence stream is not yet persisted in the ledger.
+**Defined boundary:** ledger replay reconstructs learned state from the
+observation ledger, and the ledger records observations — not valence events.
+A rebuilt graph therefore has empty valence *from the ledger alone*. Valence
+is experience-derived state whose evidence stream is the action/outcome
+journal (#27), not the observation ledger.
 
-Before valence affects any autonomous action (issue #13's gating condition), a valence-event ledger section must exist so rebuilds reconstruct valence deterministically from the same events. Until then, valence is inspectable state that does not influence decisions.
+`atperson rebuild` replays the journal's explicit valence entries **after**
+the ledger, in journal append order, so the rebuilt state includes
+experience-derived valence. The journal is the authority for self-authored
+experience; the ledger is the authority for third-party observation. Replay
+is deterministic: ledger entries in id order, then journal valence entries in
+append order.
+
+Before valence affects any autonomous action (issue #13's gating condition),
+a valence-event ledger section must exist so rebuilds reconstruct valence
+deterministically from the same events. Until then, valence is inspectable
+state that does not influence decisions.
 
 ## Provenance
 
