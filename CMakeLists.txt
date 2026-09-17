@@ -35,8 +35,10 @@ add_library(
   src/core/graph/observe.c
   src/core/graph/query.c
   src/core/memory.c
-  src/core/action.c
-  src/core/decision.c
+  src/core/action/ordering.c
+  src/core/action/candidates.c
+  src/core/action/plans.c
+  src/core/action/guard.c
   src/core/context.c
   src/core/bootstrap.c
   src/core/neural.c

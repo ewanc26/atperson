@@ -1,46 +1,40 @@
 #include "atperson/action.h"
+#include "action_internal.h"
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+
+/*
+ * Guarded decision layer for action continuations. Owns the guard and
+ * decision config defaults and the read-only pass that turns raw bounded
+ * plans into a guarded outbound decision: reject weak first steps, apply
+ * the score-drop/repetition/cycle stops, and either abstain with inspectable
+ * evidence or pick the single best viable plan using the shared ordering.
+ *
+ * Collaborators: bounded plan generation (plans.c) via the public
+ * atp_graph_action_plans API and the shared plan ordering (ordering.c).
+ * Pure read-only; never mutates the graph, never performs network I/O.
+ * Caller owns the output decision.
+ *
+ * Failure modes: ATP_ERR_INVALID_ARGUMENT for null/mismatched arguments and
+ * invalid planner/guard config ranges; propagates planner errors. A decision
+ * with abstained=true carries the concrete abstain reason and stop evidence
+ * instead of a hard failure.
+ *
+ * Determinism: viable-plan selection uses atp_action_plan_compare so repeated
+ * calls on unchanged learned state pick the same plan, including ties.
+ */
 
 typedef struct atp_guarded_plan {
     atp_action_plan plan;
     atp_action_stop_evidence evidence;
 } atp_guarded_plan;
 
-static int atp_decision_plan_compare(const atp_action_plan *a, const atp_action_plan *b) {
-    if (a->score < b->score) {
-        return 1;
-    }
-    if (a->score > b->score) {
-        return -1;
-    }
-    if (a->step_count < b->step_count) {
-        return 1;
-    }
-    if (a->step_count > b->step_count) {
-        return -1;
-    }
-    for (size_t i = 0u; i < a->step_count; ++i) {
-        const int order = strcmp(a->steps[i].token, b->steps[i].token);
-        if (order != 0) {
-            return order;
-        }
-    }
-    if (a->stop_reason < b->stop_reason) {
-        return -1;
-    }
-    if (a->stop_reason > b->stop_reason) {
-        return 1;
-    }
-    return 0;
-}
-
 static int atp_guarded_plan_compare(const void *left, const void *right) {
     const atp_guarded_plan *a = left;
     const atp_guarded_plan *b = right;
-    return atp_decision_plan_compare(&a->plan, &b->plan);
+    return atp_action_plan_compare(&a->plan, &b->plan);
 }
 
 static bool atp_plan_config_valid(const atp_action_plan_config *planner) {
