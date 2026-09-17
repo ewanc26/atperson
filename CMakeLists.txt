@@ -26,6 +26,7 @@ set(ATPERSON_APP_PRIVATE_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/control
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/daemon
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/ingestion
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/journal
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/outbound
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/state
@@ -479,6 +480,19 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-publish-test PRIVATE atperson-cpp)
   target_include_directories(atperson-publish-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-publish COMMAND atperson-publish-test)
+
+  # Action/outcome journal (#27): durable append-only record of the entity's
+  # own outbound attempts, public events that reference executed records and
+  # explicit valence applications. Round-trip, torn-tail recovery, linkage
+  # lookup and dedup. Offline, no network.
+  add_executable(
+    atperson-journal-test
+    tests/journal/store.cpp
+    src/app/journal/store.cpp)
+  target_compile_features(atperson-journal-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-journal-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-journal-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-journal COMMAND atperson-journal-test)
 
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay
