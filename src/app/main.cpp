@@ -9,6 +9,7 @@
 #include "cli/graph.hpp"
 #include "cli/ingest.hpp"
 #include "cli/ledger.hpp"
+#include "cli/outbound.hpp"
 #include "cli/sync.hpp"
 #include "cli/usage.hpp"
 #include "runtime.hpp"
@@ -122,6 +123,19 @@ int main(int argc, char **argv) {
             return atperson::cli::run_control(std::cout, resource_status,
                                               atperson::cli::control_state_path(), sub,
                                               argument);
+        }
+
+        if (command == "outbound") {
+            const std::string sub = argc >= 3 ? argv[2] : "status";
+            std::vector<std::string_view> arguments;
+            arguments.reserve(argc > 3 ? static_cast<std::size_t>(argc - 3) : 0u);
+            for (int i = 3; i < argc; ++i) {
+                arguments.emplace_back(argv[i]);
+            }
+            return atperson::cli::run_outbound_command(
+                std::cout, atperson::cli::outbound_policy_path(),
+                atperson::cli::outbound_budget_path(), atperson::cli::control_state_path(),
+                sub, arguments, static_cast<std::int64_t>(std::time(nullptr)));
         }
 
         if (std::filesystem::exists(path)) {
