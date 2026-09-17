@@ -28,6 +28,8 @@
 namespace atperson {
 namespace {
 
+#if defined(__linux__)
+
 std::optional<std::string> read_text_file(const std::filesystem::path &path) {
     std::ifstream input(path);
     if (!input) {
@@ -57,6 +59,8 @@ std::optional<std::uint64_t> parse_u64(std::string_view text) {
     }
     return value;
 }
+
+#endif
 
 std::uint32_t hardware_threads() {
     const unsigned count = std::thread::hardware_concurrency();
