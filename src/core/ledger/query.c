@@ -2,8 +2,8 @@
  * Ledger read-only inspection.
  *
  * Owns dedup lookup, logical entry enumeration, count reporting, and
- * integrity-checked payload access. These operations never mutate durable
- * ledger state.
+ * integrity-checked payload/context access. These operations never mutate
+ * durable ledger state.
  */
 
 #include "internal.h"
@@ -74,5 +74,17 @@ atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void 
         memcpy(out, payload, payload_len);
     }
     *out_len = payload_len;
+    return ATP_OK;
+}
+
+atp_status atp_ledger_entry_context(const atp_ledger *ledger, uint64_t id,
+                                    atp_conversation_context *out) {
+    if (!ledger || !out) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (id == 0u || id > (uint64_t)ledger->count) {
+        return ATP_ERR_NOT_FOUND;
+    }
+    *out = ledger->contexts[(size_t)(id - 1u)];
     return ATP_OK;
 }

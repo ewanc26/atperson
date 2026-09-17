@@ -55,6 +55,7 @@ add_library(
   src/core/ledger/off.c
   src/core/ledger/index.c
   src/core/ledger/recover.c
+  src/core/ledger/migrate.c
   src/core/replay.c
   src/core/tokenize.c
   src/core/io/portable.c
@@ -275,6 +276,14 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson-ledger_migration
     COMMAND atperson-ledger-test migration
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-migration)
+  add_test(
+    NAME atperson-ledger_migration_v2
+    COMMAND atperson-ledger-test migration-v2
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-migration-v2)
+  add_test(
+    NAME atperson-ledger_context
+    COMMAND atperson-ledger-test context
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-context)
 
   # Deterministic replay/rebuild from the ledger; pure core, no network.
   add_executable(atperson-replay-test tests/replay/replay.c)

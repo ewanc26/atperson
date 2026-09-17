@@ -55,6 +55,7 @@ static void atp_ledger_release(atp_ledger *ledger) {
     free(ledger->entries);
     free(ledger->payloads);
     free(ledger->payload_lens);
+    free(ledger->contexts);
     free(ledger->index);
     free(ledger);
 }
@@ -150,18 +151,26 @@ atp_ledger *atp_ledger_open(const char *path, atp_status *status) {
         return NULL;
     }
 
-    const bool is_v1 = header[0] == ATP_LEDGER_FILE_MAGIC_0 &&
-                       header[1] == ATP_LEDGER_FILE_MAGIC_1 &&
-                       header[2] == ATP_LEDGER_FILE_MAGIC_2 &&
-                       header[3] == ATP_LEDGER_FILE_MAGIC_3 &&
-                       header[4] == ATP_LEDGER_FILE_MAGIC_4 &&
-                       header[5] == ATP_LEDGER_FILE_MAGIC_5 &&
-                       header[6] == ATP_LEDGER_FILE_MAGIC_6 &&
-                       header[7] == ATP_LEDGER_V1_FILE_MAGIC_7 &&
-                       atp_load_u32_le(&header[8]) == ATP_LEDGER_V1_VERSION;
-    if (is_v1) {
+    const bool magic_prefix_ok = header[0] == ATP_LEDGER_FILE_MAGIC_0 &&
+                                 header[1] == ATP_LEDGER_FILE_MAGIC_1 &&
+                                 header[2] == ATP_LEDGER_FILE_MAGIC_2 &&
+                                 header[3] == ATP_LEDGER_FILE_MAGIC_3 &&
+                                 header[4] == ATP_LEDGER_FILE_MAGIC_4 &&
+                                 header[5] == ATP_LEDGER_FILE_MAGIC_5 &&
+                                 header[6] == ATP_LEDGER_FILE_MAGIC_6;
+    const uint32_t file_version = atp_load_u32_le(&header[8]);
+    unsigned legacy_version = 0u;
+    if (magic_prefix_ok) {
+        if (header[7] == ATP_LEDGER_V1_FILE_MAGIC_7 && file_version == ATP_LEDGER_V1_VERSION) {
+            legacy_version = ATP_LEDGER_V1_VERSION;
+        } else if (header[7] == ATP_LEDGER_V2_FILE_MAGIC_7 &&
+                   file_version == ATP_LEDGER_V2_VERSION) {
+            legacy_version = ATP_LEDGER_V2_VERSION;
+        }
+    }
+    if (legacy_version != 0u) {
         fclose(log);
-        const atp_status migrated = atp_ledger_migrate_v1(ledger);
+        const atp_status migrated = atp_ledger_migrate(ledger, legacy_version);
         if (migrated != ATP_OK) {
             atp_ledger_release(ledger);
             if (status) {

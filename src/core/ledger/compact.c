@@ -4,6 +4,8 @@
  * Streams the logical ledger to a staging file, flattens outcome patches,
  * drops withdrawn payload bytes, fsyncs, swaps generations, and republishes
  * the commit marker without changing logical entry ordering or ids.
+ * Retained conversational context (issue #49) is metadata, not payload, so it
+ * survives compaction for every entry, withdrawn included.
  */
 
 #include "internal.h"
@@ -107,7 +109,8 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
             }
         }
 
-        const size_t body_len = atp_serialize_entry(body, entry, payload, payload_len);
+        const size_t body_len =
+            atp_serialize_entry(body, entry, payload, payload_len, &ledger->contexts[i]);
         const size_t record_len =
             atp_build_record(record, ATP_LEDGER_RECORD_ENTRY, body, body_len);
         if (fwrite(record, 1u, record_len, tmp) != record_len) {
