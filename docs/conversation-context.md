@@ -1,47 +1,47 @@
 # Conversation and reply context
 
-`atperson` records the conversational position of every observation — reply root/parent and quote target — as first-class planning metadata. This is the issue #24 state model: thread structure is preserved without being learned, so a future reply planner knows which conversation a post belongs to while the learning core never trains on URIs.
+`atperson` preserves where an observation sits in a conversation without treating AT URIs as learnable text. Reply roots, direct parents and quote targets are planning metadata: useful for continuity, but never tokenised into the language graph.
 
-## What is recorded
+## Stored fields
 
-Each mirrored ledger entry carries an `atp_conversation_context`:
+Each ledger/mirror entry can carry an `atp_conversation_context`:
 
 | Field | Meaning | Empty when |
-|-------|---------|------------|
-| `reply_root_uri` | Thread root the post replies to | Top-level post, or root unresolvable |
-| `reply_parent_uri` | Direct parent of the reply | Top-level post, or parent deleted before fetch |
-| `quote_uri` | Record the post quotes | Not a quote |
+| --- | --- | --- |
+| `reply_root_uri` | Thread root | Top-level post or root unavailable |
+| `reply_parent_uri` | Direct reply parent | Top-level post or parent unavailable |
+| `quote_uri` | Quoted record | Not a quote |
 
-All three are stable AT-URIs (`at://did/collection/rkey`) — identifiers, not content. The quoted post's text is never merged into learnable text: a quote embed is excluded from the text extraction path entirely, so the entity's vocabulary can only grow from text its author actually wrote.
+These are stable AT URIs, not content. Quoted text is not merged into the author's learnable text; a quote embed contributes structure only.
 
-## Where it lives
+## Data flow
 
-- **Sync layer** (`src/app/atproto/extract.cpp`): `extract_feed_item` reads `item.reply.root.uri`, `item.reply.parent.uri` and the record's `app.bsky.embed.record` embed, translating one `feedViewPost` into a `SyncObservation` with `.context`. Pure cJSON-in/observation-out — offline testable, no Wolfram, no network.
-- **Policy** (`src/app/ingestion/policy.cpp`): a quote embed sets `is_quote` and never provides text fallback; precedence is repost > reply > quote > eligible. An empty-text quote is honestly `EmptyText` (nothing of the author's own to learn), not `NonTextOnly` (which means media-only).
-- **Core mirror** (`src/core/graph/lifecycle.c`): `atp_graph_add_ledger_entry_with_context` stores the context in a parallel `ledger_contexts` array; `atp_graph_ledger_context` reads it back. Plain `atp_graph_add_ledger_entry` records with empty context.
-- **Ledger** (`src/core/ledger/`): ledger format v3 appends the three context URIs to every entry record, so context is durable authority — not just a snapshot mirror. `atp_ledger_append_with_context` writes it; `atp_ledger_entry_context` reads it by id; `atp_ledger_append` (and the C++ `Ledger::append` overload without a context) writes empty context. Legacy v1/v2 logs migrate on open with empty context, the honest value for records that predate capture. `atp_replay_ledger` reads context per entry and mirrors it through `atp_graph_add_ledger_entry_with_context`, so a replay rebuild restores reply/quote continuity exactly as a snapshot restore does.
-- **C++ surface** (`include/atperson/graph.hpp`): `LanguageGraph::record_ledger_entry(entry, context)` and `ledger_context(index)`. `ConversationContext` (std::string URIs) converts to the fixed-size C struct at the boundary; URIs longer than `ATPERSON_CONTEXT_URI_BYTES - 1` throw. `Ledger::append(..., context, ...)` and `Ledger::entry_context(id)` expose the same at the runtime layer.
+The same context travels through the existing boundaries:
+
+- `src/app/atproto/extract.cpp` extracts reply/quote identifiers into `SyncObservation`;
+- ingestion policy decides whether the author's own text is eligible to learn;
+- the C23 ledger stores context durably beside the observation;
+- the graph snapshot mirrors it for local inspection;
+- replay restores the same context from the ledger;
+- the C++ wrapper converts between string-owning runtime values and the fixed C representation.
+
+Malformed or missing context fields degrade to empty identifiers instead of dropping an otherwise valid observation.
 
 ## Persistence
 
-Two durable representations carry context, and both are rebuilt from the ledger:
+The ledger is authoritative. Format v3 stores the three optional context URIs on each entry, covered by the record CRC but excluded from the learnable content digest.
 
-- **Ledger** (authority): each entry record ends with `root_len | reply_root_uri`, `parent_len | reply_parent_uri`, `quote_len | quote_uri` (u32 lengths, empty = absent). Context is covered by the record CRC but is outside the content digest — it is metadata, not learnable bytes. Replay rebuilds it.
-- **Snapshot mirror** (portable state): snapshot section `ATP_SECTION_CONTEXT` (tag 10) writes one row per mirrored entry, in mirror order — the row index is always the ledger mirror index, no side table. Each row is three optional strings (root, parent, quote).
+The portable snapshot also mirrors context in `ATP_SECTION_CONTEXT` (tag 10). Older snapshots without the section load with empty context, and legacy v1/v2 ledgers migrate with empty context because those formats never captured it.
 
-The snapshot section is optional and load-time validated:
-
-- Absent section (pre-#24 snapshot): loads with empty context everywhere. No migration needed.
-- Row count greater than the ledger mirror: rejected as format corruption.
-- The `LEDGER` section must be decoded first; a stream that reorders them is not a snapshot this core produced.
+Replay reads context from the ledger and reconstructs the snapshot mirror. Context is therefore not a snapshot-only convenience.
 
 ## Invariants
 
-- Context is planning metadata, never learnable content. No URI is tokenized, embedded, or scored.
-- Malformed context (missing `reply` member, non-object, missing `uri` fields) yields empty strings — the observation is never dropped for malformed context.
-- A deleted or missing parent still yields its identifiers: the strongRef survives in the feed even when the record is gone, which is exactly what audit needs.
-- Empty-text quotes are skipped visibly (`EmptyText` in the ledger) with the quote URI retained in context.
-- Self-authored replies are skipped from learning but their context is still mirrored — the ledger sees the entity's own conversational behaviour for audit.
+- Conversation identifiers are metadata, never vocabulary.
+- Quote text is not learned as though the observing author wrote it.
+- Missing/deleted parents do not invalidate the identifiers that were captured.
+- Empty-text quotes can remain visible in the ledger as skipped observations with their quote URI retained.
+- Self-authored records may be excluded from learning while their conversational metadata remains auditable.
 
 ## API
 
@@ -52,14 +52,22 @@ atp_conversation_context context = {0};
 strcpy(context.reply_root_uri, "at://did:plc:root/app.bsky.feed.post/3k1");
 strcpy(context.reply_parent_uri, "at://did:plc:parent/app.bsky.feed.post/3k2");
 
-/* Durable ledger entry carrying context (issue #49). */
 uint64_t id = 0u;
 atp_status status = ATP_OK;
-atp_ledger_append_with_context(ledger, source_uri, author_did, observed_at, digest,
-                               ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_PENDING, text,
-                               text_len, &context, &id, &status);
+atp_ledger_append_with_context(
+    ledger,
+    source_uri,
+    author_did,
+    observed_at,
+    digest,
+    ATPERSON_SCHEMA_VERSION,
+    ATP_LEDGER_OUTCOME_PENDING,
+    text,
+    text_len,
+    &context,
+    &id,
+    &status);
 
-/* Graph mirror (also restored by atp_replay_ledger). */
 atp_graph_add_ledger_entry_with_context(graph, &entry, &context);
 
 atp_conversation_context read_back = {0};
@@ -67,4 +75,4 @@ atp_ledger_entry_context(ledger, id, &read_back);
 atp_graph_ledger_context(graph, 0u, &read_back);
 ```
 
-`ATPERSON_CONTEXT_URI_BYTES` is 256: enough for any at:// URI (DID ~60 chars, NSID ≤317 by spec, rkey ≤512 in practice, but real post URIs are well under 200). A URI at or beyond the bound is rejected with `ATP_ERR_INVALID_ARGUMENT` before any mutation.
+`ATPERSON_CONTEXT_URI_BYTES` is 256 bytes per stored URI. Inputs that do not fit are rejected before mutation rather than truncated into a different identifier.

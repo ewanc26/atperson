@@ -1,40 +1,28 @@
 # Outbound execution
 
-The runtime can now perform an **operator-approved** AT Protocol post or reply
-through Wolfram. This is deliberately narrow: execution is a gated, audited path
-led by an explicit operator command, never a side effect of learning, memory or
-planning.
+`atperson` can publish an operator-approved AT Protocol post or reply through Wolfram. It cannot reach this path as a side effect of learning, memory or planning: the operator has to provide a frozen action document and explicitly run `publish`.
 
-An accepted core plan is evidence, never permission. The outbound layer is the
-only path from a decision to a network write, and it is fail-closed at every
-step.
+The main rule is the same as the policy layer: **a learned plan is evidence, not permission**.
 
 ## Gate order
 
-`atperson publish <action-file>` runs the gates in this exact order. A later
-gate is never reached until every earlier one passes, and any refusal returns
-without touching the network or the rate budget.
+```sh
+atperson publish <action-file>
+```
 
-1. **Pause** — `control pause` refuses the action before anything is evaluated.
-2. **Outbound policy (#23)** — per-kind enable/disable, rolling rate budget,
-   minimum interval and duplicate suppression, evaluated by
-   `evaluate_outbound_policy`. `deny` and `defer` are reported in the same
-   inspectable reason vocabulary as `atperson outbound`.
-3. **Dry-run** — if `control dry-run on`, the action is fully evaluated and
-   reported as `dry_run`, then stopped. No session is established.
-4. **Control gate (#22)** — `ensure_outbound_allowed` requires
-   `writes_enabled=true` and, when `approval_required=true`, the action's exact
-   digest in `approved_digests`.
-5. **Network write** — only now is a Wolfram session created and the record
-   submitted.
+The gates run in this order, and a later one is never reached until the earlier ones pass:
 
-A dry run or refusal never reads `ATPERSON_IDENTIFIER`/`ATPERSON_APP_PASSWORD`
-and never logs in. Credentials are construction arguments to the session and are
-never logged, persisted or written to the audit log.
+1. **Pause** — an operator pause stops the action immediately.
+2. **Outbound policy** — kind enablement, rolling budget, minimum interval and duplicate suppression are evaluated.
+3. **Dry run** — with dry-run enabled, the fully evaluated action is reported and stopped before login.
+4. **Control approval** — writes must be enabled and, when approval is required, the exact action digest must be present in the approval set.
+5. **Network write** — only here is a Wolfram session created and the frozen record submitted.
 
-## Action document
+A refusal or dry run does not read the AT Protocol credentials and does not establish a session.
 
-Execution is driven by a frozen `atperson-outbound-action` v1 JSON document:
+## Frozen action document
+
+Execution takes an `atperson-outbound-action` v1 document:
 
 ```json
 {
@@ -52,58 +40,36 @@ Execution is driven by a frozen `atperson-outbound-action` v1 JSON document:
 }
 ```
 
-- `kind` is `post` or `reply` only. Other #23 kinds are rejected, not silently
-  downgraded.
-- `digest` is the **#22 control digest**: exactly 16 lowercase hex characters.
-  A malformed digest is rejected at parse time because it could never match an
-  approval.
-- `reply` carries the parent and thread-root **at-URIs** from #24. Their content
-  CIDs are resolved from the live records at execution time and become
-  `com.atproto.repo.strongRef`s. The entity never regenerates the text.
+Only `post` and `reply` are currently executable. Other outbound action kinds remain unsupported rather than being downgraded to a post.
+
+The digest is the 16-character lowercase hexadecimal control digest for the exact inspected action. Replies carry stable root and parent AT URIs; their current CIDs are resolved from the live records at execution time and used as `com.atproto.repo.strongRef`s. The text itself is never regenerated during execution.
 
 ## Idempotency
 
-The record key (`rkey`) is frozen in the document and the write uses
-`com.atproto.repo.putRecord`, not `createRecord`. Re-submitting the same
-document replaces the same record with byte-identical content, so a retry after
-an ambiguous failure cannot create a duplicate post.
+The record key is frozen in the action document and the write uses `com.atproto.repo.putRecord`. Re-running the same document therefore targets the same record instead of creating a second post after an ambiguous failure.
 
-The rate budget is recorded **only on a confirmed success**. A write that fails
-(including an ambiguous network failure) leaves the budget untouched, so the
-operator can retry the frozen action rather than silently losing it.
+The rate budget is committed only after confirmed success. Failed writes leave it untouched so the operator can retry the same frozen action.
 
-## Audit log
+## Audit and experience history
 
-Every attempt — executed, dry run, refused or failed — is appended as one JSON
-object to the outbound audit log (`ATPERSON_OUTBOUND_AUDIT`, default
-`<data>/outbound-audit.jsonl`). Entries carry the timestamp, kind, rkey, digest,
-outcome, stable reason code, optional detail and the resulting URI/CID. The log
-is credential-free and append-only, and is **not** learned state; feeding
-outcomes back into learning is a separate concern (#27).
+Every attempt — executed, dry-run, denied, deferred or failed — is appended to the outbound audit log. `ATPERSON_OUTBOUND_AUDIT` defaults to `<data>/outbound-audit.jsonl`.
+
+The audit entry includes the time, kind, rkey, digest, outcome, stable reason, optional detail and the resulting URI/CID when one exists. Credentials never enter the log.
+
+The separate [`action-journal.md`](action-journal.md) records the entity's own outbound experience for replay and later explicit valence mapping. The audit log remains an operator-facing execution record; neither file is a substitute for the other.
 
 ## Locking
 
-`publish` takes a dedicated `.outbound-lock` inside the data directory. It never
-takes the daemon's `.writer-lock`, so publishing does not wait for ingestion and
-vice versa. The lock serialises the budget read-modify-write so two concurrent
-publishes cannot lose an update.
+`publish` uses a dedicated `.outbound-lock` in the data directory. It does not take the daemon's long-held `.writer-lock`, so ingestion and operator-led publishing do not block one another unnecessarily. The outbound lock serialises the budget read/modify/write path and prevents concurrent publishes from losing an update.
 
-## CLI
+## Exit behaviour
 
-```sh
-atperson publish <action-file>
-```
+`publish` reports the outcome, reason, detail and whether a budget entry was committed.
 
-Output reports the outcome, reason, detail and whether budget was recorded, then
-points at the audit log. Exit status is `0` for executed, dry-run, denied and
-deferred outcomes (these are decisions, not errors) and `1` for an execution
-failure. Unknown/missing arguments return `2`.
+- exit `0`: executed, dry-run, denied or deferred — these are completed decisions;
+- exit `1`: execution failure;
+- exit `2`: invalid or missing CLI arguments.
 
 ## Offline coverage
 
-The ordering, fail-closed behaviour, budget-on-success, idempotent rkey, reply
-CID resolution and audit append are covered by `tests/outbound/execute.cpp`
-against a fake `OutboundWriter`; the network is never touched in tests, and CI
-does not publish records. The Wolfram-backed adapter
-(`src/app/atproto/writer.cpp`) is the only place that calls
-`wf_agent_put_record_typed` / `wf_agent_get_record_typed`.
+`tests/outbound/execute.cpp` covers gate ordering, fail-closed behaviour, budget-on-success, stable rkeys, reply CID resolution and audit appends using a fake `OutboundWriter`. CI never publishes records. The Wolfram adapter in `src/app/atproto/writer.cpp` is the only implementation allowed to perform the protocol write.

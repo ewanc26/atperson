@@ -1,24 +1,26 @@
 # Author and source interaction state
 
-`atperson` keeps neutral continuity for authors and sources without adding a separate mutable relationship database.
+`atperson` derives neutral continuity for authors and sources from evidence it already stores. It does not maintain a second mutable relationship database beside the ledger and episodic memory.
 
-The C23 API in `include/atperson/interaction.h` derives an `atp_interaction_state` on demand from state the core already persists:
+The C23 API in `include/atperson/interaction.h` derives an `atp_interaction_state` from:
 
-- `LEARNED` entries in the graph-side ledger mirror provide encounter count and latest known observation time;
-- currently retained episodic memories provide the remembered-episode count;
-- a bounded familiarity value is derived mechanically from encounter count as `n / (n + 1)`.
+- `LEARNED` ledger-mirror entries for encounter count and latest observation time;
+- currently retained episodic memories for remembered-episode count;
+- bounded familiarity `n / (n + 1)` derived from encounter count.
 
-This state is factual exposure, not a social judgement. It does not represent trust, friendship, affinity, sentiment, reputation, or approval. Author lookups are intended to use stable DIDs and source lookups stable AT URIs. The core does not resolve handles or perform network I/O.
+This is exposure, not a judgement. It does not mean trust, friendship, affinity, reputation, sentiment or approval.
+
+Author identifiers should be stable DIDs and source identifiers stable AT URIs. The core does not resolve handles or perform network I/O.
 
 ## Policy boundary
 
-Only `LEARNED` observations contribute encounters. `SKIPPED` entries remain auditable in the ledger mirror but do not create familiarity, which preserves the ingestion-policy boundary for muted, blocked, unsupported, empty, or moderation-filtered records.
+Only observations with outcome `LEARNED` contribute encounters. Skipped records remain auditable but do not create familiarity, preserving the ingestion-policy boundary for muted, blocked, unsupported, empty or moderation-filtered material.
 
-Withdrawal follows the same semantics as the rest of learned state. Withdrawing data does not mutate the current in-memory graph. After `atperson rebuild`, withdrawn ledger entries are absent from the graph mirror and their episodic memories are absent, so they stop contributing to interaction state automatically.
+Withdrawal follows the same rebuild semantics as the rest of learned state. After a rebuild, withdrawn entries and their retained episodes no longer contribute.
 
-Because the values are derived rather than redundantly stored, snapshot persistence, deterministic replay, ledger compaction, and source withdrawal all share one authority. There is no counter table that can diverge from the experience ledger.
+Because the values are derived rather than redundantly stored, replay, compaction and withdrawal all share the same authority. There is no relationship counter table that can drift away from the evidence it supposedly represents.
 
-## Query shape
+## API
 
 ```c
 atp_interaction_state state;
@@ -29,14 +31,14 @@ atp_status status = atp_graph_interaction_lookup(
     &state);
 ```
 
-A successful result contains:
+A successful result includes:
 
-- the subject kind and stable identifier;
+- subject kind and stable identifier;
 - `encounter_count`;
-- `last_seen_at` (greatest known observation timestamp, or zero when unavailable);
-- `remembered_episode_count` for episodes still retained in memory;
-- bounded neutral `familiarity` in `[0, 1]`.
+- `last_seen_at` (or zero when unknown);
+- `remembered_episode_count`;
+- neutral bounded `familiarity`.
 
-Unknown identifiers return `ATP_ERR_NOT_FOUND`. Invalid identifiers or subject kinds return `ATP_ERR_INVALID_ARGUMENT`. Queries are deterministic and read-only.
+Unknown identifiers return `ATP_ERR_NOT_FOUND`; malformed identifiers or subject kinds return `ATP_ERR_INVALID_ARGUMENT`. Queries are deterministic and read-only.
 
-This is intentionally the minimum author/source state needed before structured planner-context assembly. Direct-interaction counts and richer relationship meaning require explicit conversation/action evidence and belong in later work rather than being inferred from ordinary exposure.
+Richer relationship meaning needs richer evidence. It should not be inferred from ordinary exposure just because the project has an author identifier available.

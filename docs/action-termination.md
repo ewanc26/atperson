@@ -1,40 +1,40 @@
 # Action abstention and termination
 
-The raw beam planner (`atp_graph_action_plans`) remains an inspection primitive: it is bounded, deterministic and exposes candidate evidence, but it will follow a strong learned cycle until `max_tokens` because raw planning deliberately does not contain policy.
+The raw beam planner is useful for inspection, but it is deliberately not a policy engine. If the graph contains a strong learned cycle, raw planning may follow it until `max_tokens`.
 
-`atp_graph_action_decide` is the guarded C23 decision layer used when the system needs to decide whether learned evidence supports a plan at all. It does not publish anything and contains no AT Protocol or outbound-policy rules.
+`atp_graph_action_decide` adds the C23 guard layer that answers a narrower question: does the learned evidence support a usable plan at all? It still performs no network action and knows nothing about AT Protocol permissions.
 
 ## Outcomes
 
-A decision has two top-level outcomes:
+A guarded decision returns either:
 
-- an accepted plan, possibly deliberately shortened by a guard; or
-- explicit abstention before any token is accepted.
+- an accepted plan, possibly shortened by a guard; or
+- explicit abstention before the first token is accepted.
 
-Abstention reasons are inspectable:
+Abstention reasons are stable and inspectable:
 
-- `ATP_ACTION_ABSTAIN_EMPTY_CONTEXT` — the supplied context is the empty string;
-- `ATP_ACTION_ABSTAIN_NO_CANDIDATES` — the learned graph has no continuation for the context;
-- `ATP_ACTION_ABSTAIN_LOW_SCORE` — every raw plan's first candidate fails the configured candidate-score floor;
-- `ATP_ACTION_ABSTAIN_LOW_SUPPORT` — every raw plan's first viable candidate fails the configured support floor.
+- `ATP_ACTION_ABSTAIN_EMPTY_CONTEXT` — no input context;
+- `ATP_ACTION_ABSTAIN_NO_CANDIDATES` — no learned continuation exists;
+- `ATP_ACTION_ABSTAIN_LOW_SCORE` — every first candidate is below the configured score floor;
+- `ATP_ACTION_ABSTAIN_LOW_SUPPORT` — every viable first candidate is below the support floor.
 
-An abstention is not an error. It is a successful decision that there is insufficient learned evidence to produce supported output.
+Abstention is a valid decision, not an error condition.
 
-## Guarded stop reasons
+## Stop guards
 
-After at least one token has been accepted, a plan can stop for the raw planner's existing reasons (`DEAD_END`, `MAX_TOKENS`) or because a later candidate triggers one of the guards:
+After at least one accepted token, generation can stop because the raw planner reached `DEAD_END`/`MAX_TOKENS` or because a later candidate trips a guard:
 
-- `LOW_SCORE` — candidate score is below `min_candidate_score`;
-- `LOW_SUPPORT` — support score is below `min_support_score`;
-- `SCORE_DROP` — candidate score falls by more than `max_score_drop` from the previous accepted step;
-- `REPETITION` — accepting the token would exceed the configured consecutive-occurrence bound;
-- `CYCLE` — the token revisits an earlier non-consecutive generated token.
+- `LOW_SCORE` — below `min_candidate_score`;
+- `LOW_SUPPORT` — below `min_support_score`;
+- `SCORE_DROP` — falls too far from the previous accepted step;
+- `REPETITION` — exceeds the configured consecutive occurrence bound;
+- `CYCLE` — revisits an earlier non-consecutive generated token.
 
-The triggering candidate is not added to the accepted plan. This means a useful supported prefix can survive even when a later continuation becomes repetitive or weak.
+The triggering token is not appended. A supported prefix can therefore survive even when the next continuation becomes weak or repetitive.
 
-Cycle detection is always active. Consecutive repetition is separately configurable between one and two occurrences so a caller can permit one doubled token without allowing an arbitrary loop.
+Cycle detection is always enabled. Consecutive repetition is separately configurable up to `ATPERSON_ACTION_MAX_CONSECUTIVE_OCCURRENCES`, currently 2.
 
-## Default thresholds
+## Defaults
 
 `atp_action_guard_default_config()` returns:
 
@@ -45,30 +45,20 @@ Cycle detection is always active. Consecutive repetition is separately configura
 | maximum step-to-step score drop | `0.40` |
 | maximum consecutive occurrences | `1` |
 
-Score thresholds and the drop bound must be finite and in `[0, 1]`. The consecutive-occurrence setting must be between `1` and `ATPERSON_ACTION_MAX_CONSECUTIVE_OCCURRENCES` (currently `2`). Invalid values are rejected; they are never silently clamped.
+Score/drop thresholds must be finite and inside `[0, 1]`. Invalid values are rejected rather than silently adjusted.
 
-The defaults are intentionally compatible with sparse early experience: a single supporting edge has support score `0.5`, so one observation is not rejected solely for being the first observation. The system can still use stricter settings when appropriate.
+The defaults are intentionally usable with sparse early experience: a single supporting edge has support score `0.5`, so the first observation is not rejected merely for being the first one.
 
 ## Evidence
 
-Every guarded decision includes `atp_action_stop_evidence` with the configured thresholds plus the observed values that caused the result:
+Every guarded decision exposes `atp_action_stop_evidence`, including the configured thresholds and the values that caused the result. Depending on the stop reason this includes the raw step, accepted length, triggering token, candidate/support scores, previous score, repetition count, cycle origin and planner token limit.
 
-- raw step index;
-- accepted prefix length;
-- triggering token when there is one;
-- candidate score and configured minimum;
-- support score and configured minimum;
-- previous candidate score and maximum allowed drop;
-- observed/configured consecutive occurrence counts;
-- cycle start index when a non-consecutive cycle is detected;
-- planner maximum-token bound.
+For `DEAD_END` and `MAX_TOKENS`, there is no rejected candidate; the evidence describes the accepted prefix instead.
 
-For ordinary `DEAD_END` and `MAX_TOKENS` termination there is no rejected candidate; the evidence records the accepted length and the last accepted token/score when available.
+## Determinism and mutation
 
-## Determinism and mutation boundary
+Every raw plan is guarded independently and surviving plans are ranked deterministically using the planner's score/length/token ordering. If all raw plans fail at step zero, the strongest rejected plan supplies the abstention evidence.
 
-The decision layer obtains the raw planner's bounded plans, guards every returned plan independently, then deterministically ranks the surviving guarded plans using the same score/length/token ordering principles as the planner. If every raw plan is rejected at step zero, the strongest raw plan's rejection evidence determines the abstain reason.
+The operation is read-only. It does not change learned state or perform network I/O.
 
-The operation is read-only. It does not update graph nodes, edges, neural state, memory, familiarity or runtime state. It performs no network I/O.
-
-An accepted plan is evidence for later policy only. It is never permission to post, reply, like, follow, repost, send a message or perform moderation. Those gates remain C++23 runtime policy and eventual Wolfram-backed execution work.
+An accepted result still does not mean "publish this". Runtime outbound policy, operator control and the separate execution path remain responsible for network permission.

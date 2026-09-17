@@ -1,45 +1,32 @@
-# Outbound action policy and rate budgets
+# Outbound policy and rate budgets
 
-This document describes the runtime decision layer that sits between an
-accepted C23 core plan and any AT Protocol write. It is the `#23` layer: the
-runtime's own action vocabulary plus an operator-authored policy and durable
-rate budgets.
+An accepted plan from the C23 core is evidence, not permission to touch the network. The outbound policy is the runtime gate between learned decisions and an AT Protocol write.
+
+The policy layer does not perform network I/O itself. It owns the action vocabulary, operator-authored rules and durable rate budgets; [`outbound-execution.md`](outbound-execution.md) describes how `atperson publish` consumes those decisions before Wolfram is allowed to write anything.
 
 ## Boundary
 
-A core plan is evidence, never permission.
+The split is intentionally boring and explicit:
 
-- The C23 core scores and plans. It owns no AT Protocol permissions, no
-  moderation choices and no outbound rate policy.
-- The runtime's outbound layer owns the *action* vocabulary
-  (`post`, `reply`, `like`, `repost`, `follow`, `unfollow`, `moderation`),
-  the operator policy, the rate budgets and the decision codes.
-- Wolfram owns protocol mechanics. This layer never calls Wolfram and never
-  performs network I/O.
-- The outbound policy and budget are **runtime metadata**, not learned state.
-  They live outside the model snapshot and outside the state-directory writer
-  lock, next to operator `control` state.
+- **C23** scores and plans from learned state. It owns no AT Protocol permissions or rate policy.
+- **The C++23 runtime** owns outbound action kinds, policy, rate budgets and stable decision reasons.
+- **Wolfram** owns the actual AT Protocol mechanics.
+- **Operator policy and budgets are runtime metadata**, not learned state. They are not stored in model snapshots and cannot become personality by accident.
 
-The layer is currently **inspection and admission only**. It evaluates and
-records decisions so that a future Wolfram-backed write path has a single,
-inspectable gate to call. It does not itself post, reply, like, follow,
-repost or moderate.
+The current runtime vocabulary is `post`, `reply`, `like`, `repost`, `follow`, `unfollow` and `moderation`. The operator-led execution path currently implements posts and replies; unsupported write kinds stay closed rather than being silently translated into something else.
 
-## Default-deny
+## Default deny
 
-Nothing is permitted until an operator explicitly enables a kind.
+Nothing is allowed merely because a plan exists.
 
-- A missing policy file yields the fail-closed default: every kind disabled.
-- A present policy file must fully parse and validate or the command fails;
-  it is never silently reinterpreted.
-- An unknown action kind at the CLI boundary is denied in the same inspectable
-  shape (`reason: unsupported_kind`) with no state mutation.
-- A missing budget file means "nothing recorded yet". A present but malformed
-  budget file is an error, so a caller refuses rather than guessing.
+- If the policy file is missing, every action kind is disabled.
+- A policy file must parse and validate completely or evaluation fails.
+- Unknown action kinds are denied as `unsupported_kind` without mutating state.
+- A missing budget file means there is no previous budget history. A malformed budget file is an error; the runtime does not guess.
 
 ## Policy file
 
-Path: `ATPERSON_OUTBOUND_POLICY` (default `<data>/outbound-policy.json`).
+`ATPERSON_OUTBOUND_POLICY` defaults to `<data>/outbound-policy.json`.
 
 ```json
 {
@@ -57,80 +44,60 @@ Path: `ATPERSON_OUTBOUND_POLICY` (default `<data>/outbound-policy.json`).
 }
 ```
 
-Every field of a listed kind is required:
+Every field on a listed kind is required:
 
 | Field | Meaning |
 | --- | --- |
-| `enabled` | default-deny switch for this kind |
-| `max_in_window` | maximum admitted actions in the trailing window |
-| `window_seconds` | trailing window length, `1` .. 366 days |
-| `min_interval_seconds` | minimum spacing between admitted actions (`0` = none) |
-| `duplicate_cooldown_seconds` | suppression window for an identical action identity (`0` = off) |
+| `enabled` | Explicit on/off switch for the kind |
+| `max_in_window` | Maximum admitted actions in the trailing window |
+| `window_seconds` | Trailing window length, from 1 second to 366 days |
+| `min_interval_seconds` | Minimum spacing between admitted actions (`0` disables it) |
+| `duplicate_cooldown_seconds` | Suppression window for an identical action identity (`0` disables it) |
 
-Kinds not listed in `kinds` stay disabled. Unknown kind names, duplicate
-keys and out-of-range limits are hard errors (`OutboundPolicyError`). The
-document is versioned; `version` other than `1` is rejected.
+Kinds omitted from `kinds` remain disabled. Unknown kind names, duplicate keys, unsupported versions and out-of-range values are hard errors.
 
-## Budget state
+## Durable budget state
 
-Path: `ATPERSON_OUTBOUND_BUDGET` (default `<data>/outbound-budget.json`).
+`ATPERSON_OUTBOUND_BUDGET` defaults to `<data>/outbound-budget.json`.
 
-The budget is a rolling record of recently admitted actions. It is written
-atomically (write-and-rename) so a crash or restart cannot reset a window and
-permit a burst: recorded timestamps are reloaded and the same limits apply.
+The budget records recently admitted actions and is replaced atomically. Restarting the process therefore does not reset a rate window and accidentally permit a burst.
 
-Per kind it stores the last admitted time, the recent admitted timestamps
-inside the configured horizon, and recently admitted action identities for
-duplicate suppression. Records are pruned to the current window/spacing/
-cooldown horizon and capped per kind (`256`), so the file and each evaluation
-stay bounded. Timestamps are monotonic per kind: a backwards clock is clamped
-to the last recorded action so a window can never shrink.
+For each kind it keeps the last admitted time, recent admitted timestamps and recent action identities used for duplicate suppression. Old entries are pruned to the active policy horizon and each kind is capped at 256 records. If the system clock moves backwards, evaluation clamps to the last recorded time instead of letting the window shrink.
 
 ## Decisions
 
-`evaluate` is read-only. `admit` is the single admission point a real write
-path must call: it evaluates and, only on `allow`, records the action. It is
-single-writer by contract; the returned budget status is the state measured
-*before* admission.
+`evaluate` is read-only. `admit` is the state-changing admission point used by a real write path.
 
-| Outcome | Reason code | When |
+| Outcome | Reason | Meaning |
 | --- | --- | --- |
-| `allow` | `allow` | within every limit and not a duplicate |
-| `deny` | `kind_disabled` | the kind is not enabled in the policy |
-| `deny` | `unsupported_kind` | the kind name is not known to the runtime |
-| `defer` | `duplicate_suppressed` | identical identity inside the duplicate cooldown |
-| `defer` | `cooldown_active` | inside the minimum spacing since the last action |
-| `defer` | `window_exhausted` | the trailing window is full |
+| `allow` | `allow` | All configured limits pass |
+| `deny` | `kind_disabled` | The operator has not enabled the kind |
+| `deny` | `unsupported_kind` | The runtime does not know the action kind |
+| `defer` | `duplicate_suppressed` | The same action identity is still in its duplicate cooldown |
+| `defer` | `cooldown_active` | The minimum interval has not elapsed |
+| `defer` | `window_exhausted` | The rolling window is full |
 
-`defer` carries `retry_after_seconds`; `deny` is a permanent refusal for this
-proposal. Every decision carries the budget status used, so the verdict is
-explainable without re-deriving state.
+A deferred result includes `retry_after_seconds`. Every result carries the budget state used to make it, so an operator can inspect the decision without reconstructing it from the budget file.
 
 ## CLI
 
 ```sh
-./build/atperson outbound status [kind]     # enabled/disabled + current budget
-./build/atperson outbound rules             # the effective policy document
+./build/atperson outbound status [kind]
+./build/atperson outbound rules
 ./build/atperson outbound evaluate <kind> [target] [digest]
 ./build/atperson outbound admit <kind> [target] [digest]
 ```
 
-`evaluate` never mutates state; `admit` consumes budget only on `allow` and
-then persists the budget. Both print the decision, the budget behind it and
-the current operator `control` gate (paused, writes disabled, dry-run,
-unapproved digest). They call no Wolfram code and perform no network writes.
+`target` is the stable AT URI or DID the action applies to, and may be empty for an original post. `digest` is the control approval digest binding the exact inspected action. `kind + target + digest` forms the identity used for duplicate suppression.
 
-`target` is the stable AT URI or DID the action applies to (empty for an
-original post); for a like, repost or reply it is the subject record URI, for
-a follow/unfollow the subject DID. `digest` is the `#22` approval digest that
-binds the exact inspected decision; kind + target + digest is the action
-identity used for duplicate suppression.
+The inspection commands also show the current operator control gate. They do not call Wolfram and do not perform network writes.
+
+## Relationship to `publish`
+
+`atperson publish` evaluates this policy before it creates a Wolfram session. A denial or deferral stops there. The budget is only recorded after a confirmed successful write, so a failed or ambiguous network attempt can be retried with the same frozen action without consuming quota.
+
+See [`outbound-execution.md`](outbound-execution.md) for the complete gate order and idempotency contract.
 
 ## Tests
 
-`tests/outbound/outbound.cpp` (target `atperson-outbound`, offline) covers
-kind round-trips, default-deny, policy round-trip and rejection, window
-exhaustion and recovery, minimum spacing, duplicate suppression, backwards
-clocks, restart persistence, missing/corrupt budget files, concurrent
-proposals serialising at admission, bounded/pruned records, unsupported
-kinds, and the CLI surface including control-gate reporting.
+`tests/outbound/outbound.cpp` covers the default-deny path, policy parsing, window exhaustion and recovery, minimum spacing, duplicate suppression, backwards clocks, restart persistence, malformed state, bounded pruning, unsupported kinds and the CLI surface. All of that coverage is offline.
