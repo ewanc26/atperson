@@ -176,16 +176,25 @@ just the fact that it was observed.
 
 ### Files and layout
 
-- `path` is the record log: `"ATPLDG02"` then a little-endian version u32
-  (v2; v1 logs with the `"ATPLDG01"` magic migrate on open, see below).
+- `path` is the record log: `"ATPLDG03"` then a little-endian version u32
+  (v3; v1/v2 logs with the `"ATPLDG01"`/`"ATPLDG02"` magic migrate on open,
+  see below).
 - Each record is `len u32 | crc u32 (FNV-1a 32) | type u8 | payload`, where
   type 1 is an observation entry and type 2 is an outcome patch.
 - An entry body is `id u64 | source_len u32 | source | author_len u32 |
   author | observed_at u64 | digest u64 | schema u32 | outcome u8 |
-  payload_len u32 | payload`. `payload_len` 0 marks a payload-less entry.
+  payload_len u32 | payload | root_len u32 | reply_root_uri |
+  parent_len u32 | reply_parent_uri | quote_len u32 | quote_uri`.
+  `payload_len` 0 marks a payload-less entry; a zero context length marks an
+  absent conversational identifier.
 - Payloads are length-prefixed bytes, never NUL-terminated; binary content
   round-trips exactly. Retention is capped at `ATPERSON_LEDGER_PAYLOAD_LIMIT`
   (64 KiB); larger observations are rejected before any durable write.
+- Conversation context is durable ledger metadata, not learnable content: it
+  rides the entry record (covered by the record CRC) but is excluded from the
+  content digest, so a replay rebuild restores reply/quote continuity without
+  changing what an observation learns. URIs are capped at
+  `ATPERSON_CONTEXT_URI_BYTES` (256) each.
 - `<path>.off` is the durable commit marker: `"ATPLOF02"`, version, committed
   count, and the byte offset of the committed prefix (28 bytes total).
 
@@ -203,18 +212,21 @@ against the entry's content digest; a mismatch is `ATP_ERR_FORMAT`, so
 corrupted bytes are never returned as content. A null `out` with capacity 0
 queries the length without copying.
 
-### v1 migration
+### Legacy migration (v1/v2)
 
-Opening a v1 log migrates it before recovery. The migration validates the v1
+Opening a v1 or v2 log migrates it before recovery. The migration validates the
 committed prefix, flattens outcome patches onto their entries, streams the
-transformed v2 records to a temp file, fsyncs, and renames atomically. A crash
-before the rename leaves the intact v1 log; after it, the v2 log is complete.
-The stale v1 marker is discarded and rewritten from the migrated log.
+transformed v3 records to a temp file, fsyncs, and renames atomically. A crash
+before the rename leaves the intact legacy log; after it, the v3 log is
+complete. The stale legacy marker is discarded and rewritten from the migrated
+log.
 
 Patch history flattens to final outcomes — intermediate PENDING/FAILED states
 are not preserved across migration. v1 entries migrate payload-less: their
 observation bytes were never retained, and payload reads report that honestly
-rather than faking content.
+rather than faking content. Neither v1 nor v2 carried conversation context, so
+migrated entries take empty context — the honest value for observations that
+predate capture — and later appends carry it normally.
 
 ### Crash safety
 
@@ -370,7 +382,7 @@ What compaction drops, and why each drop is safe:
 
 | Dropped | Why it is dead |
 |---------|----------------|
-| Patch records | The in-memory state already holds flattened outcomes; the compacted log writes one entry record per entry with its final outcome — the same flattening the v1 migration documents |
+| Patch records | The in-memory state already holds flattened outcomes; the compacted log writes one entry record per entry with its final outcome — the same flattening the legacy migration documents |
 | WITHDRAWN payloads | Replay excludes withdrawn entries, dedup still suppresses the key from the tombstone, and withdrawal is durable — the bytes are unreachable by design |
 | Nothing else | LEARNED payloads are replay input; SKIPPED/PENDING/FAILED entries can still legally close to LEARNED, so their bytes stay |
 
