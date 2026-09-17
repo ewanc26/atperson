@@ -42,7 +42,7 @@ stages, with later stages intentionally incomplete:
 | Ledger compaction | Implemented | `atp_ledger_compact` + `atperson compact`: patches flatten to final outcomes, withdrawn payloads drop, ids stay stable; atomic and crash-safe, rebuild-equivalent |
 | Tokenization contract | Implemented | Schema-versioned Unicode tokenizer (utf8proc): NFKC_Casefold equivalence, category-based boundaries, UTF-8 sanitization; one implementation behind observation, action context, recall, and lookup |
 | Growth bounds | Implemented | O(1) hash indexes for node and edge lookup, configurable node/edge ceilings with whole-observation `ATP_ERR_CAPACITY` rejection, scale benchmarks (`ctest -L bench`) |
-| Long-running runtime | Future work | `sync` is an explicitly-invoked bounded run with persistent catch-up state rather than a continuously operating agent |
+| Long-running runtime | Implemented | `atperson daemon` runs repeated bounded cycles with retry backoff, snapshot cadence and graceful shutdown over the same ledger/cursor; operator `control` stays usable alongside it (see [`docs/daemon.md`](docs/daemon.md)) |
 
 The model begins with **zero words and zero relationships**. Neural parameters
 have small deterministic random initial values so learning can start, but there
@@ -271,6 +271,21 @@ Inspect or reset the catch-up position:
 ./build/atperson cursor reset
 ```
 
+To run the same ingestion continuously with retry backoff and a snapshot
+cadence:
+
+```sh
+./build/atperson daemon          # until stopped (SIGINT/SIGTERM or control shutdown)
+./build/atperson daemon 5        # bounded: stop after 5 cycles
+```
+
+The daemon holds the writer lock for its whole lifetime and re-reads operator
+control every cycle, so `atperson control pause` and `atperson control
+shutdown` work while it runs. Transport failures back off rather than busy
+loop; a fatal local persistence error stops the process instead of continuing
+on uncertain state. See [`docs/daemon.md`](docs/daemon.md) for the scheduling
+and backoff environment knobs.
+
 ### Rebuild
 
 Reconstruct learned state from the observation ledger alone — no network
@@ -333,17 +348,19 @@ output would create a feedback loop. Policy-skipped items are still recorded in
 the ledger with outcome `SKIPPED`, so observed-but-not-learned stays
 distinguishable from never-fetched, and timeline replays remain idempotent.
 
-`sync` is still an explicitly-invoked, bounded run at this stage. A
-continuously operating runtime should come only after replay/unlearning
-semantics, explicit action policy, rate limiting, operator controls, and
-stronger recovery behaviour are in place.
+`sync` remains an explicitly-invoked, bounded run; `daemon` wraps the same
+traversal in a continuous loop. Network behaviour is still read-only: the
+runtime ingests public data and does not autonomously like, follow, reply,
+repost, or publish. Autonomous output still waits on explicit action policy
+and a Wolfram-backed write path.
 
-Mutating commands (`ingest`, `ingest-file`, `sync`, `cursor reset`) take an
-exclusive writer lock on the data directory before touching durable state, so
-two processes cannot mutate the same state concurrently. A lock left behind
-by a dead process is detected and reclaimed automatically. Read-only commands
-run without the lock and see state as of their own read — a concurrent writer
-may commit after the reader started.
+Mutating commands (`ingest`, `ingest-file`, `sync`, `cursor reset`,
+`rebuild`, `compact`, `withdraw`, `daemon`) take an exclusive writer lock on
+the data directory before touching durable state, so two processes cannot
+mutate the same state concurrently. A lock left behind by a dead process is
+detected and reclaimed automatically. Read-only commands and operator
+`control` run without the lock and see state as of their own read — a
+concurrent writer may commit after the reader started.
 
 ## Current boundaries
 
