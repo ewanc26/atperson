@@ -30,7 +30,7 @@ stages, with later stages intentionally incomplete:
 | Stage | State | Current implementation |
 | --- | --- | --- |
 | Language graph | Implemented | Empty-start vocabulary, directed associations, trainable 16D embeddings, online neural scoring and negative sampling |
-| Observation ledger | Implemented | Crash-safe append-only C23 log, durable commit marker, provenance, outcomes, cross-run `(source id + digest)` deduplication, and retained canonical payloads (format v2, replayable) |
+| Observation ledger | Implemented | Crash-safe append-only C23 log, durable commit marker, provenance, outcomes, conversation context, cross-run `(source id + digest)` deduplication, and retained canonical payloads (format v3, replayable) |
 | Memory | First pass implemented | Source-linked episodic memories, token summaries, recall counters, deterministic eviction, and graph-backed semantic association |
 | Internal state | First pass implemented | Per-token familiarity learned purely from repeated exposure |
 | Action model | First pass implemented | Deterministic, read-only continuation candidates with inspectable score components |
