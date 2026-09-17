@@ -101,6 +101,11 @@ set, so `atperson outbound` evaluates, admits and persists budgets without the
 writer lock while a daemon runs. Admission is a single serialisation point;
 see [`docs/outbound-policy.md`](outbound-policy.md).
 
+`atperson publish` (#25) also never takes the writer lock. It serialises its
+own budget read-modify-write with a dedicated `.outbound-lock` in the data
+directory, so publishing neither waits for nor is blocked by the daemon's
+long-held writer lock; see [`docs/outbound-execution.md`](outbound-execution.md).
+
 Stale detection: a lockfile whose owner pid is dead, or whose boot marker
 differs from the current boot (the machine rebooted), is provably stale and
 reclaimed. A lockfile owned by a live process is respected — acquisition

@@ -44,6 +44,7 @@ stages, with later stages intentionally incomplete:
 | Growth bounds | Implemented | O(1) hash indexes for node and edge lookup, configurable node/edge ceilings with whole-observation `ATP_ERR_CAPACITY` rejection, scale benchmarks (`ctest -L bench`) |
 | Long-running runtime | Implemented | `atperson daemon` runs repeated bounded cycles with retry backoff, snapshot cadence and graceful shutdown over the same ledger/cursor; operator `control` stays usable alongside it (see [`docs/daemon.md`](docs/daemon.md)) |
 | Outbound action policy | Implemented (inspection/admission only) | Default-deny per-kind policy with durable rate budgets, duplicate suppression and inspectable `allow`/`deny`/`defer` reasons; no network writes (see [`docs/outbound-policy.md`](docs/outbound-policy.md)) |
+| Outbound execution | Implemented (operator-led posts/replies) | `atperson publish` runs a frozen, approved action document through pause → policy → dry-run → control gates, then writes exactly that record via Wolfram; idempotent frozen rkey, budget on confirmed success only, credential-free append-only audit (see [`docs/outbound-execution.md`](docs/outbound-execution.md)) |
 
 The model begins with **zero words and zero relationships**. Neural parameters
 have small deterministic random initial values so learning can start, but there
@@ -352,10 +353,10 @@ the ledger with outcome `SKIPPED`, so observed-but-not-learned stays
 distinguishable from never-fetched, and timeline replays remain idempotent.
 
 `sync` remains an explicitly-invoked, bounded run; `daemon` wraps the same
-traversal in a continuous loop. Network behaviour is still read-only: the
-runtime ingests public data and does not autonomously like, follow, reply,
-repost, or publish. Autonomous output still waits on a Wolfram-backed write
-path; the outbound policy below is the decision layer that path must call.
+traversal in a continuous loop. Ingestion is read-only: the runtime does not
+autonomously like, follow, reply, repost, or publish. The only write path is
+the operator-led `publish` below, which must clear the outbound policy and the
+operator `control` gate before a single record is written.
 
 ### Outbound action policy
 
@@ -380,6 +381,25 @@ a crash cannot reset a window and permit a burst.
 persists it. Both report the operator `control` gate and perform no network
 writes. See [`docs/outbound-policy.md`](docs/outbound-policy.md).
 
+### Outbound execution
+
+`atperson publish <action-file>` is the one path from an approved decision to a
+network write. It executes a frozen `atperson-outbound-action` v1 document —
+exact text, frozen record key, #22 approval digest — through the ordered gates
+(operator pause, #23 policy and rate budget, dry-run, #22 control approval) and
+only then writes the record through Wolfram:
+
+```sh
+./build/atperson publish action.json
+```
+
+Replies resolve their parent/root CIDs from the live records at execution time.
+The write uses `putRecord` under the frozen rkey, so a retry after an ambiguous
+failure replaces the same record instead of duplicating it, and the rate budget
+is consumed only on a confirmed success. Every attempt lands in a
+credential-free append-only audit log. See
+[`docs/outbound-execution.md`](docs/outbound-execution.md).
+
 Mutating commands (`ingest`, `ingest-file`, `sync`, `cursor reset`,
 `rebuild`, `compact`, `withdraw`, `daemon`) take an exclusive writer lock on
 the data directory before touching durable state, so two processes cannot
@@ -393,7 +413,8 @@ concurrent writer may commit after the reader started.
 `atperson` intentionally does **not** currently:
 
 - read private messages or private data;
-- autonomously like, follow, reply, repost, or publish;
+- autonomously like, follow, reply, repost, or publish — `publish` is
+  operator-led, gated and audited, never a side effect of learning;
 - use an LLM as a hidden personality or decision engine;
 - seed a biography, ideology, preferences, or opinions into learned state;
 - equate generated language with consciousness or personhood;
