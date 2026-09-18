@@ -1,5 +1,5 @@
-#include "persistence/decode.h"
-#include "persistence/decode_v6.h"
+#include "persistence/v5.h"
+#include "persistence/v6.h"
 #include "persistence/format.h"
 #include "persistence/migration.h"
 #include "io/portable.h"
@@ -12,9 +12,9 @@
  * Public snapshot load dispatch.
  *
  * This atom owns file I/O, magic/version dispatch, and the lifetime of the
- * raw snapshot image. Version-specific decoding belongs in decode.c (v5),
- * decode_v6.c (v6) and migration.c (v4). Unsupported historical versions
- * fail explicitly.
+ * raw snapshot image. Version-specific decoding belongs in v5.c (v5), v6.c
+ * (v6) and migration.c (v4). Unsupported historical versions fail
+ * explicitly.
  */
 atp_graph *atp_graph_load(const char *path, atp_status *status) {
     if (status) {

@@ -84,6 +84,60 @@ bool atp_reader_section(atp_reader *reader, atp_section *section) {
     return section->length <= reader->size - reader->position;
 }
 
+bool atp_reader_next_section(atp_reader *reader, bool seen[12], uint32_t max_tag,
+                             atp_section *section, size_t *payload_end) {
+    if (!atp_reader_section(reader, section)) {
+        return false;
+    }
+    if (section->tag != 0u && section->tag <= max_tag) {
+        if (seen[section->tag]) {
+            return false;
+        }
+        seen[section->tag] = true;
+    }
+    *payload_end = reader->position + (size_t)section->length;
+    return true;
+}
+
+/* Bit N-1 set for every tag N the loader saw; compared against the loader's
+ * required-section mask. */
+static uint32_t atp_seen_mask(const bool seen[12]) {
+    uint32_t mask = 0u;
+    for (uint32_t tag = 1u; tag <= 11u; ++tag) {
+        if (seen[tag]) {
+            mask |= 1u << (tag - 1u);
+        }
+    }
+    return mask;
+}
+
+atp_graph *atp_load_finish(atp_graph *graph, const bool seen[12], uint32_t required_mask,
+                           uint32_t learning_schema, atp_reader *reader, atp_status *status) {
+    if (!graph || (required_mask & ~atp_seen_mask(seen)) != 0u) {
+        return atp_load_failure(graph, status, ATP_ERR_FORMAT);
+    }
+    if (!atp_schema_can_replay(learning_schema)) {
+        return atp_load_failure(graph, status, ATP_ERR_SCHEMA);
+    }
+
+    /* The entry digest check already verified the trailing bytes; here only
+     * the framing is confirmed: exactly the digest remains. */
+    if (reader->size - reader->position != 8u) {
+        return atp_load_failure(graph, status, ATP_ERR_FORMAT);
+    }
+    if (!atp_graph_rebuild_indexes(graph)) {
+        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
+    }
+    if (!atp_episode_groups_rebuild(graph)) {
+        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
+    }
+
+    if (status) {
+        *status = ATP_OK;
+    }
+    return graph;
+}
+
 atp_graph *atp_load_failure(atp_graph *graph, atp_status *status, atp_status failure) {
     atp_graph_destroy(graph);
     if (status) {

@@ -23,8 +23,9 @@ src/core/graph/query.c
 src/core/ledger/api.c
 src/core/ledger/format.c
 src/core/ledger/recover.c
-src/core/persistence/encode.c
-src/core/persistence/decode.c
+src/core/persistence/sections.c
+src/core/persistence/v5.c
+src/core/persistence/v6.c
 src/app/resource/budget.cpp
 src/app/resource/runtime.cpp
 ```

@@ -1,5 +1,5 @@
 #include "persistence/migration.h"
-#include "persistence/decode.h"
+#include "persistence/v5.h"
 #include "persistence/reader.h"
 #include "io/portable.h"
 

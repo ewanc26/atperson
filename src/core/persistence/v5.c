@@ -1,17 +1,87 @@
-#include "persistence/decode.h"
-#include "persistence/decode_common.h"
+#include "persistence/v5.h"
+#include "persistence/sections.h"
 #include "persistence/format.h"
 #include "io/portable.h"
 
 #include <stdlib.h>
-#include <string.h>
 
 /*
- * Snapshot v5 decoder. Owns legacy-format section semantics and validation.
- * It allocates one graph on success; every failure path destroys partial
- * state. The format-agnostic sections live in decode_common.c and are
- * shared with the v6 loader.
+ * Snapshot v5 (persistence/v5.h): legacy-format encoding and decoding.
+ * The format-agnostic sections live in sections.c and are shared with the
+ * v6 loader; the section-walk scaffolding lives in reader.c.
  */
+
+static bool atp_encode_header(const atp_graph *graph, atp_buffer *buffer) {
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_HEADER)) {
+        return false;
+    }
+    const bool ok = atp_buffer_u32(buffer, graph->neural_architecture.embedding_dim) &&
+                    atp_buffer_u32(buffer, graph->neural_architecture.hidden_widths[0]) &&
+                    atp_buffer_u32(buffer, graph->neural_architecture.input_dim) &&
+                    atp_buffer_u64(buffer, graph->config.seed) &&
+                    atp_buffer_f32(buffer, graph->config.learning_rate) &&
+                    atp_buffer_f32(buffer, graph->config.familiarity_decay) &&
+                    atp_buffer_u32(buffer, (uint32_t)graph->config.episode_capacity) &&
+                    atp_buffer_u64(buffer, graph->rng_state) &&
+                    atp_buffer_u64(buffer, graph->observations) &&
+                    atp_buffer_u64(buffer, graph->token_observations) &&
+                    atp_buffer_u64(buffer, graph->training_steps) &&
+                    atp_buffer_f64(buffer, graph->loss_total) &&
+                    atp_buffer_u64(buffer, graph->episode_evictions);
+    atp_section_end(&section);
+    return ok;
+}
+
+/*
+ * v5 wire compatibility: first-layer weights, first hidden biases,
+ * hidden-to-output weights, output bias. Public v5 graphs are legacy-only.
+ */
+static bool atp_encode_network(const atp_graph *graph, atp_buffer *buffer) {
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_NETWORK)) {
+        return false;
+    }
+
+    const atp_network *network = &graph->network;
+    const size_t first_layer = 0u;
+    const size_t output_layer = network->layout.layer_count - 1u;
+    const size_t input_dim = network->layout.input_widths[first_layer];
+    const size_t hidden_dim = network->layout.output_widths[first_layer];
+    bool ok = true;
+
+    for (size_t h = 0u; ok && h < hidden_dim; ++h) {
+        for (size_t i = 0u; ok && i < input_dim; ++i) {
+            ok = atp_buffer_f32(
+                buffer, network->weights[atp_network_weight_index(network, first_layer, h, i)]);
+        }
+    }
+    for (size_t h = 0u; ok && h < hidden_dim; ++h) {
+        ok = atp_buffer_f32(
+            buffer, network->biases[atp_network_bias_index(network, first_layer, h)]);
+    }
+    for (size_t h = 0u; ok && h < hidden_dim; ++h) {
+        ok = atp_buffer_f32(
+            buffer, network->weights[atp_network_weight_index(network, output_layer, 0u, h)]);
+    }
+    ok = ok && atp_buffer_f32(
+                   buffer, network->biases[atp_network_bias_index(network, output_layer, 0u)]);
+    atp_section_end(&section);
+    return ok;
+}
+
+bool atp_encode_snapshot_v5(const atp_graph *graph, atp_buffer *buffer) {
+    return atp_buffer_put(buffer, ATP_SNAPSHOT_MAGIC_V5,
+                          sizeof(ATP_SNAPSHOT_MAGIC_V5) - 1u) &&
+           atp_buffer_u32(buffer, ATPERSON_SNAPSHOT_VERSION_V5) &&
+           atp_encode_header(graph, buffer) && atp_encode_network(graph, buffer) &&
+           atp_encode_nodes(graph, buffer, false) && atp_encode_edges(graph, buffer) &&
+           atp_encode_ledger(graph, buffer) && atp_encode_context(graph, buffer) &&
+           atp_encode_episodes(graph, buffer) &&
+           atp_encode_valence(graph, buffer) && atp_encode_schema(buffer) &&
+           atp_buffer_u64(buffer, atp_fnv1a64(buffer->data, buffer->size));
+}
+
 static bool atp_decode_header(atp_reader *reader, atp_graph_config *config, uint64_t *rng_state,
                               uint64_t *observations, uint64_t *token_observations,
                               uint64_t *training_steps, double *loss_total,
@@ -77,21 +147,15 @@ atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *statu
 
     atp_reader reader = {data, size, 12u};
     atp_graph *graph = NULL;
-    bool seen[11] = {false};
+    bool seen[12] = {false};
     uint32_t learning_schema = 1u;
 
     while (reader.size - reader.position > 8u) {
         atp_section section;
-        if (!atp_reader_section(&reader, &section)) {
+        size_t payload_end = 0u;
+        if (!atp_reader_next_section(&reader, seen, 10u, &section, &payload_end)) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
-        if (section.tag != 0u && section.tag <= 10u && seen[section.tag]) {
-            return atp_load_failure(graph, status, ATP_ERR_FORMAT);
-        }
-        if (section.tag != 0u && section.tag <= 10u) {
-            seen[section.tag] = true;
-        }
-        const size_t payload_end = reader.position + (size_t)section.length;
 
         bool ok = false;
         switch (section.tag) {
@@ -170,29 +234,5 @@ atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *statu
         }
     }
 
-    if (!graph || !seen[ATP_SECTION_HEADER] || !seen[ATP_SECTION_NETWORK] ||
-        !seen[ATP_SECTION_NODES] || !seen[ATP_SECTION_EDGES] || !seen[ATP_SECTION_LEDGER] ||
-        !seen[ATP_SECTION_EPISODES]) {
-        return atp_load_failure(graph, status, ATP_ERR_FORMAT);
-    }
-    if (!atp_schema_can_replay(learning_schema)) {
-        return atp_load_failure(graph, status, ATP_ERR_SCHEMA);
-    }
-
-    /* The entry digest check already verified the trailing bytes; here only
-     * the framing is confirmed: exactly the digest remains. */
-    if (reader.size - reader.position != 8u) {
-        return atp_load_failure(graph, status, ATP_ERR_FORMAT);
-    }
-    if (!atp_graph_rebuild_indexes(graph)) {
-        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
-    }
-    if (!atp_episode_groups_rebuild(graph)) {
-        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
-    }
-
-    if (status) {
-        *status = ATP_OK;
-    }
-    return graph;
+    return atp_load_finish(graph, seen, 0x3Fu, learning_schema, &reader, status);
 }

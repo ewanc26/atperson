@@ -1,7 +1,5 @@
-#include "persistence/decode_v6.h"
-
-#include "internal.h"
-#include "persistence/decode_common.h"
+#include "persistence/v6.h"
+#include "persistence/sections.h"
 #include "persistence/format.h"
 #include "io/portable.h"
 
@@ -9,22 +7,105 @@
 #include <string.h>
 
 /*
- * Snapshot v6 decoder (persistence/decode_v6.h).
+ * Snapshot v6 (persistence/v6.h). The format-agnostic sections live in
+ * sections.c and are shared with the v5 loader; the section-walk
+ * scaffolding lives in reader.c.
  *
- * v6 generalizes the v5 wire shape to the explicit neural architecture
- * carried by ATP_SECTION_ARCH. HEADER is config-only (the topology lives in
- * ARCH); ARCH must precede NETWORK and NODES because it creates the graph
- * at the persisted topology before any learned state is read. NETWORK and
- * NODES carry the generic layer stack and per-node embeddings together with
- * their plasticity-importance values (issue #59), so a v6 round-trip
- * reproduces the trained state exactly.
- *
- * Integrity before interpretation: the trailing FNV-1a digest covers the
- * whole image, so bitrot is rejected before any byte influences decoding.
- * Corruption guards mirror the v5 loader: duplicate sections, reordered
- * dependencies, truncated payloads, and counts exceeding the remaining
- * bytes all fail as ATP_ERR_FORMAT.
+ * Section order: HEADER, ARCH, NETWORK, NODES, then the format-agnostic
+ * sections shared with v5, then the trailing FNV-1a digest.
  */
+
+/* v6 HEADER: config and counters only; the topology is in ARCH. */
+static bool atp_encode_header_v6(const atp_graph *graph, atp_buffer *buffer) {
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_HEADER)) {
+        return false;
+    }
+    const bool ok = atp_buffer_u64(buffer, graph->config.seed) &&
+                    atp_buffer_f32(buffer, graph->config.learning_rate) &&
+                    atp_buffer_f32(buffer, graph->config.familiarity_decay) &&
+                    atp_buffer_u32(buffer, (uint32_t)graph->config.episode_capacity) &&
+                    atp_buffer_u64(buffer, graph->rng_state) &&
+                    atp_buffer_u64(buffer, graph->observations) &&
+                    atp_buffer_u64(buffer, graph->token_observations) &&
+                    atp_buffer_u64(buffer, graph->training_steps) &&
+                    atp_buffer_f64(buffer, graph->loss_total) &&
+                    atp_buffer_u64(buffer, graph->episode_evictions);
+    atp_section_end(&section);
+    return ok;
+}
+
+static bool atp_encode_arch(const atp_graph *graph, atp_buffer *buffer) {
+    const atp_neural_architecture *architecture = &graph->neural_architecture;
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_ARCH)) {
+        return false;
+    }
+    bool ok = atp_buffer_u32(buffer, architecture->version) &&
+              atp_buffer_u32(buffer, architecture->embedding_dim) &&
+              atp_buffer_u32(buffer, architecture->input_dim) &&
+              atp_buffer_u32(buffer, architecture->output_dim) &&
+              atp_buffer_u32(buffer, architecture->hidden_layer_count);
+    for (size_t i = 0u; ok && i < ATPERSON_NEURAL_MAX_HIDDEN_LAYERS; ++i) {
+        ok = atp_buffer_u32(buffer, architecture->hidden_widths[i]);
+    }
+    atp_section_end(&section);
+    return ok;
+}
+
+/* Generic network in the kernel's index order; importance arrays follow so
+ * the plasticity state (issue #59) round-trips exactly. */
+static bool atp_encode_network_v6(const atp_graph *graph, atp_buffer *buffer) {
+    const atp_network *network = &graph->network;
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_NETWORK)) {
+        return false;
+    }
+    bool ok = atp_buffer_u32(buffer, (uint32_t)network->layout.layer_count);
+    for (size_t layer = 0u; ok && layer < network->layout.layer_count; ++layer) {
+        const size_t input_width = network->layout.input_widths[layer];
+        const size_t output_width = network->layout.output_widths[layer];
+        for (size_t o = 0u; ok && o < output_width; ++o) {
+            for (size_t i = 0u; ok && i < input_width; ++i) {
+                ok = atp_buffer_f32(
+                    buffer, network->weights[atp_network_weight_index(network, layer, o, i)]);
+            }
+        }
+        for (size_t o = 0u; ok && o < output_width; ++o) {
+            ok = atp_buffer_f32(
+                buffer, network->biases[atp_network_bias_index(network, layer, o)]);
+        }
+    }
+    for (size_t layer = 0u; ok && layer < network->layout.layer_count; ++layer) {
+        const size_t input_width = network->layout.input_widths[layer];
+        const size_t output_width = network->layout.output_widths[layer];
+        for (size_t o = 0u; ok && o < output_width; ++o) {
+            for (size_t i = 0u; ok && i < input_width; ++i) {
+                ok = atp_buffer_f32(
+                    buffer,
+                    network->weight_importance[atp_network_weight_index(network, layer, o, i)]);
+            }
+        }
+        for (size_t o = 0u; ok && o < output_width; ++o) {
+            ok = atp_buffer_f32(
+                buffer, network->bias_importance[atp_network_bias_index(network, layer, o)]);
+        }
+    }
+    atp_section_end(&section);
+    return ok;
+}
+
+bool atp_encode_snapshot_v6(const atp_graph *graph, atp_buffer *buffer) {
+    return atp_buffer_put(buffer, ATP_SNAPSHOT_MAGIC_V6, sizeof(ATP_SNAPSHOT_MAGIC_V6) - 1u) &&
+           atp_buffer_u32(buffer, ATPERSON_SNAPSHOT_VERSION) &&
+           atp_encode_header_v6(graph, buffer) && atp_encode_arch(graph, buffer) &&
+           atp_encode_network_v6(graph, buffer) &&
+           atp_encode_nodes(graph, buffer, true) && atp_encode_edges(graph, buffer) &&
+           atp_encode_ledger(graph, buffer) &&
+           atp_encode_context(graph, buffer) && atp_encode_episodes(graph, buffer) &&
+           atp_encode_valence(graph, buffer) && atp_encode_schema(buffer) &&
+           atp_buffer_u64(buffer, atp_fnv1a64(buffer->data, buffer->size));
+}
 
 /* v6 HEADER: config and counters only; the topology is in ARCH. */
 static bool atp_decode_header_v6(atp_reader *reader, atp_graph_config *config,
@@ -147,16 +228,10 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
 
     while (reader.size - reader.position > 8u) {
         atp_section section;
-        if (!atp_reader_section(&reader, &section)) {
+        size_t payload_end = 0u;
+        if (!atp_reader_next_section(&reader, seen, 11u, &section, &payload_end)) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
-        if (section.tag != 0u && section.tag <= 11u && seen[section.tag]) {
-            return atp_load_failure(graph, status, ATP_ERR_FORMAT);
-        }
-        if (section.tag != 0u && section.tag <= 11u) {
-            seen[section.tag] = true;
-        }
-        const size_t payload_end = reader.position + (size_t)section.length;
 
         bool ok = false;
         switch (section.tag) {
@@ -229,29 +304,5 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
         }
     }
 
-    if (!graph || !seen[ATP_SECTION_HEADER] || !seen[ATP_SECTION_ARCH] ||
-        !seen[ATP_SECTION_NETWORK] || !seen[ATP_SECTION_NODES] || !seen[ATP_SECTION_EDGES] ||
-        !seen[ATP_SECTION_LEDGER] || !seen[ATP_SECTION_EPISODES]) {
-        return atp_load_failure(graph, status, ATP_ERR_FORMAT);
-    }
-    if (!atp_schema_can_replay(learning_schema)) {
-        return atp_load_failure(graph, status, ATP_ERR_SCHEMA);
-    }
-
-    /* The entry digest check already verified the trailing bytes; here only
-     * the framing is confirmed: exactly the digest remains. */
-    if (reader.size - reader.position != 8u) {
-        return atp_load_failure(graph, status, ATP_ERR_FORMAT);
-    }
-    if (!atp_graph_rebuild_indexes(graph)) {
-        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
-    }
-    if (!atp_episode_groups_rebuild(graph)) {
-        return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
-    }
-
-    if (status) {
-        *status = ATP_OK;
-    }
-    return graph;
+    return atp_load_finish(graph, seen, 0x43Fu, learning_schema, &reader, status);
 }

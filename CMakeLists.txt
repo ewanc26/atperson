@@ -64,16 +64,14 @@ add_library(
   src/core/replay.c
   src/core/tokenize.c
   src/core/io/portable.c
-  src/core/persistence/encode.c
-  src/core/persistence/encode_common.c
-  src/core/persistence/encode_v6.c
   src/core/persistence/wire.c
   src/core/persistence/reader.c
-  src/core/persistence/decode.c
-  src/core/persistence/decode_common.c
-  src/core/persistence/decode_v6.c
+  src/core/persistence/sections.c
+  src/core/persistence/v5.c
+  src/core/persistence/v6.c
   src/core/persistence/migration.c
-  src/core/persistence/load.c)
+  src/core/persistence/load.c
+  src/core/persistence/save.c)
 target_include_directories(
   atperson-core
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
