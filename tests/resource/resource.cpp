@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
@@ -65,6 +66,42 @@ void test_budget_scales_with_reported_resources() {
     assert(large_budget.edge_capacity_max > small_budget.edge_capacity_max);
     assert(large_budget.sync_page_size >= small_budget.sync_page_size);
     assert(large_budget.sync_page_size <= 100);
+}
+
+void test_neural_recommendation_scales_without_mutating_learned_shape() {
+    atperson::SystemResources small;
+    small.host_logical_cpus = 1u;
+    small.effective_cpu_capacity = 1.0;
+    small.host_memory_total_bytes = 512u * MIB;
+    small.effective_memory_total_bytes = 512u * MIB;
+    small.effective_memory_available_bytes = 256u * MIB;
+    small.disk_capacity_bytes = 16u * GIB;
+    small.disk_available_bytes = 2u * GIB;
+
+    const auto small_budget = atperson::derive_resource_budget(small, graph_stats(0u, 0u));
+    const auto large_budget =
+        atperson::derive_resource_budget(roomy_system(), graph_stats(0u, 0u));
+
+    assert(small_budget.neural.policy_version == 1u);
+    assert(small_budget.neural.capacity_class == atperson::NeuralCapacityClass::constrained);
+    assert(large_budget.neural.capacity_class == atperson::NeuralCapacityClass::expansive);
+    assert(large_budget.neural.memory_budget_bytes > small_budget.neural.memory_budget_bytes);
+    assert(large_budget.neural.embedding_dim > small_budget.neural.embedding_dim);
+    assert(large_budget.neural.hidden_layer_count > small_budget.neural.hidden_layer_count);
+    assert(large_budget.neural.shared_parameter_count > small_budget.neural.shared_parameter_count);
+    assert(large_budget.neural.shared_parameter_bytes ==
+           large_budget.neural.shared_parameter_count * sizeof(float));
+    assert(large_budget.neural.runtime_batch_observations >
+           small_budget.neural.runtime_batch_observations);
+    assert(std::string(atperson::neural_capacity_class_name(
+               large_budget.neural.capacity_class)) == "expansive");
+
+    auto cpu_limited = roomy_system();
+    cpu_limited.effective_cpu_capacity = 0.25;
+    cpu_limited.cpu_limited_by_container = true;
+    const auto limited_budget =
+        atperson::derive_resource_budget(cpu_limited, graph_stats(0u, 0u));
+    assert(limited_budget.neural.capacity_class == atperson::NeuralCapacityClass::constrained);
 }
 
 void test_fractional_cpu_can_reduce_page_to_one() {
@@ -195,6 +232,7 @@ void test_probe_smoke() {
 
 int main() {
     test_budget_scales_with_reported_resources();
+    test_neural_recommendation_scales_without_mutating_learned_shape();
     test_fractional_cpu_can_reduce_page_to_one();
     test_existing_graph_is_never_evicted_by_pressure();
     test_disk_pressure_stops_normal_write_budget();

@@ -96,7 +96,91 @@ int automatic_sync_page_size(const SystemResources &system, const ResourceBudget
     return std::min({cpu_bound, memory_bound, disk_bound});
 }
 
+std::uint64_t shared_parameter_count(const NeuralCapacityRecommendation &profile) {
+    const std::uint64_t input_width = static_cast<std::uint64_t>(profile.embedding_dim) * 2u;
+    std::uint64_t count = 0u;
+    std::uint64_t previous = input_width;
+    for (std::size_t layer = 0u; layer < profile.hidden_layer_count; ++layer) {
+        const std::uint64_t width = static_cast<std::uint64_t>(profile.hidden_widths[layer]);
+        count += previous * width; /* weights */
+        count += width;            /* bias */
+        previous = width;
+    }
+    count += previous; /* final scalar-output weights */
+    count += 1u;       /* final scalar-output bias */
+    return count;
+}
+
+NeuralCapacityRecommendation neural_recommendation(const SystemResources &system,
+                                                   const ResourceBudget &budget) {
+    NeuralCapacityRecommendation profile;
+
+    /* Keep neural recommendation headroom distinct from the graph's growth
+     * ceiling. This is a recommendation only in the current fixed-shape core;
+     * issue #63 owns the later durable architecture migration. */
+    profile.memory_budget_bytes =
+        std::min<std::uint64_t>(4u * GIB, budget.memory_growth_budget_bytes / 4u);
+    if (budget.memory_growth_budget_bytes >= 32u * MIB) {
+        profile.memory_budget_bytes =
+            std::max<std::uint64_t>(8u * MIB, profile.memory_budget_bytes);
+    }
+
+    const double cpu = std::max(0.01, system.effective_cpu_capacity);
+    if (profile.memory_budget_bytes >= 2u * GIB && cpu >= 8.0) {
+        profile.capacity_class = NeuralCapacityClass::expansive;
+        profile.embedding_dim = 384u;
+        profile.hidden_layer_count = 3u;
+        profile.hidden_widths = {768u, 384u, 192u};
+        profile.runtime_batch_observations = 256u;
+    } else if (profile.memory_budget_bytes >= 512u * MIB && cpu >= 4.0) {
+        profile.capacity_class = NeuralCapacityClass::large;
+        profile.embedding_dim = 256u;
+        profile.hidden_layer_count = 2u;
+        profile.hidden_widths = {512u, 256u, 0u};
+        profile.runtime_batch_observations = 128u;
+    } else if (profile.memory_budget_bytes >= 128u * MIB && cpu >= 2.0) {
+        profile.capacity_class = NeuralCapacityClass::capable;
+        profile.embedding_dim = 128u;
+        profile.hidden_layer_count = 2u;
+        profile.hidden_widths = {256u, 128u, 0u};
+        profile.runtime_batch_observations = 64u;
+    } else if (profile.memory_budget_bytes >= 32u * MIB && cpu >= 1.0) {
+        profile.capacity_class = NeuralCapacityClass::baseline;
+        profile.embedding_dim = 64u;
+        profile.hidden_layer_count = 2u;
+        profile.hidden_widths = {128u, 64u, 0u};
+        profile.runtime_batch_observations = 32u;
+    } else {
+        profile.capacity_class = NeuralCapacityClass::constrained;
+        profile.embedding_dim = 32u;
+        profile.hidden_layer_count = 1u;
+        profile.hidden_widths = {64u, 0u, 0u};
+        profile.runtime_batch_observations =
+            cpu < 0.5 || budget.memory_pressure ? 1u : 8u;
+    }
+
+    profile.shared_parameter_count = shared_parameter_count(profile);
+    profile.shared_parameter_bytes = profile.shared_parameter_count * sizeof(float);
+    return profile;
+}
+
 } // namespace
+
+const char *neural_capacity_class_name(NeuralCapacityClass capacity_class) noexcept {
+    switch (capacity_class) {
+    case NeuralCapacityClass::constrained:
+        return "constrained";
+    case NeuralCapacityClass::baseline:
+        return "baseline";
+    case NeuralCapacityClass::capable:
+        return "capable";
+    case NeuralCapacityClass::large:
+        return "large";
+    case NeuralCapacityClass::expansive:
+        return "expansive";
+    }
+    return "unknown";
+}
 
 ResourceOverrides resource_overrides_from_environment() {
     ResourceOverrides overrides;
@@ -208,6 +292,7 @@ ResourceBudget derive_resource_budget(const SystemResources &system,
         budget.sync_max_observations = 1u;
     }
 
+    budget.neural = neural_recommendation(system, budget);
     return budget;
 }
 
