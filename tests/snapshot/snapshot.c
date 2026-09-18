@@ -559,7 +559,7 @@ static void test_bad_magic_rejected(void) {
 }
 
 int main(void) {
-    assert(ATPERSON_SNAPSHOT_VERSION == 5u);
+    assert(ATPERSON_SNAPSHOT_VERSION == 6u);
     test_v5_magic_and_layout();
     test_learning_schema_section();
     test_roundtrip_stability();

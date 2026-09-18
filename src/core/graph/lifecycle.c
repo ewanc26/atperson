@@ -40,7 +40,7 @@ atp_graph_config atp_graph_default_config(void) {
     return config;
 }
 
-atp_graph *atp_graph_create(const atp_graph_config *config) {
+static atp_graph_config atp_graph_effective_config(const atp_graph_config *config) {
     atp_graph_config effective = config ? *config : atp_graph_default_config();
     if (effective.seed == 0u) {
         effective.seed = atp_graph_default_config().seed;
@@ -58,6 +58,17 @@ atp_graph *atp_graph_create(const atp_graph_config *config) {
     if (effective.episode_capacity == 0u) {
         effective.episode_capacity = ATPERSON_EPISODE_DEFAULT_CAPACITY;
     }
+    return effective;
+}
+
+static atp_graph *atp_graph_create_impl(const atp_graph_config *config,
+                                        const atp_neural_architecture *architecture) {
+    const atp_graph_config effective = atp_graph_effective_config(config);
+
+    atp_neural_layout layout = {0};
+    if (!atp_neural_layout_build(architecture, &layout)) {
+        return NULL;
+    }
 
     atp_graph *graph = calloc(1u, sizeof(*graph));
     if (!graph) {
@@ -67,12 +78,25 @@ atp_graph *atp_graph_create(const atp_graph_config *config) {
     graph->config = effective;
     graph->episode_max = effective.episode_capacity;
     graph->rng_state = effective.seed;
-    graph->neural_architecture = atp_neural_legacy_architecture();
+    graph->neural_architecture = *architecture;
     if (!atp_network_init(graph)) {
         free(graph);
         return NULL;
     }
     return graph;
+}
+
+atp_graph *atp_graph_create(const atp_graph_config *config) {
+    const atp_neural_architecture legacy = atp_neural_legacy_architecture();
+    return atp_graph_create_impl(config, &legacy);
+}
+
+atp_graph *atp_graph_create_with_architecture(const atp_graph_config *config,
+                                              const atp_neural_architecture *architecture) {
+    if (!architecture) {
+        return NULL;
+    }
+    return atp_graph_create_impl(config, architecture);
 }
 
 void atp_graph_destroy(atp_graph *graph) {

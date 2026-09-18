@@ -1,4 +1,5 @@
 #include "persistence/decode.h"
+#include "persistence/decode_v6.h"
 #include "persistence/format.h"
 #include "persistence/migration.h"
 #include "io/portable.h"
@@ -11,8 +12,9 @@
  * Public snapshot load dispatch.
  *
  * This atom owns file I/O, magic/version dispatch, and the lifetime of the
- * raw snapshot image. Version-specific decoding belongs to decode.c and
- * migration.c. Unsupported historical versions fail explicitly.
+ * raw snapshot image. Version-specific decoding belongs in decode.c (v5),
+ * decode_v6.c (v6) and migration.c (v4). Unsupported historical versions
+ * fail explicitly.
  */
 atp_graph *atp_graph_load(const char *path, atp_status *status) {
     if (status) {
@@ -76,9 +78,19 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
     fclose(file);
 
     atp_graph *graph = NULL;
-    if (memcmp(data, ATP_SNAPSHOT_MAGIC, 8u) == 0) {
+    if (memcmp(data, ATP_SNAPSHOT_MAGIC_V6, 8u) == 0) {
         const uint32_t version = atp_load_u32le(data + 8u);
         if (version != ATPERSON_SNAPSHOT_VERSION) {
+            free(data);
+            if (status) {
+                *status = ATP_ERR_FORMAT;
+            }
+            return NULL;
+        }
+        graph = atp_load_v6(data, file_size, status);
+    } else if (memcmp(data, ATP_SNAPSHOT_MAGIC, 8u) == 0) {
+        const uint32_t version = atp_load_u32le(data + 8u);
+        if (version != ATPERSON_SNAPSHOT_VERSION_V5) {
             free(data);
             if (status) {
                 *status = ATP_ERR_FORMAT;
@@ -88,7 +100,7 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
         graph = atp_load_v5(data, file_size, status);
     } else if (memcmp(data, ATP_SNAPSHOT_MAGIC_V4, 8u) == 0) {
         const uint32_t version = atp_load_u32le(data + 8u);
-        if (version != 4u) {
+        if (version != ATP_SNAPSHOT_VERSION_V4) {
             free(data);
             if (status) {
                 *status = ATP_ERR_FORMAT;

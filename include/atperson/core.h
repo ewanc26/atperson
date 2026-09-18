@@ -25,8 +25,19 @@ extern "C" {
  * digest. v4 snapshots load portably (every v4 writer in practice ran on a
  * little-endian host) and migrate to v5 on the next save; v1-v3 are refused.
  * Version 5 also persists the episode eviction counter, which v4 omitted.
+ *
+ * Version 6 persists the explicit neural architecture descriptor
+ * (ATP_SECTION_ARCH) and variable-length network/node payloads, so a graph
+ * trained at any supported topology round-trips exactly, including its
+ * plasticity-importance values. v6 files are identified by the "ATPERSN6"
+ * magic; v5 files keep the "ATPERSN5" magic and load through the legacy
+ * compatibility path at the named legacy architecture. v5 snapshots stay
+ * byte-for-byte compatible and are still written by legacy graphs until an
+ * explicit migration changes their topology.
  */
-#define ATPERSON_SNAPSHOT_VERSION 5u
+#define ATPERSON_SNAPSHOT_VERSION 6u
+/* Previous portable fragment format, still loadable as the legacy graph. */
+#define ATPERSON_SNAPSHOT_VERSION_V5 5u
 
 /*
  * Observation ledger format version. The ledger keeps each observation in an
@@ -70,6 +81,12 @@ extern "C" {
  *   to U+FFFD, NFKC_Casefold + LUMP normalization, category-based token
  *   boundaries, codepoint-boundary truncation. Emoji are separators;
  *   combining marks are token bytes. See src/core/tokenize.c.
+ *
+ * The schema version describes the observation-input contract only. The
+ * neural topology (issue #65/#72) is separate model-generation state: it is
+ * persisted in snapshot v6 and reproduced by replay from the caller-supplied
+ * architecture. Running the same ledger through a different topology is a
+ * deliberate new generation, not a schema change.
  *
  * Compatibility classes (see atp_schema_can_replay):
  * - Replay-compatible: replaying an entry under the new code reproduces the
@@ -322,8 +339,24 @@ typedef struct atp_conversation_context {
  */
 atp_graph_config atp_graph_default_config(void);
 
-/** Create an empty language graph. */
+/** Create an empty language graph at the named legacy topology. */
 atp_graph *atp_graph_create(const atp_graph_config *config);
+
+/**
+ * Create an empty language graph at an explicit neural architecture
+ * (issue #65/#72). The descriptor must satisfy the strict validation rules:
+ * non-zero embedding/output dimensions with `input_dim == embedding_dim * 2`,
+ * 1..ATPERSON_NEURAL_MAX_HIDDEN_LAYERS hidden layers with non-zero active
+ * widths, scalar output, and bounded parameter/workspace arithmetic. Returns
+ * NULL (failing closed, never partially) for any invalid descriptor.
+ *
+ * The topology becomes authoritative learned-state metadata: this graph
+ * persists it in snapshot v6 and cannot be written by the v5 writer. Replay
+ * of a ledger into a graph created here is deterministic for a fixed
+ * architecture, seed and schema.
+ */
+atp_graph *atp_graph_create_with_architecture(const atp_graph_config *config,
+                                              const atp_neural_architecture *architecture);
 
 /** Release a graph returned by atp_graph_create/atp_graph_load. */
 void atp_graph_destroy(atp_graph *graph);
@@ -578,6 +611,11 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report);
  * to a fresh graph in ledger id order (the order they were originally
  * observed in). Replay uses the same observe path as live sync, so the
  * rebuilt state is what the original run produced from the same bytes.
+ *
+ * The neural topology is model-generation state, orthogonal to the
+ * observation schema: the caller supplies the graph (and therefore the
+ * architecture), replay never consults host hardware, and a rebuild at the
+ * persisted v6 architecture reproduces that generation deterministically.
  *
  * Outcome semantics:
  * - LEARNED   -> re-observed (training, episodic memory, familiarity) and

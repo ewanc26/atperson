@@ -65,8 +65,13 @@ add_library(
   src/core/tokenize.c
   src/core/io/portable.c
   src/core/persistence/encode.c
+  src/core/persistence/encode_common.c
+  src/core/persistence/encode_v6.c
+  src/core/persistence/wire.c
   src/core/persistence/reader.c
   src/core/persistence/decode.c
+  src/core/persistence/decode_common.c
+  src/core/persistence/decode_v6.c
   src/core/persistence/migration.c
   src/core/persistence/load.c)
 target_include_directories(
@@ -389,6 +394,12 @@ if(ATPERSON_BUILD_TESTS)
   add_test(
     NAME atperson-snapshot
     COMMAND atperson-snapshot-test)
+
+  add_executable(atperson-v6-topology-test tests/snapshot/v6_topology.c)
+  target_link_libraries(atperson-v6-topology-test PRIVATE atperson-core)
+  add_test(
+    NAME atperson-v6-topology
+    COMMAND atperson-v6-topology-test)
 
   add_executable(atperson-cpp-test tests/cpp/graph.cpp)
   target_link_libraries(atperson-cpp-test PRIVATE atperson-cpp)
