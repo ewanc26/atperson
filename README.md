@@ -293,3 +293,13 @@ I do want the project to grow towards genuinely autonomous network behaviour, bu
 ## Licence
 
 AGPL-3.0. See [`LICENSE`](LICENSE).
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=ewanc26%2Fatperson&type=date&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ewanc26/atperson&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ewanc26/atperson&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ewanc26/atperson&type=date&legend=bottom-right" />
+ </picture>
+</a>
