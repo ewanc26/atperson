@@ -394,7 +394,13 @@ atp_status atp_graph_associations(const atp_graph *graph, const char *token, atp
         if (edge->source != (uint32_t)source) {
             continue;
         }
-        const float neural = atp_network_score(graph, edge->source, edge->target);
+        float neural = 0.0f;
+        const atp_status score_status =
+            atp_network_score(graph, edge->source, edge->target, &neural);
+        if (score_status != ATP_OK) {
+            free(ranked);
+            return score_status;
+        }
         ranked[next++] = (atp_ranked_edge){
             .edge = edge,
             .score = edge->strength * 0.7f + neural * 0.3f,
