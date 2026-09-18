@@ -99,32 +99,12 @@ static bool atp_encode_network_v6(const atp_graph *graph, atp_buffer *buffer) {
     return ok;
 }
 
-static bool atp_encode_nodes_v6(const atp_graph *graph, atp_buffer *buffer) {
-    atp_section_writer section;
-    if (!atp_section_begin(buffer, &section, ATP_SECTION_NODES)) {
-        return false;
-    }
-    bool ok = atp_buffer_u64(buffer, (uint64_t)graph->node_count);
-    for (size_t i = 0u; ok && i < graph->node_count; ++i) {
-        const atp_node *node = &graph->nodes[i];
-        ok = atp_buffer_string(buffer, node->token) &&
-             atp_buffer_u64(buffer, node->observations) &&
-             atp_buffer_f32(buffer, node->familiarity);
-        for (size_t d = 0u; ok && d < graph->neural_architecture.embedding_dim; ++d) {
-            ok = atp_buffer_f32(buffer, node->embedding[d]) &&
-                 atp_buffer_f32(buffer, node->embedding_importance[d]);
-        }
-    }
-    atp_section_end(&section);
-    return ok;
-}
-
 bool atp_encode_snapshot_v6(const atp_graph *graph, atp_buffer *buffer) {
     return atp_buffer_put(buffer, ATP_SNAPSHOT_MAGIC_V6, sizeof(ATP_SNAPSHOT_MAGIC_V6) - 1u) &&
            atp_buffer_u32(buffer, ATPERSON_SNAPSHOT_VERSION) &&
            atp_encode_header_v6(graph, buffer) && atp_encode_arch(graph, buffer) &&
-           atp_encode_network_v6(graph, buffer) && atp_encode_nodes_v6(graph, buffer) &&
-           atp_encode_edges(graph, buffer) && atp_encode_ledger(graph, buffer) &&
+           atp_encode_network_v6(graph, buffer) &&
+           atp_encode_nodes(graph, buffer, true) && atp_encode_edges(graph, buffer) && atp_encode_ledger(graph, buffer) &&
            atp_encode_context(graph, buffer) && atp_encode_episodes(graph, buffer) &&
            atp_encode_valence(graph, buffer) && atp_encode_schema(buffer) &&
            atp_buffer_u64(buffer, atp_fnv1a64(buffer->data, buffer->size));

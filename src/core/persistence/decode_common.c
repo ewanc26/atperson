@@ -172,8 +172,7 @@ bool atp_decode_valence(atp_reader *reader, atp_graph *graph) {
     return ok;
 }
 
-bool atp_decode_episodes(atp_reader *reader, atp_graph *graph) {
-    uint64_t count = 0u;
+bool atp_decode_episodes(atp_reader *reader, atp_graph *graph) {    uint64_t count = 0u;
     const uint64_t min_entry = 8u + 8u + 8u + 4u + 8u + 8u + 4u + (4u + 1u) + (4u + 1u);
     if (!atp_reader_u64(reader, &count) || count > SIZE_MAX / sizeof(atp_episode) ||
         count > (reader->size - reader->position) / min_entry) {
@@ -206,6 +205,45 @@ bool atp_decode_episodes(atp_reader *reader, atp_graph *graph) {
             return false;
         }
         graph->episodes[graph->episode_count++] = episode;
+    }
+    return true;
+}
+
+bool atp_decode_nodes(atp_reader *reader, atp_graph *graph, bool with_importance) {
+    uint64_t count = 0u;
+    const uint64_t per_dimension = with_importance ? 8u : 4u;
+    const uint64_t min_entry =
+        4u + 8u + 4u + (uint64_t)graph->neural_architecture.embedding_dim * per_dimension + 1u;
+    if (!atp_reader_u64(reader, &count) || count > SIZE_MAX / sizeof(atp_node) ||
+        count > (reader->size - reader->position) / min_entry) {
+        return false;
+    }
+    if (!atp_reserve_nodes(graph, (size_t)count)) {
+        return false;
+    }
+    for (size_t i = 0u; i < (size_t)count; ++i) {
+        atp_node *node = &graph->nodes[graph->node_count];
+        memset(node, 0, sizeof(*node));
+        char token[ATPERSON_TOKEN_BYTES];
+        if (!atp_reader_string(reader, token, sizeof(token)) ||
+            !atp_reader_u64(reader, &node->observations) ||
+            !atp_reader_f32(reader, &node->familiarity)) {
+            return false;
+        }
+        node->token = strdup(token);
+        if (!node->token || !atp_node_allocate_vectors(graph, node)) {
+            atp_node_destroy(node);
+            return false;
+        }
+        graph->node_count++;
+        for (size_t d = 0u; d < graph->neural_architecture.embedding_dim; ++d) {
+            if (!atp_reader_f32(reader, &node->embedding[d])) {
+                return false;
+            }
+            if (with_importance && !atp_reader_f32(reader, &node->embedding_importance[d])) {
+                return false;
+            }
+        }
     }
     return true;
 }

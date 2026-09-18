@@ -28,7 +28,6 @@ typedef struct atp_section_writer {
     size_t length_offset;
 } atp_section_writer;
 
-bool atp_buffer_reserve(atp_buffer *buffer, size_t needed);
 bool atp_buffer_put(atp_buffer *buffer, const void *data, size_t size);
 bool atp_buffer_u32(atp_buffer *buffer, uint32_t value);
 bool atp_buffer_u64(atp_buffer *buffer, uint64_t value);

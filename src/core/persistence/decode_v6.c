@@ -124,44 +124,6 @@ static bool atp_decode_network_v6(atp_reader *reader, atp_graph *graph) {
     return true;
 }
 
-/* Generic NODES: each node carries its embedding and the per-dimension
- * embedding-importance vector at the ARCH-persisted width. */
-static bool atp_decode_nodes_v6(atp_reader *reader, atp_graph *graph) {
-    uint64_t count = 0u;
-    const uint64_t min_entry = 4u + 8u + 4u +
-                               (uint64_t)graph->neural_architecture.embedding_dim * 8u + 1u;
-    if (!atp_reader_u64(reader, &count) || count > SIZE_MAX / sizeof(atp_node) ||
-        count > (reader->size - reader->position) / min_entry) {
-        return false;
-    }
-    if (!atp_reserve_nodes(graph, (size_t)count)) {
-        return false;
-    }
-    for (size_t i = 0u; i < (size_t)count; ++i) {
-        atp_node *node = &graph->nodes[graph->node_count];
-        memset(node, 0, sizeof(*node));
-        char token[ATPERSON_TOKEN_BYTES];
-        if (!atp_reader_string(reader, token, sizeof(token)) ||
-            !atp_reader_u64(reader, &node->observations) ||
-            !atp_reader_f32(reader, &node->familiarity)) {
-            return false;
-        }
-        node->token = strdup(token);
-        if (!node->token || !atp_node_allocate_vectors(graph, node)) {
-            atp_node_destroy(node);
-            return false;
-        }
-        graph->node_count++;
-        for (size_t d = 0u; d < graph->neural_architecture.embedding_dim; ++d) {
-            if (!atp_reader_f32(reader, &node->embedding[d]) ||
-                !atp_reader_f32(reader, &node->embedding_importance[d])) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *status) {
     /* Integrity before interpretation, as in the v5 loader. */
     if (size < 8u || atp_fnv1a64(data, size - 8u) != atp_load_u64le(data + size - 8u)) {
@@ -199,9 +161,6 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
         bool ok = false;
         switch (section.tag) {
         case ATP_SECTION_HEADER: {
-            if (graph) {
-                break;
-            }
             ok = atp_decode_header_v6(&reader, &pending_config, &pending_rng_state,
                                      &pending_observations, &pending_token_observations,
                                      &pending_training_steps, &pending_loss_total,
@@ -210,7 +169,7 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
         }
         case ATP_SECTION_ARCH: {
             atp_neural_architecture architecture;
-            if (graph || !seen[ATP_SECTION_HEADER]) {
+            if (!seen[ATP_SECTION_HEADER]) {
                 break;
             }
             ok = atp_decode_arch(&reader, &architecture);
@@ -235,7 +194,7 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
             ok = graph && atp_decode_network_v6(&reader, graph);
             break;
         case ATP_SECTION_NODES:
-            ok = graph && atp_decode_nodes_v6(&reader, graph);
+            ok = graph && atp_decode_nodes(&reader, graph, true);
             break;
         case ATP_SECTION_EDGES:
             ok = graph && atp_decode_edges(&reader, graph);
@@ -279,9 +238,9 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
         return atp_load_failure(graph, status, ATP_ERR_SCHEMA);
     }
 
-    uint64_t stored_digest = 0u;
-    if (reader.size - reader.position != 8u || !atp_reader_u64(&reader, &stored_digest) ||
-        stored_digest != atp_fnv1a64(data, size - 8u)) {
+    /* The entry digest check already verified the trailing bytes; here only
+     * the framing is confirmed: exactly the digest remains. */
+    if (reader.size - reader.position != 8u) {
         return atp_load_failure(graph, status, ATP_ERR_FORMAT);
     }
     if (!atp_graph_rebuild_indexes(graph)) {

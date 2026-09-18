@@ -88,7 +88,7 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
             return NULL;
         }
         graph = atp_load_v6(data, file_size, status);
-    } else if (memcmp(data, ATP_SNAPSHOT_MAGIC, 8u) == 0) {
+    } else if (memcmp(data, ATP_SNAPSHOT_MAGIC_V5, 8u) == 0) {
         const uint32_t version = atp_load_u32le(data + 8u);
         if (version != ATPERSON_SNAPSHOT_VERSION_V5) {
             free(data);
@@ -100,7 +100,7 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
         graph = atp_load_v5(data, file_size, status);
     } else if (memcmp(data, ATP_SNAPSHOT_MAGIC_V4, 8u) == 0) {
         const uint32_t version = atp_load_u32le(data + 8u);
-        if (version != ATP_SNAPSHOT_VERSION_V4) {
+        if (version != ATPERSON_SNAPSHOT_VERSION_V4) {
             free(data);
             if (status) {
                 *status = ATP_ERR_FORMAT;

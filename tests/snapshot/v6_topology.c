@@ -1,4 +1,6 @@
 #include "atperson/core.h"
+#include "files.h"
+#include "io/portable.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -46,28 +48,6 @@ static atp_graph *graph_at(const atp_neural_architecture *architecture) {
     assert(atp_graph_observe_text(graph, "moon light moon", "at://v6/1") == ATP_OK);
     assert(atp_graph_observe_text(graph, "light lantern", "at://v6/2") == ATP_OK);
     return graph;
-}
-
-static unsigned char *read_file(const char *path, size_t *size) {
-    FILE *file = fopen(path, "rb");
-    assert(file != NULL);
-    assert(fseek(file, 0L, SEEK_END) == 0);
-    const long length = ftell(file);
-    assert(length > 0);
-    assert(fseek(file, 0L, SEEK_SET) == 0);
-    unsigned char *data = malloc((size_t)length);
-    assert(data != NULL);
-    assert(fread(data, 1u, (size_t)length, file) == (size_t)length);
-    fclose(file);
-    *size = (size_t)length;
-    return data;
-}
-
-static void write_file(const char *path, const unsigned char *data, size_t size) {
-    FILE *file = fopen(path, "wb");
-    assert(file != NULL);
-    assert(fwrite(data, 1u, size, file) == size);
-    assert(fclose(file) == 0);
 }
 
 /* The persisted architecture must equal the requested one field-by-field. */
@@ -207,12 +187,7 @@ static void test_corrupt_arch_rejected(void) {
 
     /* Refresh the trailing digest so the failure is attributed to the ARCH
      * validation, not bitrot. */
-    uint64_t digest = 0u;
-    for (size_t i = 0u; i < size - 8u; ++i) {
-        /* FNV-1a over the corrupted image. */
-        digest ^= data[i];
-        digest *= 1099511628211ull;
-    }
+    const uint64_t digest = atp_fnv1a64(data, size - 8u);
     for (unsigned i = 0u; i < 8u; ++i) {
         data[size - 8u + i] = (unsigned char)(digest >> (8u * i));
     }

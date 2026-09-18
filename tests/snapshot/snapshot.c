@@ -1,4 +1,5 @@
 #include "atperson/core.h"
+#include "files.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -13,30 +14,6 @@
 static const char *SNAPSHOT_PATH = "atperson-snapshot-test-v5.bin";
 static const char *V4_PATH = "atperson-snapshot-test-v4.bin";
 static const char *CORRUPT_PATH = "atperson-snapshot-test-corrupt.bin";
-
-static unsigned char *read_file(const char *path, size_t *size) {
-    FILE *file = fopen(path, "rb");
-    if (!file) {
-        return NULL;
-    }
-    assert(fseek(file, 0L, SEEK_END) == 0);
-    const long length = ftell(file);
-    assert(length > 0);
-    assert(fseek(file, 0L, SEEK_SET) == 0);
-    unsigned char *data = malloc((size_t)length);
-    assert(data != NULL);
-    assert(fread(data, 1u, (size_t)length, file) == (size_t)length);
-    fclose(file);
-    *size = (size_t)length;
-    return data;
-}
-
-static void write_file(const char *path, const unsigned char *data, size_t size) {
-    FILE *file = fopen(path, "wb");
-    assert(file != NULL);
-    assert(fwrite(data, 1u, size, file) == size);
-    assert(fclose(file) == 0);
-}
 
 /* Build a graph with a little of everything: nodes, edges, ledger entries
  * (including a withdrawn one), and an episode. */

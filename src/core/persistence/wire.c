@@ -10,7 +10,7 @@
  * policy lives here; this module only turns primitives into bytes.
  */
 
-bool atp_buffer_reserve(atp_buffer *buffer, size_t needed) {
+static bool atp_buffer_reserve(atp_buffer *buffer, size_t needed) {
     if (needed <= buffer->capacity) {
         return true;
     }

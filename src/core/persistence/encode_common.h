@@ -16,6 +16,10 @@ bool atp_encode_context(const atp_graph *graph, atp_buffer *buffer);
 bool atp_encode_valence(const atp_graph *graph, atp_buffer *buffer);
 bool atp_encode_schema(atp_buffer *buffer);
 bool atp_encode_episodes(const atp_graph *graph, atp_buffer *buffer);
+/* NODES section: token/observations/familiarity then the embedding, with the
+ * per-dimension plasticity-importance value interleaved when the format
+ * carries it (v6; issue #59). */
+bool atp_encode_nodes(const atp_graph *graph, atp_buffer *buffer, bool with_importance);
 
 /*
  * Write buffer to `path` through a sibling temporary file and rename, so a

@@ -15,5 +15,9 @@ bool atp_decode_ledger(atp_reader *reader, atp_graph *graph);
 bool atp_decode_context(atp_reader *reader, atp_graph *graph);
 bool atp_decode_valence(atp_reader *reader, atp_graph *graph);
 bool atp_decode_episodes(atp_reader *reader, atp_graph *graph);
+/* NODES section: token/observations/familiarity then the embedding, with the
+ * per-dimension plasticity-importance value interleaved when the format
+ * carries it (v6). */
+bool atp_decode_nodes(atp_reader *reader, atp_graph *graph, bool with_importance);
 
 #endif

@@ -397,6 +397,7 @@ if(ATPERSON_BUILD_TESTS)
 
   add_executable(atperson-v6-topology-test tests/snapshot/v6_topology.c)
   target_link_libraries(atperson-v6-topology-test PRIVATE atperson-core)
+  target_include_directories(atperson-v6-topology-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
   add_test(
     NAME atperson-v6-topology
     COMMAND atperson-v6-topology-test)

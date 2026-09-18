@@ -104,6 +104,28 @@ bool atp_encode_schema(atp_buffer *buffer) {
     return ok;
 }
 
+bool atp_encode_nodes(const atp_graph *graph, atp_buffer *buffer, bool with_importance) {
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_NODES)) {
+        return false;
+    }
+    bool ok = atp_buffer_u64(buffer, (uint64_t)graph->node_count);
+    for (size_t i = 0u; ok && i < graph->node_count; ++i) {
+        const atp_node *node = &graph->nodes[i];
+        ok = atp_buffer_string(buffer, node->token) &&
+             atp_buffer_u64(buffer, node->observations) &&
+             atp_buffer_f32(buffer, node->familiarity);
+        for (size_t d = 0u; ok && d < graph->neural_architecture.embedding_dim; ++d) {
+            ok = atp_buffer_f32(buffer, node->embedding[d]);
+            if (ok && with_importance) {
+                ok = atp_buffer_f32(buffer, node->embedding_importance[d]);
+            }
+        }
+    }
+    atp_section_end(&section);
+    return ok;
+}
+
 bool atp_encode_episodes(const atp_graph *graph, atp_buffer *buffer) {
     atp_section_writer section;
     if (!atp_section_begin(buffer, &section, ATP_SECTION_EPISODES)) {

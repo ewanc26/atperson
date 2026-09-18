@@ -11,10 +11,10 @@
  * with its historical one-hidden-layer wire shape; both load as current
  * graphs, v5 at the named legacy architecture.
  */
-#define ATP_SNAPSHOT_MAGIC "ATPERSN5"
 #define ATP_SNAPSHOT_MAGIC_V4 "ATPERSN1"
+#define ATP_SNAPSHOT_MAGIC_V5 "ATPERSN5"
 #define ATP_SNAPSHOT_MAGIC_V6 "ATPERSN6"
-#define ATP_SNAPSHOT_VERSION_V4 4u
+#define ATPERSON_SNAPSHOT_VERSION_V4 4u
 
 #define ATP_SECTION_HEADER 1u
 #define ATP_SECTION_NETWORK 2u
