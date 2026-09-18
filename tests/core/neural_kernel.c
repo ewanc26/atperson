@@ -27,25 +27,61 @@ static atp_neural_architecture architecture_3_hidden(void) {
     };
 }
 
+static void assert_layout_sane(const atp_neural_architecture *architecture,
+                               const atp_neural_layout *layout, size_t expected_layers) {
+    assert(layout->layer_count == expected_layers);
+    assert(layout->weight_count <= ATPERSON_NEURAL_PARAMETER_LIMIT);
+    assert(layout->bias_count <= ATPERSON_NEURAL_PARAMETER_LIMIT);
+    assert(layout->activation_count >= architecture->input_dim);
+
+    /* Dense layers are contiguous: the raw input block occupies [0, input_dim)
+     * and each layer's output block starts immediately after the previous
+     * one. Layer 0 reads the input block itself. */
+    size_t expected_weights = 0u;
+    size_t expected_biases = 0u;
+    size_t expected_activations = architecture->input_dim;
+    size_t previous = architecture->input_dim;
+    assert(layout->activation_offsets[0] == 0u);
+    for (size_t layer = 0u; layer < layout->layer_count; ++layer) {
+        const size_t output =
+            layer < architecture->hidden_layer_count
+                ? architecture->hidden_widths[layer]
+                : architecture->output_dim;
+        assert(layout->input_widths[layer] == previous);
+        assert(layout->output_widths[layer] == output);
+        assert(layout->weight_offsets[layer] == expected_weights);
+        assert(layout->bias_offsets[layer] == expected_biases);
+        assert(layout->activation_offsets[layer + 1u] == expected_activations);
+
+        expected_activations += output;
+        expected_weights += previous * output;
+        expected_biases += output;
+        previous = output;
+    }
+    assert(layout->weight_count == expected_weights);
+    assert(layout->bias_count == expected_biases);
+    assert(layout->activation_count == expected_activations);
+}
+
 static void test_layouts(void) {
     atp_neural_layout layout = {0};
     const atp_neural_architecture legacy = atp_neural_legacy_architecture();
     assert(atp_neural_layout_build(&legacy, &layout));
-    assert(layout.layer_count == 2u);
+    assert_layout_sane(&legacy, &layout, 2u);
     assert(layout.weight_count == 528u);
     assert(layout.bias_count == 17u);
     assert(layout.activation_count == 49u);
 
     const atp_neural_architecture two = architecture_2_hidden();
     assert(atp_neural_layout_build(&two, &layout));
-    assert(layout.layer_count == 3u);
+    assert_layout_sane(&two, &layout, 3u);
     assert(layout.weight_count == 69u);
     assert(layout.bias_count == 10u);
     assert(layout.activation_count == 18u);
 
     const atp_neural_architecture three = architecture_3_hidden();
     assert(atp_neural_layout_build(&three, &layout));
-    assert(layout.layer_count == 4u);
+    assert_layout_sane(&three, &layout, 4u);
     assert(layout.weight_count == 140u);
     assert(layout.bias_count == 19u);
     assert(layout.activation_count == 27u);
@@ -59,6 +95,26 @@ static void test_layouts(void) {
     invalid = three;
     invalid.output_dim = 2u;
     assert(!atp_neural_layout_build(&invalid, &layout));
+    invalid = three;
+    invalid.version = ATPERSON_NEURAL_ARCHITECTURE_VERSION + 1u;
+    assert(!atp_neural_layout_build(&invalid, &layout));
+    invalid = three;
+    invalid.embedding_dim = 16384u;
+    invalid.input_dim = 32768u;
+    invalid.hidden_widths[0] = 16384u;
+    assert(!atp_neural_layout_build(&invalid, &layout));
+}
+
+static void assert_network_indices_in_bounds(const atp_network *network) {
+    for (size_t layer = 0u; layer < network->layout.layer_count; ++layer) {
+        for (size_t o = 0u; o < network->layout.output_widths[layer]; ++o) {
+            assert(atp_network_bias_index(network, layer, o) < network->layout.bias_count);
+            for (size_t i = 0u; i < network->layout.input_widths[layer]; ++i) {
+                assert(atp_network_weight_index(network, layer, o, i) <
+                       network->layout.weight_count);
+            }
+        }
+    }
 }
 
 static void exercise_kernel(const atp_neural_architecture *architecture) {
@@ -86,8 +142,9 @@ static void exercise_kernel(const atp_neural_architecture *architecture) {
     float before = 0.0f;
     assert(atp_network_score(&graph, 0u, 1u, &before) == ATP_OK);
     assert(isfinite(before) && before > 0.0f && before < 1.0f);
+    assert_network_indices_in_bounds(&graph.network);
 
-    for (unsigned step = 0u; step < 12u; ++step) {
+    for (unsigned step = 0u; step < 64u; ++step) {
         const float loss = atp_network_train(&graph, 0u, 1u, 1.0f);
         assert(isfinite(loss) && loss >= 0.0f);
     }
@@ -95,11 +152,71 @@ static void exercise_kernel(const atp_neural_architecture *architecture) {
     float after = 0.0f;
     assert(atp_network_score(&graph, 0u, 1u, &after) == ATP_OK);
     assert(isfinite(after) && after > 0.0f && after < 1.0f);
-    assert(after != before);
+    /* Gradient descent toward the target must move the output in that
+     * direction, not merely change it. */
+    assert(after > before);
+    assert_network_indices_in_bounds(&graph.network);
 
     atp_node_destroy(&nodes[0]);
     atp_node_destroy(&nodes[1]);
     atp_network_destroy(&graph.network);
+}
+
+static void test_deterministic_repeat(const atp_neural_architecture *architecture) {
+    atp_graph first = {0};
+    atp_graph second = {0};
+    first.config = second.config = atp_graph_default_config();
+    first.config.enable_plasticity_control = true;
+    first.config.plasticity_threshold = 1000.0f;
+    first.rng_state = second.rng_state = UINT64_C(0xabcdef1234567890);
+    first.neural_architecture = second.neural_architecture = *architecture;
+
+    assert(atp_network_init(&first));
+    assert(atp_network_init(&second));
+    assert(first.network.layout.weight_count == second.network.layout.weight_count);
+    assert(first.network.layout.activation_count == second.network.layout.activation_count);
+
+    atp_node first_nodes[2] = {0};
+    atp_node second_nodes[2] = {0};
+    first.nodes = first_nodes;
+    first.node_count = 2u;
+    second.nodes = second_nodes;
+    second.node_count = 2u;
+    for (size_t i = 0u; i < 2u; ++i) {
+        assert(atp_node_allocate_vectors(&first, &first_nodes[i]));
+        assert(atp_node_allocate_vectors(&second, &second_nodes[i]));
+    }
+    for (size_t i = 0u; i < architecture->embedding_dim; ++i) {
+        const float value = (float)(i + 1u) * 0.02f;
+        first_nodes[0].embedding[i] = value;
+        first_nodes[1].embedding[i] = -value;
+        second_nodes[0].embedding[i] = value;
+        second_nodes[1].embedding[i] = -value;
+    }
+
+    for (unsigned step = 0u; step < 32u; ++step) {
+        const float first_loss = atp_network_train(&first, 0u, 1u, 1.0f);
+        const float second_loss = atp_network_train(&second, 0u, 1u, 1.0f);
+        assert(first_loss == second_loss);
+    }
+
+    float first_score = 0.0f;
+    float second_score = 0.0f;
+    assert(atp_network_score(&first, 0u, 1u, &first_score) == ATP_OK);
+    assert(atp_network_score(&second, 0u, 1u, &second_score) == ATP_OK);
+    assert(first_score == second_score);
+
+    for (size_t d = 0u; d < architecture->embedding_dim; ++d) {
+        assert(first_nodes[0].embedding[d] == second_nodes[0].embedding[d]);
+        assert(first_nodes[1].embedding[d] == second_nodes[1].embedding[d]);
+    }
+
+    atp_node_destroy(&first_nodes[0]);
+    atp_node_destroy(&first_nodes[1]);
+    atp_node_destroy(&second_nodes[0]);
+    atp_node_destroy(&second_nodes[1]);
+    atp_network_destroy(&first.network);
+    atp_network_destroy(&second.network);
 }
 
 int main(void) {
@@ -109,6 +226,8 @@ int main(void) {
     const atp_neural_architecture three = architecture_3_hidden();
     exercise_kernel(&two);
     exercise_kernel(&three);
+    test_deterministic_repeat(&two);
+    test_deterministic_repeat(&three);
 
     puts("neural-kernel: ok");
     return 0;
