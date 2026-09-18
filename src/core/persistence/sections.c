@@ -1,8 +1,4 @@
-#include "persistence/sections.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "persistence/persistence_internal.h"
 
 /*
  * Snapshot section codecs shared byte-for-byte by the v5 and v6 formats

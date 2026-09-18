@@ -1,6 +1,4 @@
-#include "persistence/reader.h"
-
-#include <string.h>
+#include "persistence/persistence_internal.h"
 
 /*
  * Bounded primitive reads for snapshot decoders. This module owns no memory;

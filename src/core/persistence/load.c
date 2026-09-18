@@ -1,12 +1,4 @@
-#include "persistence/v5.h"
-#include "persistence/v6.h"
-#include "persistence/format.h"
-#include "persistence/migration.h"
-#include "io/portable.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "persistence/persistence_internal.h"
 
 /*
  * Public snapshot load dispatch.

@@ -1,13 +1,9 @@
-#include "persistence/wire.h"
-#include "io/portable.h"
-
-#include <stdlib.h>
-#include <string.h>
+#include "persistence/persistence_internal.h"
 
 /*
- * Wire buffer contract (persistence/wire.h): growable little-endian writes
- * and framed sections shared by the v5 and v6 snapshot encoders. No codec
- * policy lives here; this module only turns primitives into bytes.
+ * Wire buffer contract: growable little-endian writes and framed sections
+ * shared by the v5 and v6 snapshot encoders. No codec policy lives here;
+ * this module only turns primitives into bytes.
  */
 
 static bool atp_buffer_reserve(atp_buffer *buffer, size_t needed) {

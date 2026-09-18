@@ -1,10 +1,4 @@
-#include "persistence/v6.h"
-#include "persistence/sections.h"
-#include "persistence/format.h"
-#include "io/portable.h"
-
-#include <stdlib.h>
-#include <string.h>
+#include "persistence/persistence_internal.h"
 
 /*
  * Snapshot v6 (persistence/v6.h). The format-agnostic sections live in

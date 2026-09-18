@@ -1,9 +1,4 @@
-#include "persistence/v5.h"
-#include "persistence/sections.h"
-#include "persistence/format.h"
-#include "io/portable.h"
-
-#include <stdlib.h>
+#include "persistence/persistence_internal.h"
 
 /*
  * Snapshot v5 (persistence/v5.h): legacy-format encoding and decoding.

@@ -1,9 +1,4 @@
-#include "internal.h"
-#include "persistence/v5.h"
-#include "persistence/v6.h"
-#include "persistence/sections.h"
-
-#include <stdlib.h>
+#include "persistence/persistence_internal.h"
 
 /*
  * Public snapshot save dispatch (atp_graph_save, declared in

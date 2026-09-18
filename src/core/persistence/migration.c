@@ -1,10 +1,4 @@
-#include "persistence/migration.h"
-#include "persistence/v5.h"
-#include "persistence/reader.h"
-#include "io/portable.h"
-
-#include <stdlib.h>
-#include <string.h>
+#include "persistence/persistence_internal.h"
 
 /*
  * Snapshot v4 compatibility decoder.
