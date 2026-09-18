@@ -1,7 +1,7 @@
 #include "persistence/persistence_internal.h"
 
 /*
- * Snapshot v6 (persistence/v6.h). The format-agnostic sections live in
+ * Snapshot v6 (persistence_internal.h). The format-agnostic sections live in
  * sections.c and are shared with the v5 loader; the section-walk
  * scaffolding lives in reader.c.
  *

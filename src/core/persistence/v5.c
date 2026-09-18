@@ -1,7 +1,7 @@
 #include "persistence/persistence_internal.h"
 
 /*
- * Snapshot v5 (persistence/v5.h): legacy-format encoding and decoding.
+ * Snapshot v5 (persistence_internal.h): legacy-format encoding and decoding.
  * The format-agnostic sections live in sections.c and are shared with the
  * v6 loader; the section-walk scaffolding lives in reader.c.
  */

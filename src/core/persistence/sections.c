@@ -2,7 +2,7 @@
 
 /*
  * Snapshot section codecs shared byte-for-byte by the v5 and v6 formats
- * (persistence/sections.h). See the header contract comment for the
+ * (persistence_internal.h). See the header contract comment for the
  * encoder/decoder invariants.
  */
 
