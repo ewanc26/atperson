@@ -89,6 +89,26 @@ int main(void) {
     assert(initial.node_count == 0u);
     assert(initial.edge_count == 0u);
 
+    const atp_neural_architecture legacy = atp_neural_legacy_architecture();
+    assert(legacy.version == ATPERSON_NEURAL_ARCHITECTURE_VERSION);
+    assert(legacy.embedding_dim == 16u);
+    assert(legacy.input_dim == 32u);
+    assert(legacy.hidden_layer_count == 1u);
+    assert(legacy.hidden_widths[0] == 16u);
+    assert(legacy.output_dim == 1u);
+
+    atp_neural_architecture active = {0};
+    assert(atp_graph_neural_architecture(graph, &active) == ATP_OK);
+    assert(memcmp(&active, &legacy, sizeof(active)) == 0);
+
+    atp_neural_architecture_report neural = {0};
+    assert(atp_graph_neural_report(graph, &neural) == ATP_OK);
+    assert(neural.shared_parameter_count == 545u);
+    assert(neural.shared_parameter_bytes == 545u * sizeof(float));
+    assert(neural.shared_learned_state_bytes == 1090u * sizeof(float));
+    assert(neural.per_node_embedding_bytes == 16u * sizeof(float));
+    assert(neural.per_node_learned_state_bytes == 32u * sizeof(float));
+
     assert(atp_graph_observe_text(graph, "Moon light moon", "at://example/1") == ATP_OK);
 
     atp_graph_stats learned = atp_graph_get_stats(graph);

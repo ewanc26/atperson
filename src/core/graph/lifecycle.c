@@ -4,6 +4,31 @@
 #include <stdlib.h>
 #include <string.h>
 
+atp_neural_architecture atp_neural_legacy_architecture(void) {
+    return (atp_neural_architecture){
+        .version = ATPERSON_NEURAL_ARCHITECTURE_VERSION,
+        .embedding_dim = ATPERSON_EMBEDDING_DIM,
+        .input_dim = ATPERSON_INPUT_DIM,
+        .hidden_layer_count = 1u,
+        .hidden_widths = {ATPERSON_HIDDEN_DIM, 0u, 0u, 0u},
+        .output_dim = 1u,
+    };
+}
+
+static uint64_t atp_neural_parameter_count(const atp_neural_architecture *architecture) {
+    uint64_t previous = architecture->input_dim;
+    uint64_t count = 0u;
+    for (uint32_t layer = 0u; layer < architecture->hidden_layer_count; ++layer) {
+        const uint64_t width = architecture->hidden_widths[layer];
+        count += previous * width;
+        count += width;
+        previous = width;
+    }
+    count += previous * architecture->output_dim;
+    count += architecture->output_dim;
+    return count;
+}
+
 atp_graph_config atp_graph_default_config(void) {
     atp_graph_config config = {
         .seed = UINT64_C(0x4154504552534F4E),
@@ -42,6 +67,7 @@ atp_graph *atp_graph_create(const atp_graph_config *config) {
     graph->config = effective;
     graph->episode_max = effective.episode_capacity;
     graph->rng_state = effective.seed;
+    graph->neural_architecture = atp_neural_legacy_architecture();
     atp_network_init(graph);
     return graph;
 }
@@ -101,7 +127,8 @@ void atp_graph_set_capacity(atp_graph *graph, size_t node_capacity_max,
     graph->config.edge_capacity_max = edge_capacity_max;
 }
 
-atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {    if (!graph) {
+atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {
+    if (!graph) {
         return (atp_graph_stats){0};
     }
     return (atp_graph_stats){
@@ -117,6 +144,37 @@ atp_graph_stats atp_graph_get_stats(const atp_graph *graph) {    if (!graph) {
         .episode_evictions = graph->episode_evictions,
         .capacity_rejections = graph->capacity_rejections,
     };
+}
+
+atp_status atp_graph_neural_architecture(const atp_graph *graph,
+                                         atp_neural_architecture *out_architecture) {
+    if (!graph || !out_architecture) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    *out_architecture = graph->neural_architecture;
+    return ATP_OK;
+}
+
+atp_status atp_graph_neural_report(const atp_graph *graph,
+                                   atp_neural_architecture_report *out_report) {
+    if (!graph || !out_report) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+
+    const uint64_t parameter_count = atp_neural_parameter_count(&graph->neural_architecture);
+    const uint64_t parameter_bytes = parameter_count * (uint64_t)sizeof(float);
+    const uint64_t embedding_bytes =
+        (uint64_t)graph->neural_architecture.embedding_dim * (uint64_t)sizeof(float);
+
+    *out_report = (atp_neural_architecture_report){
+        .architecture = graph->neural_architecture,
+        .shared_parameter_count = parameter_count,
+        .shared_parameter_bytes = parameter_bytes,
+        .shared_learned_state_bytes = parameter_bytes * 2u,
+        .per_node_embedding_bytes = embedding_bytes,
+        .per_node_learned_state_bytes = embedding_bytes * 2u,
+    };
+    return ATP_OK;
 }
 
 const char *atp_status_string(atp_status status) {

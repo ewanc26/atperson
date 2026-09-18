@@ -74,6 +74,18 @@ atp_graph_stats LanguageGraph::stats() const noexcept {
     return atp_graph_get_stats(graph_);
 }
 
+atp_neural_architecture LanguageGraph::neural_architecture() const {
+    atp_neural_architecture architecture{};
+    require(atp_graph_neural_architecture(graph_, &architecture), "read neural architecture");
+    return architecture;
+}
+
+atp_neural_architecture_report LanguageGraph::neural_report() const {
+    atp_neural_architecture_report report{};
+    require(atp_graph_neural_report(graph_, &report), "read neural architecture report");
+    return report;
+}
+
 std::vector<Association> LanguageGraph::associations(std::string_view token,
                                                      std::size_t limit) const {
     if (limit == 0u) {
