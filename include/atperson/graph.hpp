@@ -42,6 +42,8 @@ class LanguageGraph {
 
     void observe(std::string_view text, std::string_view source_id = {});
     [[nodiscard]] atp_graph_stats stats() const noexcept;
+    [[nodiscard]] atp_neural_architecture neural_architecture() const;
+    [[nodiscard]] atp_neural_architecture_report neural_report() const;
     [[nodiscard]] std::vector<Association> associations(std::string_view token,
                                                         std::size_t limit = 10) const;
     [[nodiscard]] std::vector<ActionCandidate> action_candidates(std::string_view context,

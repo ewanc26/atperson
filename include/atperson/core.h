@@ -10,6 +10,8 @@ extern "C" {
 #endif
 
 #define ATPERSON_EMBEDDING_DIM 16u
+#define ATPERSON_NEURAL_MAX_HIDDEN_LAYERS 4u
+#define ATPERSON_NEURAL_ARCHITECTURE_VERSION 1u
 #define ATPERSON_TOKEN_BYTES 96u
 
 /*
@@ -153,6 +155,43 @@ typedef enum atp_status {
 
 typedef struct atp_graph atp_graph;
 typedef struct atp_ledger atp_ledger;
+
+/*
+ * Durable neural topology descriptor (issue #65).
+ *
+ * Version 1 describes the current legacy scorer exactly: 16-dimensional token
+ * embeddings, their pairwise concatenation as a 32-wide input, one 16-unit
+ * tanh hidden layer, and one sigmoid output. The descriptor is explicit now so
+ * later variable-shape snapshots and deterministic capacity migrations have a
+ * stable C ABI instead of inferring topology from compile-time constants.
+ *
+ * The current core accepts only this legacy shape; exposing the descriptor
+ * does not yet make topology configurable and does not change learning
+ * semantics or snapshot bytes.
+ */
+typedef struct atp_neural_architecture {
+    uint32_t version;
+    uint32_t embedding_dim;
+    uint32_t input_dim;
+    uint32_t hidden_layer_count;
+    uint32_t hidden_widths[ATPERSON_NEURAL_MAX_HIDDEN_LAYERS];
+    uint32_t output_dim;
+} atp_neural_architecture;
+
+/*
+ * Inspectable storage accounting for the active architecture. Parameter bytes
+ * count trainable values once; shared_learned_state_bytes also includes the
+ * matching plasticity-importance values. Per-node learned bytes include both
+ * the embedding and its importance vector.
+ */
+typedef struct atp_neural_architecture_report {
+    atp_neural_architecture architecture;
+    uint64_t shared_parameter_count;
+    uint64_t shared_parameter_bytes;
+    uint64_t shared_learned_state_bytes;
+    uint64_t per_node_embedding_bytes;
+    uint64_t per_node_learned_state_bytes;
+} atp_neural_architecture_report;
 
 typedef struct atp_graph_config {
     uint64_t seed;
@@ -299,6 +338,17 @@ atp_status atp_graph_observe_text(atp_graph *graph, const char *text, const char
 
 /** Read aggregate graph/training statistics. */
 atp_graph_stats atp_graph_get_stats(const atp_graph *graph);
+
+/** Return the named legacy architecture implemented by current snapshots. */
+atp_neural_architecture atp_neural_legacy_architecture(void);
+
+/** Read the active graph's explicit neural topology descriptor (issue #65). */
+atp_status atp_graph_neural_architecture(const atp_graph *graph,
+                                         atp_neural_architecture *out_architecture);
+
+/** Read topology plus parameter/storage accounting for inspection. */
+atp_status atp_graph_neural_report(const atp_graph *graph,
+                                   atp_neural_architecture_report *out_report);
 
 /** Read plasticity control statistics (issue #59). */
 atp_status atp_graph_plasticity_report(const atp_graph *graph, atp_plasticity_report *out_report);
