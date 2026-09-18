@@ -68,7 +68,10 @@ atp_graph *atp_graph_create(const atp_graph_config *config) {
     graph->episode_max = effective.episode_capacity;
     graph->rng_state = effective.seed;
     graph->neural_architecture = atp_neural_legacy_architecture();
-    atp_network_init(graph);
+    if (!atp_network_init(graph)) {
+        free(graph);
+        return NULL;
+    }
     return graph;
 }
 
@@ -78,9 +81,10 @@ void atp_graph_destroy(atp_graph *graph) {
     }
 
     for (size_t i = 0; i < graph->node_count; ++i) {
-        free(graph->nodes[i].token);
+        atp_node_destroy(&graph->nodes[i]);
     }
     free(graph->nodes);
+    atp_network_destroy(&graph->network);
     free(graph->edges);
     free(graph->node_index_slots);
     free(graph->edge_index_slots);

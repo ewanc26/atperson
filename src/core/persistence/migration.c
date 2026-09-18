@@ -20,8 +20,9 @@ atp_graph *atp_load_v4(const unsigned char *data, size_t size, atp_status *statu
     atp_graph_config config = {0};
     atp_graph *graph = NULL;
 
-    if (!atp_reader_u32(&reader, &embedding_dim) || embedding_dim != ATPERSON_EMBEDDING_DIM ||
-        !atp_reader_u32(&reader, &hidden_dim) || hidden_dim != ATPERSON_HIDDEN_DIM ||
+    const atp_neural_architecture legacy = atp_neural_legacy_architecture();
+    if (!atp_reader_u32(&reader, &embedding_dim) || embedding_dim != legacy.embedding_dim ||
+        !atp_reader_u32(&reader, &hidden_dim) || hidden_dim != legacy.hidden_widths[0] ||
         !atp_reader_u64(&reader, &config.seed) ||
         !atp_reader_f32(&reader, &config.learning_rate) ||
         !atp_reader_f32(&reader, &config.familiarity_decay) ||
@@ -35,7 +36,8 @@ atp_graph *atp_load_v4(const unsigned char *data, size_t size, atp_status *statu
 
     uint64_t node_count = 0u;
     uint64_t edge_count = 0u;
-    const uint64_t v4_min_node = 4u + 8u + (uint64_t)ATPERSON_EMBEDDING_DIM * 4u + 1u;
+    const uint64_t v4_min_node =
+        4u + 8u + (uint64_t)graph->neural_architecture.embedding_dim * 4u + 1u;
     if (!atp_reader_u64(&reader, &graph->rng_state) ||
         !atp_reader_u64(&reader, &graph->observations) ||
         !atp_reader_u64(&reader, &graph->token_observations) ||
@@ -63,11 +65,19 @@ atp_graph *atp_load_v4(const unsigned char *data, size_t size, atp_status *statu
         const unsigned char *bytes;
         if (!atp_reader_u32(&reader, &length) || length == 0u ||
             length >= ATPERSON_TOKEN_BYTES ||
-            !atp_reader_u64(&reader, &node->observations) ||
-            !atp_reader_take(&reader, sizeof(node->embedding), &bytes)) {
+            !atp_reader_u64(&reader, &node->observations)) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
-        for (size_t d = 0u; d < ATPERSON_EMBEDDING_DIM; ++d) {
+        if (!atp_node_allocate_vectors(graph, node)) {
+            return atp_load_failure(graph, status, ATP_ERR_OUT_OF_MEMORY);
+        }
+        graph->node_count++;
+        const size_t embedding_bytes =
+            (size_t)graph->neural_architecture.embedding_dim * sizeof(float);
+        if (!atp_reader_take(&reader, embedding_bytes, &bytes)) {
+            return atp_load_failure(graph, status, ATP_ERR_FORMAT);
+        }
+        for (size_t d = 0u; d < graph->neural_architecture.embedding_dim; ++d) {
             node->embedding[d] = atp_load_f32le(bytes + 4u * d);
         }
         if (!atp_reader_take(&reader, length, &bytes)) {
@@ -79,7 +89,6 @@ atp_graph *atp_load_v4(const unsigned char *data, size_t size, atp_status *statu
         }
         memcpy(node->token, bytes, length);
         node->token[length] = '\0';
-        graph->node_count++;
     }
 
     for (size_t i = 0u; i < (size_t)edge_count; ++i) {

@@ -2,6 +2,8 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 
 static float atp_sigmoid(float value) {
     if (value >= 0.0f) {
@@ -15,45 +17,84 @@ static float atp_sigmoid(float value) {
 static void atp_pair_input(const atp_graph *graph, uint32_t source,
                            uint32_t target,
                            float input[ATPERSON_INPUT_DIM]) {
-    for (size_t i = 0; i < ATPERSON_EMBEDDING_DIM; ++i) {
+    const size_t embedding_dim = graph->neural_architecture.embedding_dim;
+    for (size_t i = 0; i < embedding_dim; ++i) {
         input[i] = graph->nodes[source].embedding[i];
-        input[ATPERSON_EMBEDDING_DIM + i] =
-            graph->nodes[target].embedding[i];
+        input[embedding_dim + i] = graph->nodes[target].embedding[i];
     }
 }
 
 static float atp_forward(const atp_graph *graph,
                          const float input[ATPERSON_INPUT_DIM],
                          float hidden[ATPERSON_HIDDEN_DIM]) {
-    for (size_t h = 0; h < ATPERSON_HIDDEN_DIM; ++h) {
+    const size_t input_dim = graph->neural_architecture.input_dim;
+    const size_t hidden_dim = graph->neural_architecture.hidden_widths[0];
+    for (size_t h = 0; h < hidden_dim; ++h) {
         float activation = graph->network.hidden_bias[h];
-        for (size_t i = 0; i < ATPERSON_INPUT_DIM; ++i) {
-            activation += graph->network.input_hidden[h][i] * input[i];
+        for (size_t i = 0; i < input_dim; ++i) {
+            const size_t offset = atp_network_input_hidden_offset(graph, h, i);
+            activation += graph->network.input_hidden[offset] * input[i];
         }
         hidden[h] = tanhf(activation);
     }
 
     float output = graph->network.output_bias;
-    for (size_t h = 0; h < ATPERSON_HIDDEN_DIM; ++h) {
+    for (size_t h = 0; h < hidden_dim; ++h) {
         output += graph->network.hidden_output[h] * hidden[h];
     }
     return atp_sigmoid(output);
 }
 
-void atp_network_init(atp_graph *graph) {
+bool atp_network_init(atp_graph *graph) {
+    const size_t input_dim = graph->neural_architecture.input_dim;
+    const size_t hidden_dim = graph->neural_architecture.hidden_widths[0];
+    if (input_dim == 0u || hidden_dim == 0u || hidden_dim > SIZE_MAX / input_dim) {
+        return false;
+    }
+    const size_t matrix_count = hidden_dim * input_dim;
+
+    atp_network network = {0};
+    network.input_hidden = malloc(matrix_count * sizeof(*network.input_hidden));
+    network.hidden_bias = calloc(hidden_dim, sizeof(*network.hidden_bias));
+    network.hidden_output = malloc(hidden_dim * sizeof(*network.hidden_output));
+    network.input_hidden_importance =
+        calloc(matrix_count, sizeof(*network.input_hidden_importance));
+    network.hidden_bias_importance =
+        calloc(hidden_dim, sizeof(*network.hidden_bias_importance));
+    network.hidden_output_importance =
+        calloc(hidden_dim, sizeof(*network.hidden_output_importance));
+    if (!network.input_hidden || !network.hidden_bias || !network.hidden_output ||
+        !network.input_hidden_importance || !network.hidden_bias_importance ||
+        !network.hidden_output_importance) {
+        atp_network_destroy(&network);
+        return false;
+    }
+
     const float input_scale = 0.12f;
     const float output_scale = 0.12f;
-
-    for (size_t h = 0; h < ATPERSON_HIDDEN_DIM; ++h) {
-        graph->network.hidden_bias[h] = 0.0f;
-        graph->network.hidden_output[h] =
-            atp_rng_signed(graph) * output_scale;
-        for (size_t i = 0; i < ATPERSON_INPUT_DIM; ++i) {
-            graph->network.input_hidden[h][i] =
+    for (size_t h = 0; h < hidden_dim; ++h) {
+        network.hidden_output[h] = atp_rng_signed(graph) * output_scale;
+        for (size_t i = 0; i < input_dim; ++i) {
+            network.input_hidden[h * input_dim + i] =
                 atp_rng_signed(graph) * input_scale;
         }
     }
-    graph->network.output_bias = 0.0f;
+
+    graph->network = network;
+    return true;
+}
+
+void atp_network_destroy(atp_network *network) {
+    if (!network) {
+        return;
+    }
+    free(network->input_hidden);
+    free(network->hidden_bias);
+    free(network->hidden_output);
+    free(network->input_hidden_importance);
+    free(network->hidden_bias_importance);
+    free(network->hidden_output_importance);
+    memset(network, 0, sizeof(*network));
 }
 
 float atp_network_score(const atp_graph *graph, uint32_t source,
@@ -84,18 +125,21 @@ float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target,
 
     // Binary-cross-entropy + sigmoid derivative simplifies to output-target.
     const float output_gradient = output - expected;
-    for (size_t h = 0; h < ATPERSON_HIDDEN_DIM; ++h) {
+    const size_t input_dim = graph->neural_architecture.input_dim;
+    const size_t hidden_dim = graph->neural_architecture.hidden_widths[0];
+    const size_t embedding_dim = graph->neural_architecture.embedding_dim;
+    for (size_t h = 0; h < hidden_dim; ++h) {
         hidden_gradient[h] =
             output_gradient * graph->network.hidden_output[h] *
             (1.0f - hidden[h] * hidden[h]);
     }
 
     // Compute the embedding gradient before mutating the matrix it depends on.
-    for (size_t i = 0; i < ATPERSON_INPUT_DIM; ++i) {
+    for (size_t i = 0; i < input_dim; ++i) {
         float gradient = 0.0f;
-        for (size_t h = 0; h < ATPERSON_HIDDEN_DIM; ++h) {
-            gradient += hidden_gradient[h] *
-                        graph->network.input_hidden[h][i];
+        for (size_t h = 0; h < hidden_dim; ++h) {
+            const size_t offset = atp_network_input_hidden_offset(graph, h, i);
+            gradient += hidden_gradient[h] * graph->network.input_hidden[offset];
         }
         input_gradient[i] = gradient;
     }
@@ -114,7 +158,7 @@ float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target,
         graph->plasticity_steps_total++;
     }
 
-    for (size_t h = 0; h < ATPERSON_HIDDEN_DIM; ++h) {
+    for (size_t h = 0; h < hidden_dim; ++h) {
         const float grad_out = output_gradient * hidden[h];
         float rate_out = rate;
         if (plasticity && graph->network.hidden_output_importance[h] > threshold) {
@@ -139,17 +183,18 @@ float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target,
             graph->network.hidden_bias_importance[h] += fabsf(grad_bias);
         }
 
-        for (size_t i = 0; i < ATPERSON_INPUT_DIM; ++i) {
+        for (size_t i = 0; i < input_dim; ++i) {
+            const size_t offset = atp_network_input_hidden_offset(graph, h, i);
             const float grad_in = hidden_gradient[h] * input[i];
             float rate_in = rate;
-            if (plasticity && graph->network.input_hidden_importance[h][i] > threshold) {
+            if (plasticity && graph->network.input_hidden_importance[offset] > threshold) {
                 rate_in *= scale;
                 graph->plasticity_parameters_protected++;
                 step_was_protected = true;
             }
-            graph->network.input_hidden[h][i] -= rate_in * grad_in;
+            graph->network.input_hidden[offset] -= rate_in * grad_in;
             if (plasticity) {
-                graph->network.input_hidden_importance[h][i] += fabsf(grad_in);
+                graph->network.input_hidden_importance[offset] += fabsf(grad_in);
             }
         }
     }
@@ -168,7 +213,7 @@ float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target,
         }
     }
 
-    for (size_t i = 0; i < ATPERSON_EMBEDDING_DIM; ++i) {
+    for (size_t i = 0; i < embedding_dim; ++i) {
         const float grad_src = input_gradient[i];
         float rate_src = rate;
         if (plasticity && graph->nodes[source].embedding_importance[i] > threshold) {
@@ -181,7 +226,7 @@ float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target,
             graph->nodes[source].embedding_importance[i] += fabsf(grad_src);
         }
 
-        const float grad_tgt = input_gradient[ATPERSON_EMBEDDING_DIM + i];
+        const float grad_tgt = input_gradient[embedding_dim + i];
         float rate_tgt = rate;
         if (plasticity && graph->nodes[target].embedding_importance[i] > threshold) {
             rate_tgt *= scale;
