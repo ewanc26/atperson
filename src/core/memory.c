@@ -33,7 +33,10 @@ static float atp_memory_edge_score(const atp_graph *graph, uint32_t source, uint
         return 0.0f;
     }
     const atp_edge *edge = &graph->edges[edge_index];
-    const float neural = atp_network_score(graph, source, target);
+    float neural = 0.0f;
+    if (atp_network_score(graph, source, target, &neural) != ATP_OK) {
+        neural = 0.0f;
+    }
     return atp_memory_clamp01(edge->strength * 0.7f + neural * 0.3f);
 }
 
