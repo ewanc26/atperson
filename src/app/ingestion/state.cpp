@@ -19,8 +19,6 @@ namespace {
 
 constexpr std::string_view kFormat = "atperson-ingestion-state";
 constexpr std::uint32_t kVersion = 1u;
-constexpr std::string_view kSourceKind = "atproto-timeline";
-constexpr std::string_view kEndpoint = "app.bsky.feed.getTimeline";
 
 struct JsonDelete {
     void operator()(cJSON *value) const noexcept {
@@ -54,6 +52,21 @@ std::optional<std::string> optional_string(cJSON *object, const char *key) {
         invalid(std::string("field '") + key + "' must not be an empty string");
     }
     return std::string(value->valuestring);
+}
+
+/* `account_did` is the one source field that is legitimately empty: the
+ * Jetstream backfill is unauthenticated, so an empty string is the correct
+ * identity rather than a corruption. Absent/null and empty all decode to an
+ * empty DID, which `validate` then accepts only for the Jetstream feed. */
+std::string account_did_field(cJSON *object) {
+    cJSON *value = cJSON_GetObjectItemCaseSensitive(object, "account_did");
+    if (!value || cJSON_IsNull(value)) {
+        return std::string();
+    }
+    if (!cJSON_IsString(value) || !value->valuestring) {
+        invalid("field 'account_did' must be a string or null");
+    }
+    return value->valuestring;
 }
 
 std::uint64_t require_u64(cJSON *object, const char *key) {
@@ -117,16 +130,29 @@ void validate(const IngestionState &state) {
     if (state.version != kVersion) {
         invalid("unsupported version " + std::to_string(state.version));
     }
-    if (state.source.kind != kSourceKind) {
+    if (state.source.kind != kSourceKindTimeline && state.source.kind != kSourceKindJetstream) {
         invalid("unsupported source kind '" + state.source.kind + "'");
     }
     if (state.source.service.empty()) {
         invalid("source.service must be non-empty");
     }
-    if (state.source.account_did.rfind("did:", 0u) != 0u) {
-        invalid("source.account_did must be a DID");
+    /* The Jetstream backfill is unauthenticated: it ingests public records
+     * without a session, so the DID field is empty rather than a DID. A
+     * timeline cursor without a DID is unusable: the cursor belongs to an
+     * account and must not be reused against a different one. */
+    if (state.source.kind == kSourceKindTimeline) {
+        if (state.source.account_did.empty()) {
+            invalid("source.account_did must not be empty for a timeline feed");
+        }
+        if (state.source.account_did.rfind("did:", 0u) != 0u) {
+            invalid("source.account_did must be a DID");
+        }
+    } else if (!state.source.account_did.empty()) {
+        invalid("source.account_did must be empty for a jetstream feed");
     }
-    if (state.source.endpoint != kEndpoint) {
+    const std::string_view expected_endpoint =
+        state.source.kind == kSourceKindTimeline ? kTimelineEndpoint : kJetstreamEndpoint;
+    if (state.source.endpoint != expected_endpoint) {
         invalid("unsupported source endpoint '" + state.source.endpoint + "'");
     }
     if (state.catchup.active) {
@@ -149,19 +175,27 @@ std::string normalise_service(std::string_view service) {
 }
 
 IngestionState initial_ingestion_state(std::string_view service,
-                                       std::string_view account_did) {
+                                       std::string_view account_did,
+                                       std::string_view kind) {
     IngestionState state;
-    state.source.kind = kSourceKind;
+    state.source.kind = std::string(kind);
     state.source.service = normalise_service(service);
     state.source.account_did = std::string(account_did);
-    state.source.endpoint = kEndpoint;
-    /* algorithm: nullopt — the default timeline algorithm. */
+    state.source.endpoint =
+        kind == kSourceKindJetstream ? std::string(kJetstreamEndpoint)
+                                     : std::string(kTimelineEndpoint);
+    /* algorithm: nullopt — the default feed algorithm. */
     return state;
 }
 
 bool source_matches(const IngestionState &state, std::string_view service,
-                    std::string_view account_did) {
-    if (state.source.kind != kSourceKind || state.source.endpoint != kEndpoint) {
+                    std::string_view account_did, std::string_view kind) {
+    if (state.source.kind != kind) {
+        return false;
+    }
+    const std::string_view expected_endpoint =
+        kind == kSourceKindJetstream ? kJetstreamEndpoint : kTimelineEndpoint;
+    if (state.source.endpoint != expected_endpoint) {
         return false;
     }
     if (state.source.service != normalise_service(service)) {
@@ -211,10 +245,11 @@ std::string serialise_ingestion_state(const IngestionState &state) {
 
 IngestionState load_ingestion_state(const std::filesystem::path &path,
                                     std::string_view service,
-                                    std::string_view account_did) {
+                                    std::string_view account_did,
+                                    std::string_view kind) {
     std::error_code ec;
     if (!std::filesystem::exists(path, ec)) {
-        return initial_ingestion_state(service, account_did);
+        return initial_ingestion_state(service, account_did, kind);
     }
 
     std::ifstream input(path, std::ios::binary);
@@ -250,7 +285,7 @@ IngestionState load_ingestion_state(const std::filesystem::path &path,
     }
     state.source.kind = require_string(source, "kind");
     state.source.service = require_string(source, "service");
-    state.source.account_did = require_string(source, "account_did");
+    state.source.account_did = account_did_field(source);
     state.source.endpoint = require_string(source, "endpoint");
     state.source.algorithm = optional_string(source, "algorithm");
 
@@ -276,20 +311,21 @@ IngestionState load_ingestion_state(const std::filesystem::path &path,
 
     validate(state);
 
-    if (!source_matches(state, service, account_did)) {
-        /* The cursor belongs to a different account, service, or feed: it is
-         * not reusable. Report the mismatch and start from the current
-         * session's clean state. The ledger still suppresses anything
-         * already committed. */
+    if (!source_matches(state, service, account_did, kind)) {
+        /* The cursor belongs to a different account, service, or feed kind:
+         * it is not reusable. Report the mismatch and start from the current
+         * session's clean state. The ledger still suppresses anything already
+         * committed. */
         std::fprintf(stderr,
                      "atperson: ingestion cursor belongs to a different source "
-                     "(stored service '%s', account '%s'; current service '%s', "
-                     "account '%s'); starting a fresh traversal from the timeline "
-                     "head\n",
-                     state.source.service.c_str(),
-                     state.source.account_did.c_str(),
-                     normalise_service(service).c_str(), std::string(account_did).c_str());
-        return initial_ingestion_state(service, account_did);
+                     "(stored kind '%s', service '%s', account '%s'; current kind '%s', "
+                     "service '%s', account '%s'); starting a fresh traversal from the "
+                     "feed head\n",
+                     state.source.kind.c_str(), state.source.service.c_str(),
+                     state.source.account_did.c_str(), std::string(kind).c_str(),
+                     normalise_service(service).c_str(),
+                     std::string(account_did).c_str());
+        return initial_ingestion_state(service, account_did, kind);
     }
     return state;
 }

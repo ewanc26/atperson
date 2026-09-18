@@ -8,6 +8,7 @@
 #include "cli/daemon.hpp"
 #include "cli/graph.hpp"
 #include "cli/ingest.hpp"
+#include "cli/jetstream.hpp"
 #include "cli/ledger.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
@@ -293,6 +294,17 @@ int main(int argc, char **argv) {
                 std::cout, std::cerr, resource_status, atperson::cli::data_dir(), graph,
                 path, atperson::cli::ledger_path(), atperson::cli::ingestion_state_path(),
                 max_cycles, print_stats);
+        }
+
+        if (command == "jetstream") {
+            const int max_events =
+                argc >= 3 ? atperson::cli::parse_limit(argv[2], 0) : 0;
+            const int max_ms =
+                argc >= 4 ? atperson::cli::parse_limit(argv[3], 0) : 0;
+            return atperson::cli::run_jetstream(
+                std::cout, resource_status, atperson::cli::data_dir(), graph, path,
+                atperson::cli::ledger_path(), atperson::cli::ingestion_state_path(),
+                max_events, max_ms, print_stats);
         }
 
         usage(std::cerr);

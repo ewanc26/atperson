@@ -192,11 +192,14 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/control.cpp
     src/app/cli/cursor.cpp
     src/app/cli/daemon.cpp
+    src/app/cli/jetstream.cpp
     src/app/cli/outbound.cpp
     src/app/cli/publish.cpp
     src/app/cli/sync.cpp
     src/app/atproto/client.cpp
     src/app/atproto/extract.cpp
+    src/app/atproto/jetstream.cpp
+    src/app/atproto/jetstream_client.cpp
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
     src/app/audit/command.cpp
@@ -219,6 +222,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/execute.cpp
     src/app/state/lock.cpp
     src/app/sync/engine.cpp
+    src/app/sync/jetstream_backfill.cpp
     src/app/state/time.cpp
     src/app/sync/linkage.cpp
     src/app/sync/parallel.cpp
@@ -599,6 +603,19 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-extract-test PRIVATE atperson-cpp cjson)
   target_include_directories(atperson-extract-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-extract COMMAND atperson-extract-test)
+
+  # Jetstream commit translation (#60): create/update/delete, other
+  # collections, malformed envelopes, empty text, replies and quotes over
+  # real commit JSON fixtures. Offline, no network.
+  add_executable(
+    atperson-jetstream-extract-test
+    tests/atproto/jetstream.cpp
+    src/app/atproto/jetstream.cpp
+    src/app/ingestion/policy.cpp)
+  target_compile_features(atperson-jetstream-extract-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-jetstream-extract-test PRIVATE atperson-cpp cjson)
+  target_include_directories(atperson-jetstream-extract-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-jetstream-extract COMMAND atperson-jetstream-extract-test)
 
   add_executable(
     atperson-lock-test

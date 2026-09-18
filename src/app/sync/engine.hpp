@@ -16,6 +16,8 @@
 
 namespace atperson {
 
+class JetstreamClient; /* defined in atproto/jetstream_client.hpp */
+
 /* One fetched feed item, already reduced to what the learning core needs.
  * Produced by Wolfram-backed AtprotoClient in the network build and by test
  * fixtures offline. `policy_reason` records why the item was skipped or why
@@ -88,6 +90,44 @@ bool process_observation(LanguageGraph &graph, Ledger &ledger,
 SyncResult run_sync(LanguageGraph &graph, Ledger &ledger, IngestionState &state,
                     const SyncPageFetcher &fetch_page, const SyncLimits &limits,
                     const SyncLinker &link = nullptr);
+
+/* Jetstream public backfill (#60): the unauthenticated feed path. Each cycle
+ * fetches a bounded batch of commit frames through `client`, translates each
+ * one through the same pipeline as `run_sync` (ledger reservation -> remember
+ * -> outcome commit -> linkage), and checkpoints the Jetstream cursor only
+ * after every event in the batch has been durably handled.
+ *
+ * The cursor is an opaque Jetstream sequence number; the engine stores it as
+ * a decimal string in the ingestion state and never parses it. After a
+ * bounded cycle the cursor is persisted and the next independent backfill
+ * resumes from it, relying on the durable ledger for deduplication.
+ *
+ * Failure modes: throws on a fatal client error (connect failure, parse
+ * failure of a frame the feed emitted). A WOULD_BLOCK return from
+ * `JetstreamClient::fetch_batch` (reconnect backoff) is not a failure: the
+ * caller sleeps for the advertised delay and retries the same batch. */
+struct JetstreamLimits {
+    std::uint64_t max_events{0}; /* 0 = unbounded */
+    std::int64_t max_ms{0};      /* 0 = unbounded */
+};
+
+struct JetstreamRunResult {
+    std::uint64_t events_consumed{};
+    std::uint64_t observations_seen{};
+    std::size_t learned{};
+    std::size_t skipped{};
+    std::size_t duplicates{};
+    bool exhausted{}; /* feed closed cleanly at the head */
+};
+
+/* Implemented in sync/jetstream_backfill.cpp, which is compiled only into
+ * the network runtime (it drives the Wolfram-backed JetstreamClient). The
+ * engine declares it here so the daemon loop and CLI share the contract. */
+JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
+                                          IngestionState &state,
+                                          JetstreamClient &client,
+                                          const JetstreamLimits &limits,
+                                          const SyncLinker &link = nullptr);
 
 } // namespace atperson
 

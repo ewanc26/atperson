@@ -301,6 +301,65 @@ void test_reset_clears_cursor_only() {
     assert(state.source.account_did == "did:plc:abc");
 }
 
+void test_jetstream_kind_initial_state() {
+    const auto dir = scratch_dir("jetstream-initial");
+    const auto state = atperson::load_ingestion_state(
+        dir / "state.json", "https://bsky.social", "", atperson::kSourceKindJetstream);
+    assert(!state.catchup.active);
+    assert(!state.catchup.cursor);
+    assert(state.source.kind == "atproto-jetstream");
+    assert(state.source.service == "https://bsky.social");
+    assert(state.source.account_did.empty());
+    assert(state.source.endpoint == "com.atproto.sync.subscribeRepos");
+}
+
+void test_jetstream_kind_round_trip_with_empty_did() {
+    const auto dir = scratch_dir("jetstream-roundtrip");
+    const auto path = dir / "state.json";
+
+    atperson::IngestionState state = atperson::initial_ingestion_state(
+        "https://bsky.social", "", atperson::kSourceKindJetstream);
+    state.catchup.active = true;
+    state.catchup.cursor = std::string("the-jetstream-cursor-is-opaque");
+    state.checkpoint.generation = 3u;
+    state.checkpoint.pages_completed = 9u;
+    state.checkpoint.observations_seen = 541u;
+
+    atperson::save_ingestion_state(state, path);
+    /* The empty account DID is legitimate for an unauthenticated feed and
+     * must round-trip without being rejected as corruption. */
+    const auto loaded = atperson::load_ingestion_state(
+        path, "https://bsky.social", "", atperson::kSourceKindJetstream);
+    assert(loaded.source.kind == "atproto-jetstream");
+    assert(loaded.source.account_did.empty());
+    assert(loaded.source.endpoint == "com.atproto.sync.subscribeRepos");
+    assert(loaded.catchup.active);
+    assert(loaded.catchup.cursor ==
+           std::optional<std::string>("the-jetstream-cursor-is-opaque"));
+    assert(loaded.checkpoint.pages_completed == 9u);
+    assert(loaded.checkpoint.observations_seen == 541u);
+}
+
+void test_jetstream_kind_timeline_cursor_not_reusable() {
+    const auto dir = scratch_dir("jetstream-kind-mismatch");
+    const auto path = dir / "state.json";
+
+    /* A timeline cursor must never be resumed by the Jetstream feed: the
+     * cursors have different meaning and different endpoints. */
+    atperson::IngestionState timeline =
+        atperson::initial_ingestion_state("https://bsky.social", "did:plc:abc");
+    timeline.catchup.active = true;
+    timeline.catchup.cursor = std::string("app.bsky.feed.getTimeline-cursor");
+    atperson::save_ingestion_state(timeline, path);
+
+    const auto loaded = atperson::load_ingestion_state(
+        path, "https://bsky.social", "", atperson::kSourceKindJetstream);
+    assert(!loaded.catchup.active);
+    assert(!loaded.catchup.cursor);
+    assert(loaded.source.kind == "atproto-jetstream");
+    assert(loaded.source.account_did.empty());
+}
+
 /* ---------------------------------------------------------------- */
 /* Sync engine: restart and failure semantics (offline fixtures)      */
 /* ---------------------------------------------------------------- */
@@ -712,6 +771,10 @@ int main() {
     test_source_mismatch_does_not_reuse_cursor();
     test_tmp_leftover_never_takes_precedence();
     test_reset_clears_cursor_only();
+
+    test_jetstream_kind_initial_state();
+    test_jetstream_kind_round_trip_with_empty_did();
+    test_jetstream_kind_timeline_cursor_not_reusable();
 
     test_successful_page_checkpoints_next_cursor();
     test_resumed_traversal_continues_from_cursor();
