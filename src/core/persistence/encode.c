@@ -136,22 +136,34 @@ static bool atp_encode_network(const atp_graph *graph, atp_buffer *buffer) {
     if (!atp_section_begin(buffer, &section, ATP_SECTION_NETWORK)) {
         return false;
     }
+
+    /*
+     * v5 wire compatibility: first-layer weights, first hidden biases,
+     * hidden-to-output weights, output bias. Public v5 graphs are legacy-only.
+     */
+    const atp_network *network = &graph->network;
+    const size_t first_layer = 0u;
+    const size_t output_layer = network->layout.layer_count - 1u;
+    const size_t input_dim = network->layout.input_widths[first_layer];
+    const size_t hidden_dim = network->layout.output_widths[first_layer];
     bool ok = true;
-    const size_t input_dim = graph->neural_architecture.input_dim;
-    const size_t hidden_dim = graph->neural_architecture.hidden_widths[0];
+
     for (size_t h = 0u; ok && h < hidden_dim; ++h) {
         for (size_t i = 0u; ok && i < input_dim; ++i) {
-            const size_t offset = atp_network_input_hidden_offset(graph, h, i);
-            ok = atp_buffer_f32(buffer, graph->network.input_hidden[offset]);
+            ok = atp_buffer_f32(
+                buffer, network->weights[atp_network_weight_index(network, first_layer, h, i)]);
         }
     }
     for (size_t h = 0u; ok && h < hidden_dim; ++h) {
-        ok = atp_buffer_f32(buffer, graph->network.hidden_bias[h]);
+        ok = atp_buffer_f32(
+            buffer, network->biases[atp_network_bias_index(network, first_layer, h)]);
     }
     for (size_t h = 0u; ok && h < hidden_dim; ++h) {
-        ok = atp_buffer_f32(buffer, graph->network.hidden_output[h]);
+        ok = atp_buffer_f32(
+            buffer, network->weights[atp_network_weight_index(network, output_layer, 0u, h)]);
     }
-    ok = ok && atp_buffer_f32(buffer, graph->network.output_bias);
+    ok = ok && atp_buffer_f32(
+                   buffer, network->biases[atp_network_bias_index(network, output_layer, 0u)]);
     atp_section_end(&section);
     return ok;
 }
@@ -297,6 +309,10 @@ static bool atp_encode_episodes(const atp_graph *graph, atp_buffer *buffer) {
 atp_status atp_graph_save(const atp_graph *graph, const char *path) {
     if (!graph || !path || path[0] == '\0') {
         return ATP_ERR_INVALID_ARGUMENT;
+    }
+    /* Snapshot v5 has only the historical one-hidden-layer wire shape. */
+    if (!atp_neural_architecture_is_legacy(&graph->neural_architecture)) {
+        return ATP_ERR_SCHEMA;
     }
 
     atp_buffer buffer = {0};

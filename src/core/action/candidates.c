@@ -129,7 +129,16 @@ atp_status atp_graph_action_candidates(const atp_graph *graph, const char *conte
             continue;
         }
 
-        const float neural = atp_network_score(graph, edge->source, edge->target);
+        float neural = 0.0f;
+        const atp_status score_status =
+            atp_network_score(graph, edge->source, edge->target, &neural);
+        if (score_status != ATP_OK) {
+            free(context_nodes);
+            free(association_sums);
+            free(supporting_observations);
+            free(context_matches);
+            return score_status;
+        }
         const float association = atp_action_clamp01(edge->strength * 0.7f + neural * 0.3f);
         association_sums[edge->target] += association;
         supporting_observations[edge->target] += edge->observations;

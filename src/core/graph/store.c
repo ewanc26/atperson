@@ -277,7 +277,7 @@ atp_status atp_observe_pair(atp_graph *graph, uint32_t source, uint32_t target,
     }
 
     atp_edge *edge = &graph->edges[edge_index];
-    const float score = atp_network_score(graph, source, target);
+    const float score = atp_network_score_owned(graph, source, target);
     edge->strength = edge->observations == 0u ? score : (edge->strength * 0.90f + score * 0.10f);
     edge->observations++;
     edge->last_source_hash = source_hash;

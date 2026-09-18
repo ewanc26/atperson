@@ -48,6 +48,7 @@ add_library(
   src/core/action/guard.c
   src/core/context.c
   src/core/bootstrap.c
+  src/core/neural_layout.c
   src/core/neural.c
   src/core/ledger/lifecycle.c
   src/core/ledger/commit.c
@@ -246,6 +247,13 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson-core-test tests/core/core.c)
   target_link_libraries(atperson-core-test PRIVATE atperson-core)
   add_test(NAME atperson-core COMMAND atperson-core-test)
+
+  # Generic dense neural kernel (#74): internal topology/layout coverage keeps
+  # non-legacy shapes testable before snapshot v6 exposes public construction.
+  add_executable(atperson-neural-kernel-test tests/core/neural_kernel.c)
+  target_link_libraries(atperson-neural-kernel-test PRIVATE atperson-core)
+  target_include_directories(atperson-neural-kernel-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  add_test(NAME atperson-neural-kernel COMMAND atperson-neural-kernel-test)
 
   add_executable(atperson-memory-test tests/memory/memory.c)
   target_link_libraries(atperson-memory-test PRIVATE atperson-core)

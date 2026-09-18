@@ -10,6 +10,9 @@
 
 #define ATPERSON_HIDDEN_DIM 16u
 #define ATPERSON_INPUT_DIM (ATPERSON_EMBEDDING_DIM * 2u)
+#define ATPERSON_NEURAL_DENSE_LAYER_MAX (ATPERSON_NEURAL_MAX_HIDDEN_LAYERS + 1u)
+#define ATPERSON_NEURAL_WIDTH_LIMIT 16384u
+#define ATPERSON_NEURAL_PARAMETER_LIMIT ((size_t)268435456u)
 
 /* atp_tokenize is declared publicly in atperson/tokenize.h. */
 
@@ -85,15 +88,27 @@ typedef struct atp_valence_event_log_entry {
     char source_id[ATPERSON_LEDGER_SOURCE_BYTES];
 } atp_valence_event_log_entry;
 
+typedef struct atp_neural_layout {
+    size_t layer_count;
+    size_t input_widths[ATPERSON_NEURAL_DENSE_LAYER_MAX];
+    size_t output_widths[ATPERSON_NEURAL_DENSE_LAYER_MAX];
+    size_t weight_offsets[ATPERSON_NEURAL_DENSE_LAYER_MAX];
+    size_t bias_offsets[ATPERSON_NEURAL_DENSE_LAYER_MAX];
+    size_t activation_offsets[ATPERSON_NEURAL_DENSE_LAYER_MAX + 1u];
+    size_t weight_count;
+    size_t bias_count;
+    size_t activation_count;
+} atp_neural_layout;
+
 typedef struct atp_network {
-    float *input_hidden;
-    float *hidden_bias;
-    float *hidden_output;
-    float output_bias;
-    float *input_hidden_importance;
-    float *hidden_bias_importance;
-    float *hidden_output_importance;
-    float output_bias_importance;
+    atp_neural_layout layout;
+    float *weights;
+    float *biases;
+    float *weight_importance;
+    float *bias_importance;
+    /* Mutating training owns these scratch buffers; they are derived state. */
+    float *training_activations;
+    float *training_deltas;
 } atp_network;
 
 struct atp_graph {
@@ -172,14 +187,26 @@ uint64_t atp_rng_next(atp_graph *graph);
 float atp_rng_signed(atp_graph *graph);
 uint64_t atp_hash_source(const char *source_id);
 
-static inline size_t atp_network_input_hidden_offset(const atp_graph *graph, size_t hidden,
-                                                     size_t input) {
-    return hidden * (size_t)graph->neural_architecture.input_dim + input;
+bool atp_neural_architecture_is_legacy(const atp_neural_architecture *architecture);
+bool atp_neural_layout_build(const atp_neural_architecture *architecture,
+                             atp_neural_layout *out_layout);
+
+static inline size_t atp_network_weight_index(const atp_network *network, size_t layer,
+                                              size_t output, size_t input) {
+    return network->layout.weight_offsets[layer] +
+           output * network->layout.input_widths[layer] + input;
+}
+
+static inline size_t atp_network_bias_index(const atp_network *network, size_t layer,
+                                            size_t output) {
+    return network->layout.bias_offsets[layer] + output;
 }
 
 bool atp_network_init(atp_graph *graph);
 void atp_network_destroy(atp_network *network);
-float atp_network_score(const atp_graph *graph, uint32_t source, uint32_t target);
+atp_status atp_network_score(const atp_graph *graph, uint32_t source, uint32_t target,
+                             float *out_score);
+float atp_network_score_owned(atp_graph *graph, uint32_t source, uint32_t target);
 float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target, float expected);
 
 bool atp_node_allocate_vectors(const atp_graph *graph, atp_node *node);

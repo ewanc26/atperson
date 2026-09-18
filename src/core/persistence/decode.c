@@ -38,22 +38,29 @@ static bool atp_decode_header(atp_reader *reader, atp_graph_config *config, uint
 }
 
 bool atp_decode_network(atp_reader *reader, atp_graph *graph) {
+    atp_network *network = &graph->network;
+    const size_t first_layer = 0u;
+    const size_t output_layer = network->layout.layer_count - 1u;
+    const size_t input_dim = network->layout.input_widths[first_layer];
+    const size_t hidden_dim = network->layout.output_widths[first_layer];
     bool ok = true;
-    const size_t input_dim = graph->neural_architecture.input_dim;
-    const size_t hidden_dim = graph->neural_architecture.hidden_widths[0];
+
     for (size_t h = 0u; ok && h < hidden_dim; ++h) {
         for (size_t i = 0u; ok && i < input_dim; ++i) {
-            const size_t offset = atp_network_input_hidden_offset(graph, h, i);
-            ok = atp_reader_f32(reader, &graph->network.input_hidden[offset]);
+            ok = atp_reader_f32(
+                reader, &network->weights[atp_network_weight_index(network, first_layer, h, i)]);
         }
     }
     for (size_t h = 0u; ok && h < hidden_dim; ++h) {
-        ok = atp_reader_f32(reader, &graph->network.hidden_bias[h]);
+        ok = atp_reader_f32(
+            reader, &network->biases[atp_network_bias_index(network, first_layer, h)]);
     }
     for (size_t h = 0u; ok && h < hidden_dim; ++h) {
-        ok = atp_reader_f32(reader, &graph->network.hidden_output[h]);
+        ok = atp_reader_f32(
+            reader, &network->weights[atp_network_weight_index(network, output_layer, 0u, h)]);
     }
-    return ok && atp_reader_f32(reader, &graph->network.output_bias);
+    return ok && atp_reader_f32(
+                     reader, &network->biases[atp_network_bias_index(network, output_layer, 0u)]);
 }
 
 static bool atp_decode_nodes(atp_reader *reader, atp_graph *graph) {
