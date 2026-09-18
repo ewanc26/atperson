@@ -18,6 +18,37 @@ static char *atp_strdup_local(const char *value) {
     return copy;
 }
 
+bool atp_node_allocate_vectors(const atp_graph *graph, atp_node *node) {
+    if (!graph || !node || node->embedding || node->embedding_importance) {
+        return false;
+    }
+    const size_t dimension = graph->neural_architecture.embedding_dim;
+    if (dimension == 0u || dimension > SIZE_MAX / sizeof(float)) {
+        return false;
+    }
+
+    float *embedding = malloc(dimension * sizeof(*embedding));
+    float *importance = calloc(dimension, sizeof(*importance));
+    if (!embedding || !importance) {
+        free(embedding);
+        free(importance);
+        return false;
+    }
+    node->embedding = embedding;
+    node->embedding_importance = importance;
+    return true;
+}
+
+void atp_node_destroy(atp_node *node) {
+    if (!node) {
+        return;
+    }
+    free(node->token);
+    free(node->embedding);
+    free(node->embedding_importance);
+    memset(node, 0, sizeof(*node));
+}
+
 bool atp_reserve_nodes(atp_graph *graph, size_t needed) {
     if (needed <= graph->node_capacity) {
         return true;
@@ -171,7 +202,8 @@ int32_t atp_intern_node_checked(atp_graph *graph, const char *token, atp_status 
     atp_node *node = &graph->nodes[graph->node_count];
     memset(node, 0, sizeof(*node));
     node->token = atp_strdup_local(token);
-    if (!node->token) {
+    if (!node->token || !atp_node_allocate_vectors(graph, node)) {
+        atp_node_destroy(node);
         if (status) {
             *status = ATP_ERR_OUT_OF_MEMORY;
         }
@@ -179,7 +211,7 @@ int32_t atp_intern_node_checked(atp_graph *graph, const char *token, atp_status 
     }
     node->observations = 1u;
     node->familiarity = 1.0f;
-    for (size_t i = 0; i < ATPERSON_EMBEDDING_DIM; ++i) {
+    for (size_t i = 0; i < graph->neural_architecture.embedding_dim; ++i) {
         node->embedding[i] = atp_rng_signed(graph) * 0.05f;
     }
 

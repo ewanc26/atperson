@@ -17,9 +17,11 @@ static bool atp_decode_header(atp_reader *reader, atp_graph_config *config, uint
     uint32_t hidden_dim = 0u;
     uint32_t input_dim = 0u;
     uint32_t episode_capacity = 0u;
-    const bool ok = atp_reader_u32(reader, &embedding_dim) && embedding_dim == ATPERSON_EMBEDDING_DIM &&
-           atp_reader_u32(reader, &hidden_dim) && hidden_dim == ATPERSON_HIDDEN_DIM &&
-           atp_reader_u32(reader, &input_dim) && input_dim == ATPERSON_INPUT_DIM &&
+    const atp_neural_architecture legacy = atp_neural_legacy_architecture();
+    const bool ok = atp_reader_u32(reader, &embedding_dim) &&
+           embedding_dim == legacy.embedding_dim &&
+           atp_reader_u32(reader, &hidden_dim) && hidden_dim == legacy.hidden_widths[0] &&
+           atp_reader_u32(reader, &input_dim) && input_dim == legacy.input_dim &&
            atp_reader_u64(reader, &config->seed) &&
            atp_reader_f32(reader, &config->learning_rate) &&
            atp_reader_f32(reader, &config->familiarity_decay) &&
@@ -37,15 +39,18 @@ static bool atp_decode_header(atp_reader *reader, atp_graph_config *config, uint
 
 bool atp_decode_network(atp_reader *reader, atp_graph *graph) {
     bool ok = true;
-    for (size_t h = 0u; ok && h < ATPERSON_HIDDEN_DIM; ++h) {
-        for (size_t i = 0u; ok && i < ATPERSON_INPUT_DIM; ++i) {
-            ok = atp_reader_f32(reader, &graph->network.input_hidden[h][i]);
+    const size_t input_dim = graph->neural_architecture.input_dim;
+    const size_t hidden_dim = graph->neural_architecture.hidden_widths[0];
+    for (size_t h = 0u; ok && h < hidden_dim; ++h) {
+        for (size_t i = 0u; ok && i < input_dim; ++i) {
+            const size_t offset = atp_network_input_hidden_offset(graph, h, i);
+            ok = atp_reader_f32(reader, &graph->network.input_hidden[offset]);
         }
     }
-    for (size_t h = 0u; ok && h < ATPERSON_HIDDEN_DIM; ++h) {
+    for (size_t h = 0u; ok && h < hidden_dim; ++h) {
         ok = atp_reader_f32(reader, &graph->network.hidden_bias[h]);
     }
-    for (size_t h = 0u; ok && h < ATPERSON_HIDDEN_DIM; ++h) {
+    for (size_t h = 0u; ok && h < hidden_dim; ++h) {
         ok = atp_reader_f32(reader, &graph->network.hidden_output[h]);
     }
     return ok && atp_reader_f32(reader, &graph->network.output_bias);
@@ -53,7 +58,8 @@ bool atp_decode_network(atp_reader *reader, atp_graph *graph) {
 
 static bool atp_decode_nodes(atp_reader *reader, atp_graph *graph) {
     uint64_t count = 0u;
-    const uint64_t min_entry = 4u + 8u + 4u + (uint64_t)ATPERSON_EMBEDDING_DIM * 4u + 1u;
+    const uint64_t min_entry =
+        4u + 8u + 4u + (uint64_t)graph->neural_architecture.embedding_dim * 4u + 1u;
     if (!atp_reader_u64(reader, &count) || count > SIZE_MAX / sizeof(atp_node) ||
         count > (reader->size - reader->position) / min_entry) {
         return false;
@@ -71,15 +77,16 @@ static bool atp_decode_nodes(atp_reader *reader, atp_graph *graph) {
             return false;
         }
         node->token = strdup(token);
-        if (!node->token) {
+        if (!node->token || !atp_node_allocate_vectors(graph, node)) {
+            atp_node_destroy(node);
             return false;
         }
-        for (size_t d = 0u; d < ATPERSON_EMBEDDING_DIM; ++d) {
+        graph->node_count++;
+        for (size_t d = 0u; d < graph->neural_architecture.embedding_dim; ++d) {
             if (!atp_reader_f32(reader, &node->embedding[d])) {
                 return false;
             }
         }
-        graph->node_count++;
     }
     return true;
 }

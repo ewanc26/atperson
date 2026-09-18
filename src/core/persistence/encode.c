@@ -114,9 +114,9 @@ static bool atp_encode_header(const atp_graph *graph, atp_buffer *buffer) {
     if (!atp_section_begin(buffer, &section, ATP_SECTION_HEADER)) {
         return false;
     }
-    const bool ok = atp_buffer_u32(buffer, ATPERSON_EMBEDDING_DIM) &&
-                    atp_buffer_u32(buffer, ATPERSON_HIDDEN_DIM) &&
-                    atp_buffer_u32(buffer, ATPERSON_INPUT_DIM) &&
+    const bool ok = atp_buffer_u32(buffer, graph->neural_architecture.embedding_dim) &&
+                    atp_buffer_u32(buffer, graph->neural_architecture.hidden_widths[0]) &&
+                    atp_buffer_u32(buffer, graph->neural_architecture.input_dim) &&
                     atp_buffer_u64(buffer, graph->config.seed) &&
                     atp_buffer_f32(buffer, graph->config.learning_rate) &&
                     atp_buffer_f32(buffer, graph->config.familiarity_decay) &&
@@ -137,15 +137,18 @@ static bool atp_encode_network(const atp_graph *graph, atp_buffer *buffer) {
         return false;
     }
     bool ok = true;
-    for (size_t h = 0u; ok && h < ATPERSON_HIDDEN_DIM; ++h) {
-        for (size_t i = 0u; ok && i < ATPERSON_INPUT_DIM; ++i) {
-            ok = atp_buffer_f32(buffer, graph->network.input_hidden[h][i]);
+    const size_t input_dim = graph->neural_architecture.input_dim;
+    const size_t hidden_dim = graph->neural_architecture.hidden_widths[0];
+    for (size_t h = 0u; ok && h < hidden_dim; ++h) {
+        for (size_t i = 0u; ok && i < input_dim; ++i) {
+            const size_t offset = atp_network_input_hidden_offset(graph, h, i);
+            ok = atp_buffer_f32(buffer, graph->network.input_hidden[offset]);
         }
     }
-    for (size_t h = 0u; ok && h < ATPERSON_HIDDEN_DIM; ++h) {
+    for (size_t h = 0u; ok && h < hidden_dim; ++h) {
         ok = atp_buffer_f32(buffer, graph->network.hidden_bias[h]);
     }
-    for (size_t h = 0u; ok && h < ATPERSON_HIDDEN_DIM; ++h) {
+    for (size_t h = 0u; ok && h < hidden_dim; ++h) {
         ok = atp_buffer_f32(buffer, graph->network.hidden_output[h]);
     }
     ok = ok && atp_buffer_f32(buffer, graph->network.output_bias);
@@ -164,7 +167,7 @@ static bool atp_encode_nodes(const atp_graph *graph, atp_buffer *buffer) {
         ok = atp_buffer_string(buffer, node->token) &&
              atp_buffer_u64(buffer, node->observations) &&
              atp_buffer_f32(buffer, node->familiarity);
-        for (size_t d = 0u; ok && d < ATPERSON_EMBEDDING_DIM; ++d) {
+        for (size_t d = 0u; ok && d < graph->neural_architecture.embedding_dim; ++d) {
             ok = atp_buffer_f32(buffer, node->embedding[d]);
         }
     }

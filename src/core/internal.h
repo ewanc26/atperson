@@ -44,8 +44,8 @@ typedef struct atp_node {
     uint64_t observations;
     /* Exponentially weighted exposure score; updated on every observation. */
     float familiarity;
-    float embedding[ATPERSON_EMBEDDING_DIM];
-    float embedding_importance[ATPERSON_EMBEDDING_DIM];
+    float *embedding;
+    float *embedding_importance;
 } atp_node;
 
 typedef struct atp_edge {
@@ -86,13 +86,13 @@ typedef struct atp_valence_event_log_entry {
 } atp_valence_event_log_entry;
 
 typedef struct atp_network {
-    float input_hidden[ATPERSON_HIDDEN_DIM][ATPERSON_INPUT_DIM];
-    float hidden_bias[ATPERSON_HIDDEN_DIM];
-    float hidden_output[ATPERSON_HIDDEN_DIM];
+    float *input_hidden;
+    float *hidden_bias;
+    float *hidden_output;
     float output_bias;
-    float input_hidden_importance[ATPERSON_HIDDEN_DIM][ATPERSON_INPUT_DIM];
-    float hidden_bias_importance[ATPERSON_HIDDEN_DIM];
-    float hidden_output_importance[ATPERSON_HIDDEN_DIM];
+    float *input_hidden_importance;
+    float *hidden_bias_importance;
+    float *hidden_output_importance;
     float output_bias_importance;
 } atp_network;
 
@@ -172,10 +172,18 @@ uint64_t atp_rng_next(atp_graph *graph);
 float atp_rng_signed(atp_graph *graph);
 uint64_t atp_hash_source(const char *source_id);
 
-void atp_network_init(atp_graph *graph);
+static inline size_t atp_network_input_hidden_offset(const atp_graph *graph, size_t hidden,
+                                                     size_t input) {
+    return hidden * (size_t)graph->neural_architecture.input_dim + input;
+}
+
+bool atp_network_init(atp_graph *graph);
+void atp_network_destroy(atp_network *network);
 float atp_network_score(const atp_graph *graph, uint32_t source, uint32_t target);
 float atp_network_train(atp_graph *graph, uint32_t source, uint32_t target, float expected);
 
+bool atp_node_allocate_vectors(const atp_graph *graph, atp_node *node);
+void atp_node_destroy(atp_node *node);
 bool atp_reserve_nodes(atp_graph *graph, size_t needed);
 bool atp_reserve_edges(atp_graph *graph, size_t needed);
 bool atp_reserve_ledger_entries(atp_graph *graph, size_t needed);
