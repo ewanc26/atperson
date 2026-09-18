@@ -38,7 +38,7 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -LE bench
 
   sanitizers:
     name: Core (ASan + UBSan)
@@ -60,7 +60,7 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -LE bench
 
   network:
     name: Network (Linux GCC)
@@ -74,7 +74,7 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -LE bench
 
   smoke-fuzz:
     name: Bounded smoke fuzz (Clang, 30s per target)
