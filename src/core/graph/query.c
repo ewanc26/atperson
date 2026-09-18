@@ -1,7 +1,4 @@
-#include "internal.h"
-
-#include <stdlib.h>
-#include <string.h>
+#include "graph_internal.h"
 
 typedef struct atp_recall_match {
     size_t episode_index;

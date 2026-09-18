@@ -1,7 +1,4 @@
-#include "internal.h"
-
-#include <stdlib.h>
-#include <string.h>
+#include "graph_internal.h"
 
 /* Dup a token for the vocabulary node table. Returns NULL on NULL input or
  * allocation failure. Caller frees via atp_graph_destroy. */

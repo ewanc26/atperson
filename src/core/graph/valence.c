@@ -1,8 +1,4 @@
-#include "internal.h"
-
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
+#include "graph_internal.h"
 
 /*
  * Experience-derived valence (issue #13).

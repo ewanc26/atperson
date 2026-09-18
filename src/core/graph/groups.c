@@ -1,7 +1,4 @@
-#include "internal.h"
-
-#include <stdlib.h>
-#include <string.h>
+#include "graph_internal.h"
 
 /* -------- episode group index (issue #55) --------
  *

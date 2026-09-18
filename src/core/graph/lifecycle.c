@@ -1,9 +1,6 @@
-#include "internal.h"
+#include "graph_internal.h"
 
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
-
+/* atp_neural_architecture is defined in atperson/core.h. */
 atp_neural_architecture atp_neural_legacy_architecture(void) {
     return (atp_neural_architecture){
         .version = ATPERSON_NEURAL_ARCHITECTURE_VERSION,

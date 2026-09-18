@@ -1,9 +1,4 @@
-#include "../internal.h"
-#include "atperson/action.h"
-#include "internal.h"
-
-#include <stdlib.h>
-#include <string.h>
+#include "action_internal.h"
 
 /*
  * Candidate aggregation and ranking for action continuation. Owns the
@@ -11,9 +6,9 @@
  * shared tokenizer) and the aggregation of association, familiarity and
  * support evidence into ranked atp_action_candidate values.
  *
- * Collaborators: internal.h (graph arrays, hash indexes, neural scorer,
- * shared tokenizer). Pure read-only: never mutates the graph. Caller owns
- * the output buffer; nothing is allocated for the caller.
+ * Collaborators: graph/tokenizer machinery via the public
+ * atp_graph_action_candidates API. Pure read-only: never mutates the graph.
+ * Caller owns the output buffer; nothing is allocated for the caller.
  *
  * Failure modes: ATP_ERR_INVALID_ARGUMENT for null/mismatched arguments,
  * ATP_ERR_OUT_OF_MEMORY on internal scratch failure (state untouched), and

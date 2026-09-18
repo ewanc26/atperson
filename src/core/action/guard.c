@@ -1,9 +1,4 @@
-#include "atperson/action.h"
-#include "internal.h"
-
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
+#include "action_internal.h"
 
 /*
  * Guarded decision layer for action continuations. Owns the guard and

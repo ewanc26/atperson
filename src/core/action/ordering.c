@@ -1,6 +1,4 @@
-#include "internal.h"
-
-#include <string.h>
+#include "action_internal.h"
 
 int atp_action_plan_compare(const atp_action_plan *a, const atp_action_plan *b) {
     if (a->score < b->score) {

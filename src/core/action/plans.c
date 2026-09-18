@@ -1,9 +1,4 @@
-#include "../internal.h"
-#include "atperson/action.h"
-#include "internal.h"
-
-#include <stdlib.h>
-#include <string.h>
+#include "action_internal.h"
 
 /*
  * Bounded plan generation for action continuations. Owns the planner
@@ -11,7 +6,7 @@
  * candidate continuations into finished atp_action_plan values.
  *
  * Collaborators: candidate aggregation (candidates.c), the shared plan
- * ordering (ordering.c), and internal.h graph/tokenizer machinery via the
+ * ordering (ordering.c), and graph/tokenizer machinery via the
  * public atp_graph_action_candidates API. Pure read-only; never mutates
  * the graph. Caller owns the output array.
  *

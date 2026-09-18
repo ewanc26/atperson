@@ -1,7 +1,4 @@
-#include "internal.h"
-
-#include <stdlib.h>
-#include <string.h>
+#include "graph_internal.h"
 
 /* Shared tokenizer state for the observe walks. emit returns false to stop
  * the scan on the first error, carried out through walk->status. */
