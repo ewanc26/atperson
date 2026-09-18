@@ -52,6 +52,10 @@ bool atp_network_init(atp_graph *graph) {
         return false;
     }
     const size_t matrix_count = hidden_dim * input_dim;
+    if (matrix_count > SIZE_MAX / sizeof(float) ||
+        hidden_dim > SIZE_MAX / sizeof(float)) {
+        return false;
+    }
 
     atp_network network = {0};
     network.input_hidden = malloc(matrix_count * sizeof(*network.input_hidden));
