@@ -41,6 +41,7 @@
 // append is reported loudly and never rewrites earlier entries.
 
 #include "atperson/core.h"
+#include "journal/mac.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -52,7 +53,7 @@
 
 namespace atperson {
 
-inline constexpr std::uint32_t kJournalFormatVersion = 1u;
+inline constexpr std::uint32_t kJournalFormatVersion = 2u;
 
 /* What happened to one attempted outbound action. Mirrors the #25 execution
  * outcome vocabulary exactly, so the journal never invents a third spelling
@@ -77,7 +78,9 @@ journal_action_outcome_from_name(std::string_view name);
  * document: stable up front, idempotent under putRecord retry, and the tail
  * of the executed record's at-URI, so events link to actions by identifier
  * rather than by matching mutable text. `digest` is the #22 approval digest
- * (16 lowercase hex). `uri`/`cid` are populated only when Executed. */
+ * (16 lowercase hex). `uri`/`cid` are populated only when Executed.
+ * `mac` holds the journal-integrity MAC when a MAC key is configured
+ * (#57, scoped). */
 struct JournalAction {
     std::string id;
     std::string kind; /* "post" or "reply" */
@@ -88,6 +91,7 @@ struct JournalAction {
     std::string uri;
     std::string cid;
     std::string at; /* RFC 3339 UTC timestamp of the attempt */
+    std::optional<JournalMac> mac; /* journal-integrity MAC (#57, scoped) */
 };
 
 /* How a later public record referenced an executed action. `via` names the

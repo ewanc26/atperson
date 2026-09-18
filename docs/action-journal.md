@@ -99,6 +99,31 @@ Malformed format/version data, duplicate rule ids, unknown outcome or valence ki
 
 That makes experience-derived valence reconstructable rather than snapshot-only state. The ledger remains the authority for third-party observations, while the journal is the authority for the entity's own recorded experience.
 
+## Journal-integrity MAC
+
+`publish` may attach a keyed integrity check to an executed action. This is a symmetric journal-integrity MAC, not a badge.blue record attestation and not a signing key: it proves the journal entry was written by someone holding the key, and lets an operator detect tampered journal entries by re-deriving the MAC.
+
+When `ATPERSON_JOURNAL_MAC_KEY` is set, `publish` computes the MAC over a canonical string
+
+```text
+atperson-journal-mac-v1:<repo-did>:<rkey>:<sha256-hex of exact text>:<created-at>
+```
+
+and stores it in the journal entry's `mac` field:
+
+```json
+"mac": {
+  "mode": "hmac-sha256",
+  "key_hint": "<first 8 hex chars of the key>",
+  "digest": "<sha256-hex of the canonical string>",
+  "sig": "<hmac-sha256 hex of the canonical string>"
+}
+```
+
+`key_hint` is a prefix for identifying which key produced an entry; it is not a key and never a fabricated DID. Entries written without the MAC, including every v1 entry, load as a null `mac` field.
+
+Verification is standalone: given the entry and the key, the digest mismatch, signature mismatch, missing-key and absent-`mac` failure modes are distinct. A missing key never makes an authenticated entry look unauthenticated; it is reported as its own reason code.
+
 ## Crash and format handling
 
 - A missing journal means an empty journal.

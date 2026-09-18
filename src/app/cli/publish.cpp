@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "control/state.hpp"
+#include "journal/mac.hpp"
 #include "journal/store.hpp"
 #include "lock.hpp"
 #include "outbound/action.hpp"
@@ -15,6 +16,7 @@
 #include <cstdio>
 #include <ctime>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 
@@ -75,6 +77,22 @@ JournalActionOutcome journal_action_outcome(OutboundExecutionOutcome outcome) {
 
 } // namespace
 
+/* The journal-integrity MAC key (#57, scoped): a 32-byte (64-hex) HMAC-SHA256
+ * key. Empty or unset disables the MAC, so a run without the env var produces
+ * the same journal bytes as before. The key is read from the environment only
+ * when a write is actually reached — a dry run or a refusal never touches it,
+ * and it is never logged or persisted. It is a symmetric journal-integrity
+ * check, NOT a badge.blue record attestation and NOT a signing key. */
+std::optional<atperson::JournalMac> outbound_journal_mac(
+    const atperson::WolframSession &session, const atperson::OutboundAction &action) {
+    const char *raw = std::getenv("ATPERSON_JOURNAL_MAC_KEY");
+    if (raw == nullptr || raw[0] == '\0') {
+        return std::nullopt;
+    }
+    return atperson::create_journal_mac(raw, session.did(), action.rkey, action.text,
+                                        action.created_at);
+}
+
 int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
                 const std::filesystem::path &policy_file, const std::filesystem::path &budget_file,
                 const std::filesystem::path &control_file, const std::filesystem::path &audit_file,
@@ -124,7 +142,11 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
 
     /* The journal (#27) records the same attempt as durable experience
      * provenance: the rkey is the stable action id, and the executed
-     * record's at-URI is what later event linkage keys on. */
+     * record's at-URI is what later event linkage keys on. When a
+     * journal-integrity MAC key is configured (#57, scoped), Executed
+     * attempts carry a symmetric HMAC over the canonical record description so
+     * a later verifier can detect divergence between the journal line and the
+     * published record. The key itself is never persisted. */
     JournalAction journal_entry;
     journal_entry.id = action.rkey;
     journal_entry.kind = outbound_kind_name(action.kind);
@@ -135,6 +157,9 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
     journal_entry.uri = result.written.uri;
     journal_entry.cid = result.written.cid;
     journal_entry.at = rfc3339_from_unix(now);
+    if (result.outcome == OutboundExecutionOutcome::Executed && session) {
+        journal_entry.mac = outbound_journal_mac(*session, action);
+    }
     append_journal_action(journal_file, journal_entry);
 
     out << "outcome: " << outbound_execution_outcome_name(result.outcome) << '\n'

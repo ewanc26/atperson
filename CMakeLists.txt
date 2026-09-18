@@ -222,6 +222,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/state/time.cpp
     src/app/sync/linkage.cpp
     src/app/sync/parallel.cpp
+    src/app/journal/mac.cpp
     src/app/journal/store.cpp)
   target_include_directories(atperson PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   target_link_libraries(atperson PRIVATE atperson-cpp wolfram-cpp)
@@ -489,6 +490,17 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-worker-test PRIVATE atperson-cpp)
   target_include_directories(atperson-worker-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-worker COMMAND atperson-worker-test)
+
+  # Journal-integrity MAC (#57, scoped): known-answer SHA-256 and HMAC-SHA256
+  # vectors, create/verify round-trip and negative cases. Offline, no network.
+  add_executable(
+    atperson-journal-mac-test
+    tests/journal/mac.cpp
+    src/app/journal/mac.cpp)
+  target_compile_features(atperson-journal-mac-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-journal-mac-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-journal-mac-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-journal-mac COMMAND atperson-journal-mac-test)
 
   # Outbound action policy and rate budgets (#23): default-deny, per-window
   # limits, cooldowns, duplicate suppression, restart persistence and the

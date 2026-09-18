@@ -222,6 +222,114 @@ void test_missing_file_loads_empty() {
     assert(!journal.repaired_torn_tail);
 }
 
+/* #57 (scoped): an action written with a journal-integrity MAC round-trips
+ * through the journal, and the four fields survive byte-for-byte. */
+void test_mac_round_trip() {
+    const auto root = scratch_dir("mac");
+    const auto path = root / "action-journal.jsonl";
+
+    JournalAction action = sample_action();
+    atperson::JournalMac mac;
+    mac.mode = "hmac-sha256";
+    mac.key_hint = "00112233";
+    mac.sig = std::string(64, 'a');
+    mac.digest = "296a8c3ea23f24884539351b7e63c7e605bae1be0ef45f5bbae8b7e6516598a5";
+    action.mac = mac;
+    atperson::append_journal_action(path, action);
+
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.actions.size() == 1u);
+    assert(journal.actions[0].mac.has_value());
+    assert(journal.actions[0].mac->mode == "hmac-sha256");
+    assert(journal.actions[0].mac->key_hint == "00112233");
+    assert(journal.actions[0].mac->sig == std::string(64, 'a'));
+    assert(journal.actions[0].mac->digest ==
+           "296a8c3ea23f24884539351b7e63c7e605bae1be0ef45f5bbae8b7e6516598a5");
+
+    /* Serialise -> load -> serialise is byte-identical. */
+    const std::string first = atperson::serialise_journal_action(journal.actions[0]);
+    const std::string second = atperson::serialise_journal_action(journal.actions[0]);
+    assert(first == second);
+    std::printf("ok MAC round trip\n");
+}
+
+/* #57: an action written without a MAC (the common case, and the
+ * v1 shape) loads as nullopt — the migration is silent and lossless. */
+void test_no_mac_loads_as_nullopt() {
+    const auto root = scratch_dir("no-mac");
+    const auto path = root / "action-journal.jsonl";
+
+    JournalAction action = sample_action();
+    action.mac = std::nullopt;
+    atperson::append_journal_action(path, action);
+
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.actions.size() == 1u);
+    assert(!journal.actions[0].mac.has_value());
+    std::printf("ok no MAC loads as nullopt\n");
+}
+
+/* #57: a v1 action entry (version 1, no MAC) loads under the v2
+ * format and is indistinguishable from a v2 entry with nullopt MAC. */
+void test_v1_action_migrates_silently() {
+    const auto root = scratch_dir("v1-migrate");
+    const auto path = root / "action-journal.jsonl";
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << "{\"type\":\"action\",\"version\":1,\"id\":\"3lzc7a2pfxn2c\",\"kind\":\"post\","
+                "\"text\":\"the moon is a loyal companion\",\"digest\":\"0123456789abcdef\","
+                "\"outcome\":\"executed\",\"reason\":\"allow\","
+                "\"uri\":\"at://did:plc:example/app.bsky.feed.post/3lzc7a2pfxn2c\","
+                "\"cid\":\"bafyreiabc123\",\"at\":\"2026-09-17T17:00:00Z\"}\n";
+    }
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.actions.size() == 1u);
+    assert(!journal.actions[0].mac.has_value());
+    assert(journal.actions[0].id == "3lzc7a2pfxn2c");
+    std::printf("ok v1 action migrates silently\n");
+}
+
+/* #57: a v1 event or valence entry is still refused — only v1 *actions* carry
+ * the migration, because that is the only field the MAC change touches. */
+void test_v1_event_is_refused() {
+    const auto root = scratch_dir("v1-event");
+    const auto path = root / "action-journal.jsonl";
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << "{\"type\":\"event\",\"version\":1,\"action_id\":\"x\",\"event_uri\":\"y\","
+                "\"author_did\":\"did:plc:a\",\"via\":\"parent\",\"at\":\"2026-09-17T17:00:00Z\"}\n";
+    }
+    bool threw = false;
+    try {
+        (void)atperson::load_journal(path);
+    } catch (const JournalError &) {
+        threw = true;
+    }
+    assert(threw);
+    std::printf("ok v1 event is refused\n");
+}
+
+/* #57: a malformed MAC object is rejected, not silently dropped. */
+void test_malformed_mac_rejected() {
+    const auto root = scratch_dir("bad-mac");
+    const auto path = root / "action-journal.jsonl";
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << "{\"type\":\"action\",\"version\":2,\"id\":\"x\",\"kind\":\"post\",\"text\":\"t\","
+                "\"digest\":\"0123456789abcdef\",\"outcome\":\"executed\",\"reason\":\"allow\","
+                "\"uri\":\"\",\"cid\":\"\",\"at\":\"2026-09-17T17:00:00Z\","
+                "\"mac\":{\"mode\":\"hmac-sha256\",\"key_hint\":\"00112233\",\"sig\":\"s\"}}\n";
+    }
+    bool threw = false;
+    try {
+        (void)atperson::load_journal(path);
+    } catch (const JournalError &) {
+        threw = true;
+    }
+    assert(threw);
+    std::printf("ok malformed MAC rejected\n");
+}
+
 } // namespace
 
 int main() {
@@ -233,6 +341,11 @@ int main() {
     test_unsupported_version_rejected();
     test_event_dedup_and_uri_lookup();
     test_missing_file_loads_empty();
+    test_mac_round_trip();
+    test_no_mac_loads_as_nullopt();
+    test_v1_action_migrates_silently();
+    test_v1_event_is_refused();
+    test_malformed_mac_rejected();
     std::printf("atperson-journal: all tests passed\n");
     return 0;
 }

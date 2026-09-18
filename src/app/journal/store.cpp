@@ -124,6 +124,46 @@ void add_string(cJSON *object, const char *name, const std::string &value) {
     cJSON_AddStringToObject(object, name, value.c_str());
 }
 
+/* Serialise one optional journal-integrity MAC (#57). The object is added
+ * only when a payload is present, so v1 journal entries (no MAC) stay
+ * byte-identical after a v1->v2 migration pass. */
+void add_mac(cJSON *root, const std::optional<JournalMac> &mac) {
+    if (!mac.has_value()) {
+        return;
+    }
+    cJSON *object = cJSON_CreateObject();
+    if (!object) {
+        throw std::runtime_error("failed to allocate journal MAC object");
+    }
+    add_string(object, "mode", mac->mode);
+    add_string(object, "key_hint", mac->key_hint);
+    add_string(object, "sig", mac->sig);
+    add_string(object, "digest", mac->digest);
+    cJSON_AddItemToObject(root, "mac", object);
+}
+
+/* Parse the optional `mac` object. Absent or null yields nullopt; a present
+ * object must carry the four string fields or the entry is rejected. */
+std::optional<JournalMac> parse_mac(const cJSON *root) {
+    cJSON *object = cJSON_GetObjectItemCaseSensitive(root, "mac");
+    if (object == nullptr || cJSON_IsNull(object)) {
+        return std::nullopt;
+    }
+    if (!cJSON_IsObject(object)) {
+        fail("journal action field 'mac' is present but not an object");
+    }
+    JournalMac parsed;
+    parsed.mode = optional_string(object, "mode");
+    parsed.key_hint = optional_string(object, "key_hint");
+    parsed.sig = optional_string(object, "sig");
+    parsed.digest = optional_string(object, "digest");
+    if (parsed.mode.empty() || parsed.key_hint.empty() || parsed.sig.empty() ||
+        parsed.digest.empty()) {
+        fail("journal action field 'mac' is missing required string fields");
+    }
+    return parsed;
+}
+
 /* Print a serialised entry. cJSON_PrintUnformatted is deterministic for a
  * fixed object, so a fixed entry always serialises to the same bytes. */
 std::string print_json(cJSON *root, const char *what) {
@@ -146,8 +186,19 @@ void parse_line(const std::string &line, JournalContents &out) {
     }
     const std::string type = required_string(root.get(), "type");
     const cJSON *version = cJSON_GetObjectItemCaseSensitive(root.get(), "version");
-    if (!cJSON_IsNumber(version) ||
-        version->valuedouble != static_cast<double>(kJournalFormatVersion)) {
+    if (!cJSON_IsNumber(version)) {
+        fail("journal entry has no numeric 'version' field");
+    }
+    const bool is_v1_action =
+        version->valuedouble == 1.0 && type == "action";
+    const bool is_current =
+        version->valuedouble == static_cast<double>(kJournalFormatVersion);
+    if (!is_current && !is_v1_action) {
+        /* v1 action entries predate the journal MAC field (#57). They are
+         * migrated in place: an absent MAC is the same as nullopt, so
+         * the loaded entry is identical to what a v2 writer would have
+         * produced. Any other version or type is refused — the journal never
+         * silently reinterprets foreign schema. */
         fail("journal entry has unsupported version");
     }
     if (type == "action") {
@@ -162,6 +213,7 @@ void parse_line(const std::string &line, JournalContents &out) {
         action.uri = optional_string(root.get(), "uri");
         action.cid = optional_string(root.get(), "cid");
         action.at = required_string(root.get(), "at");
+        action.mac = parse_mac(root.get());
         out.actions.push_back(std::move(action));
     } else if (type == "event") {
         JournalEvent event;
@@ -269,6 +321,7 @@ std::string serialise_journal_action(const JournalAction &entry) {
     add_string(root.get(), "uri", entry.uri);
     add_string(root.get(), "cid", entry.cid);
     add_string(root.get(), "at", entry.at);
+    add_mac(root.get(), entry.mac);
     return print_json(root.get(), "journal action entry");
 }
 
