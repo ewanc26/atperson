@@ -87,4 +87,18 @@ Automatic budgeting is the default. Empty values or `0` mean automatic where sup
 
 An override that exceeds available safe headroom is rejected. Explicit node/edge ceilings below the graph's current counts are raised to the current counts instead of evicting learned state.
 
-The neural overrides only influence **first creation and rebuild-without-a-model**. Explicit shape overrides keep every field they leave unset from the automatic class's shape; the combined effective shape is validated as a whole (embedding within the C-core width limit, no zero-width active layer, no nonzero width beyond the declared layer count, parameter count within the C-core bound). A forced capacity class cannot be combined with the explicit shape variables, and both stay inside the runtime policy bounds: the recommendation's width vector expresses at most three hidden layers, so overrides above three are rejected even though the C core itself allows four. Overrides never reshape an existing model; an override that parks a fresh model beyond current memory headroom is refused at creation.
+The neural overrides influence **first creation, rebuild-without-a-model, and the read-only expansion proposal**. Explicit shape overrides keep every field they leave unset from the automatic class's shape; the combined effective shape is validated as a whole (embedding within the C-core width limit, no zero-width active layer, no nonzero width beyond the declared layer count, parameter count within the C-core bound). A forced capacity class cannot be combined with the explicit shape variables, and both stay inside the runtime policy bounds: the recommendation's width vector expresses at most three hidden layers, so overrides above three are rejected even though the C core itself allows four. Overrides never reshape an existing model merely by being present; an override that parks a fresh model beyond current memory headroom is refused at creation.
+
+## Expansion preflight
+
+`atperson neural status` is the first, deliberately read-only slice of issue #66. It requires an existing persisted model generation, compares that active topology with the current recommendation, and prints migration version 1, both shapes, parameter counts, estimated learned-state footprints, additional memory cost and whether the proposed shape fits current safe memory headroom. It always ends with `mutation: none (inspection only)`.
+
+Migration-v1 eligibility is coordinate-wise and monotonic:
+
+- proposed embedding width must be at least the active width;
+- proposed hidden-layer count must be at least the active count;
+- every pre-existing hidden layer must stay the same width or widen;
+- at least one dimension or layer count must increase for expansion to be available;
+- an otherwise larger recommendation that narrows any active coordinate is reported as incompatible rather than treated as an expansion.
+
+This command does **not** migrate a model yet. Defining and testing the preflight contract first means the later `neural expand` mutation can use exactly the same eligibility decision instead of inventing a second set of rules.

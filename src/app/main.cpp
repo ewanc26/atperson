@@ -144,6 +144,12 @@ int main(int argc, char **argv) {
                 argv[2], static_cast<std::int64_t>(std::time(nullptr)));
         }
 
+        if (command == "neural" && !std::filesystem::exists(path)) {
+            throw std::runtime_error(
+                "neural expansion preflight requires an existing persisted model generation; "
+                "there is nothing to expand yet");
+        }
+
         auto graph = atperson::load_or_create_graph(resource_status, path);
         resource_status =
             atperson::refresh_runtime_resources(graph, resource_paths, resource_overrides);
@@ -151,6 +157,18 @@ int main(int argc, char **argv) {
         if (command == "resources") {
             atperson::print_runtime_resources(std::cout, resource_status, graph,
                                                resource_overrides);
+            return 0;
+        }
+
+        if (command == "neural") {
+            const std::string_view sub = argc >= 3 ? argv[2] : "status";
+            if (sub != "status") {
+                usage(std::cerr);
+                return 2;
+            }
+            const auto expansion =
+                atperson::plan_neural_expansion(graph, resource_status);
+            atperson::print_neural_expansion_plan(std::cout, expansion);
             return 0;
         }
 
