@@ -24,6 +24,7 @@ void print_usage(std::ostream &out) {
         << "  atperson groups\n"
         << "  atperson sync [max-pages]\n"
         << "  atperson jetstream [max-events] [max-ms] [--collections <file>] [--dids <file>]\n"
+        << "  atperson jetstream status [--collections <file>] [--dids <file>]\n"
         << "  atperson daemon [max-cycles]\n"
         << "  atperson rebuild\n"
         << "  atperson compact\n"
