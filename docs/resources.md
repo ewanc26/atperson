@@ -46,6 +46,26 @@ Issue #73 binds the first run of a brand-new model generation to the machine's h
 
 The memory footprint check is deliberately an estimate: it includes values plus plasticity-importance storage for shared parameters and per-node embeddings, training scratch, and conservative structural node/edge allowances. Graph-growth ceilings use the active persisted embedding width so a wide model is not budgeted as though it still used the legacy 16D vectors.
 
+## Neural runtime execution policy
+
+Durable neural architecture and current execution policy are separate things. A model's persisted embedding/layer topology does not change merely because it restarts on a faster or slower machine. Instead, the runtime derives an execution-only policy from the CPU and memory the process can use now.
+
+Policy v1 is deliberately conservative:
+
+- the only selectable backend is `portable-cpu`;
+- the authoritative C23 graph/network has exactly one owner thread;
+- spare whole effective CPUs may be used by surrounding orchestration/fetch work, never by concurrent mutation of the C23 graph;
+- the observation work-batch allowance scales with current effective CPU and transient workspace headroom;
+- the workspace allowance is bounded by both current memory headroom and the existing graph-growth budget;
+- memory pressure can reduce work batch/workspace to near-minimal values without changing learned topology;
+- the policy is deterministic for fixed resource inputs and is not persisted as learned-state metadata.
+
+`atperson resources` prints the execution backend, execution-policy version, core-owner thread count, surrounding-worker allowance, current work batch, workspace allowance, deterministic flag and portable fallback status.
+
+When opt-in parallel timeline sync is enabled, its fetch pool is capped by the policy's surrounding-worker allowance. If the current host has no whole CPU left after reserving the C23 owner, sync stays on the sequential path. Page size is also capped by the current observation work batch. Observation processing, ledger commits and C23 learning remain owner-thread serial and ordered.
+
+No SIMD, Metal, CUDA or reduced-precision backend is enabled by policy v1. Any such backend needs an explicit numeric/replay compatibility contract before it can become selectable.
+
 ## Disk and sync budgets
 
 Each durable filesystem keeps a dynamic free-space reserve. If a destination is already inside that reserve, mutating commands fail before starting new durable work.

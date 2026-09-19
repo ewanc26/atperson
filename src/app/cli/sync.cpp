@@ -19,6 +19,7 @@
 #include "parallel.hpp"
 #include "worker/pool.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <optional>
 #include <ostream>
@@ -69,7 +70,9 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
 
     auto mutable_status = resource_status;
     atperson::SyncLimits limits;
-    limits.page_size = mutable_status.budget.sync_page_size;
+    limits.page_size = std::min(
+        mutable_status.budget.sync_page_size,
+        static_cast<int>(mutable_status.neural_runtime.observation_work_batch));
     limits.max_pages = max_pages;
     limits.max_observations = mutable_status.budget.sync_max_observations;
 
@@ -81,7 +84,10 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
         mutable_status = atperson::refresh_runtime_resources(graph, resource_paths,
                                                              resource_overrides);
         atperson::require_runtime_write_headroom(mutable_status);
-        limits.page_size = mutable_status.budget.sync_page_size;
+        limits.page_size = std::min(
+            mutable_status.budget.sync_page_size,
+            static_cast<int>(
+                mutable_status.neural_runtime.observation_work_batch));
         limits.max_observations = mutable_status.budget.sync_max_observations;
         try {
             return client.fetch_timeline_page(cursor, limits.page_size);
@@ -98,13 +104,16 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
     const auto linker = atperson::make_journal_linker(atperson::cli::action_journal_path());
 
     atperson::SyncResult result;
-    if (parallel_sync_enabled()) {
-        /* The pool is sized from the effective CPU capacity, so a container
-         * with a fractional quota gets fewer workers than the host has
-         * logical CPUs. One worker reproduces the sequential path through
-         * the queue, so the result is identical for fixed inputs. */
+    if (parallel_sync_enabled() &&
+        mutable_status.neural_runtime.surrounding_worker_threads != 0u) {
+        /*
+         * The execution policy reserves the C23 owner thread and gives only
+         * spare effective CPUs to surrounding fetch work. The core still
+         * learns serially in ledger order.
+         */
         const auto pool_config = atperson::WorkerPool::config_from_system(
-            mutable_status.system);
+            mutable_status.system,
+            mutable_status.neural_runtime.surrounding_worker_threads);
         atperson::WorkerPool pool(pool_config);
         result = atperson::run_sync_parallel(graph, ledger, ingestion, fetch_page, limits,
                                              pool, linker);

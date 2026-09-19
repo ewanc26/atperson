@@ -89,9 +89,20 @@ void test_pool_shutdown_after_submit_is_idempotent() {
 void test_pool_config_from_system() {
     atperson::SystemResources resources;
     resources.host_logical_cpus = 8u;
-    resources.effective_cpu_capacity = 0.5; /* half a quota */
-    const auto config = atperson::WorkerPool::config_from_system(resources, 0u);
-    assert(config.thread_count == 4u);
+
+    resources.effective_cpu_capacity = 8.0;
+    const auto full = atperson::WorkerPool::config_from_system(resources, 0u);
+    assert(full.thread_count == 8u); /* never host * effective == 64 */
+
+    resources.effective_cpu_capacity = 2.5;
+    const auto quota = atperson::WorkerPool::config_from_system(resources, 0u);
+    assert(quota.thread_count == 2u);
+
+    resources.effective_cpu_capacity = 0.5;
+    const auto fractional = atperson::WorkerPool::config_from_system(resources, 0u);
+    assert(fractional.thread_count == 1u);
+
+    resources.effective_cpu_capacity = 8.0;
     const auto capped = atperson::WorkerPool::config_from_system(resources, 2u);
     assert(capped.thread_count == 2u);
 }

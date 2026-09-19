@@ -69,10 +69,10 @@ public:
     std::size_t pending();
     bool shutting_down();
 
-    /* Derive a pool config from system resources, with an operator cap.
-     * Effective CPU capacity is folded in, so a container with a fractional
-     * quota gets fewer workers than the host has logical CPUs. A zero
-     * max_threads means no cap. */
+    /* Derive a pool config from system resources, with an operational cap.
+     * effective_cpu_capacity is the absolute CPU count available after
+     * container quotas/cpusets. A sub-one quota still gets one worker. A zero
+     * max_threads means no additional cap. */
     static Config config_from_system(const SystemResources &system,
                                      std::size_t max_threads = 0u);
 
