@@ -23,6 +23,16 @@ std::filesystem::path data_dir();
 std::filesystem::path state_path();
 std::filesystem::path ledger_path();
 std::filesystem::path ingestion_state_path();
+
+/* Independent unauthenticated Jetstream cursor/checkpoint (#60). Keeping it
+ * separate from the authenticated timeline state lets both ingestion paths
+ * resume across restarts without invalidating each other's source identity. */
+std::filesystem::path jetstream_state_path();
+
+/* Optional operator-owned one-collection-filter-per-line file. Empty path
+ * means the default public-post collection. */
+std::filesystem::path jetstream_collections_path();
+
 std::filesystem::path control_state_path();
 std::filesystem::path outbound_policy_path();
 std::filesystem::path outbound_budget_path();
