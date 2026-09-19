@@ -181,15 +181,15 @@ typedef struct atp_ledger atp_ledger;
 /*
  * Durable neural topology descriptor (issue #65).
  *
- * Version 1 describes the current legacy scorer exactly: 16-dimensional token
- * embeddings, their pairwise concatenation as a 32-wide input, one 16-unit
- * tanh hidden layer, and one sigmoid output. The descriptor is explicit now so
- * later variable-shape snapshots and deterministic capacity migrations have a
- * stable C ABI instead of inferring topology from compile-time constants.
+ * Version 1 names the current dense scorer topology contract: token
+ * embeddings are concatenated source-first/target-second, followed by one to
+ * four tanh hidden layers and a scalar sigmoid output. The legacy shape is
+ * 16-dimensional embeddings with one 16-unit hidden layer; snapshot v6 also
+ * persists larger validated shapes explicitly.
  *
- * The current core accepts only this legacy shape; exposing the descriptor
- * does not yet make topology configurable and does not change learning
- * semantics or snapshot bytes.
+ * The descriptor is durable learned-state metadata. Deterministic expansion
+ * therefore maps coordinates by semantic role rather than treating flattened
+ * parameter arrays as interchangeable.
  */
 typedef struct atp_neural_architecture {
     uint32_t version;
