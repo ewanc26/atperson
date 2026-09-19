@@ -57,6 +57,7 @@ struct JetstreamEvent {
     std::string reply_parent;
     std::string quote_uri;
     std::int64_t seq{0};
+    bool deleted{false};
 };
 
 /* A Jetstream feed: connect, fetch a bounded batch, checkpoint the cursor.

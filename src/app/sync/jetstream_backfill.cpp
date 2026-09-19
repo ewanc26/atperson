@@ -67,6 +67,10 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     }
 
     const auto on_event = [&](const JetstreamEvent &event) {
+        if (event.deleted) {
+            result.withdrawn += ledger.withdraw_source(event.source_uri);
+            return;
+        }
         SyncObservation observation = jetstream_to_observation(event);
         if (!self_did.empty() && event.author_did == self_did) {
             observation.policy_reason = PolicyReason::SelfAuthored;
