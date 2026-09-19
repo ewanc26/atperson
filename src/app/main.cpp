@@ -144,6 +144,40 @@ int main(int argc, char **argv) {
                 argv[2], static_cast<std::int64_t>(std::time(nullptr)));
         }
 
+        if (command == "jetstream" && argc >= 3 &&
+            std::string_view(argv[2]) == "status") {
+            std::filesystem::path collections_file =
+                atperson::cli::jetstream_collections_path();
+            std::filesystem::path dids_file =
+                atperson::cli::jetstream_dids_path();
+
+            for (int i = 3; i < argc; ++i) {
+                const std::string_view argument = argv[i];
+                if (argument == "--collections") {
+                    if (i + 1 >= argc) {
+                        std::cerr << "jetstream status: --collections requires a file path\n";
+                        return 2;
+                    }
+                    collections_file = argv[++i];
+                    continue;
+                }
+                if (argument == "--dids") {
+                    if (i + 1 >= argc) {
+                        std::cerr << "jetstream status: --dids requires a file path\n";
+                        return 2;
+                    }
+                    dids_file = argv[++i];
+                    continue;
+                }
+                std::cerr << "jetstream status: unexpected argument " << argument << '\n';
+                return 2;
+            }
+
+            return atperson::cli::run_jetstream_status(
+                std::cout, atperson::cli::jetstream_state_path(),
+                collections_file, dids_file);
+        }
+
         if (command == "neural" && !std::filesystem::exists(path)) {
             throw std::runtime_error(
                 "neural expansion preflight requires an existing persisted model generation; "
@@ -297,6 +331,7 @@ int main(int argc, char **argv) {
         }
 
         if (command == "jetstream") {
+            /* "status" is handled above before the model is loaded. */
             int max_events = 0;
             int max_ms = 0;
             int positional = 0;
