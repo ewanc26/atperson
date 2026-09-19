@@ -217,6 +217,22 @@ The daemon uses the same ledger and cursor as `sync`, holds the writer lock for 
 
 See [`docs/daemon.md`](docs/daemon.md).
 
+### Neural capacity expansion
+
+A stronger host can recommend a larger persisted neural topology without changing the model automatically:
+
+```sh
+./build/atperson neural status
+```
+
+If the proposal is monotonic and fits current safe memory headroom, expansion is an explicit operator action:
+
+```sh
+./build/atperson neural expand
+```
+
+The command takes the state writer lock, binds migration v1 to the current durable ledger boundary, expands a separately loaded candidate deterministically, and atomically replaces the snapshot only after the complete v7 generation is safely written. Smaller or incompatible recommendations are refused; merely moving the model to another machine never reshapes it.
+
 ### Rebuild
 
 Learned state can be reconstructed from the observation ledger without network access or an existing snapshot:
