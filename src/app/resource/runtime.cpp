@@ -249,6 +249,15 @@ void print_runtime_resources(std::ostream &out, const RuntimeResourceStatus &sta
     print_bytes(out, neural.shared_parameter_bytes);
     out << "; runtime batch " << neural.runtime_batch_observations << " observations\n";
 
+    const auto &runtime = status.budget.neural_runtime;
+    out << "neural runtime policy: " << runtime.backend << " v" << runtime.policy_version
+        << "; core owners " << runtime.core_owner_threads << "; surrounding workers "
+        << runtime.surrounding_worker_allowance << "; work batch "
+        << runtime.observation_work_batch << "; transient workspace ";
+    print_bytes(out, runtime.transient_workspace_bytes);
+    out << "; deterministic " << (runtime.deterministic ? "yes" : "no")
+        << "; portable fallback " << (runtime.portable_fallback ? "yes" : "no") << '\n';
+
     out << "limiting disk";
     if (!status.budget.limiting_disk_path.empty()) {
         out << " (" << status.budget.limiting_disk_path.string() << ')';

@@ -43,6 +43,18 @@ struct NeuralCapacityRecommendation {
     std::size_t runtime_batch_observations{1u};
 };
 
+/* Execution policy for the current host; never persisted as learned state. */
+struct NeuralRuntimePolicy {
+    std::uint32_t policy_version{1u};
+    const char *backend{"portable-cpu"};
+    std::size_t core_owner_threads{1u};
+    std::size_t surrounding_worker_allowance{};
+    std::size_t observation_work_batch{};
+    std::uint64_t transient_workspace_bytes{};
+    bool deterministic{true};
+    bool portable_fallback{true};
+};
+
 /* Optional operator choices. Empty means automatic. */
 struct ResourceOverrides {
     std::optional<std::uint64_t> memory_growth_budget_bytes;
@@ -117,6 +129,7 @@ struct ResourceBudget {
     std::uint64_t sync_max_observations{1u};
 
     NeuralCapacityRecommendation neural;
+    NeuralRuntimePolicy neural_runtime;
 
     bool memory_pressure{};
     bool disk_pressure{};

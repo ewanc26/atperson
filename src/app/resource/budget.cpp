@@ -481,6 +481,16 @@ ResourceBudget derive_resource_budget(const SystemResources &system,
 
     budget.neural = neural_recommendation(system, budget);
     apply_neural_overrides(budget.neural, overrides);
+    budget.neural_runtime.surrounding_worker_allowance =
+        system.effective_cpu_capacity > 1.0
+            ? static_cast<std::size_t>(system.effective_cpu_capacity - 1.0)
+            : 0u;
+    budget.neural_runtime.observation_work_batch =
+        budget.memory_pressure
+            ? 1u
+            : std::min<std::size_t>(budget.neural.runtime_batch_observations,
+                                    std::max<std::size_t>(1u, budget.sync_page_size));
+    budget.neural_runtime.transient_workspace_bytes = budget.memory_growth_budget_bytes / 8u;
     return budget;
 }
 

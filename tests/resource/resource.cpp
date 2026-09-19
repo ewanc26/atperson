@@ -94,6 +94,13 @@ void test_neural_recommendation_scales_without_mutating_learned_shape() {
            large_budget.neural.shared_parameter_count * sizeof(float));
     assert(large_budget.neural.runtime_batch_observations >
            small_budget.neural.runtime_batch_observations);
+    assert(small_budget.neural_runtime.backend == std::string("portable-cpu"));
+    assert(small_budget.neural_runtime.core_owner_threads == 1u);
+    assert(small_budget.neural_runtime.surrounding_worker_allowance == 0u);
+    assert(large_budget.neural_runtime.surrounding_worker_allowance == 7u);
+    assert(large_budget.neural_runtime.observation_work_batch >= 1u);
+    assert(large_budget.neural_runtime.deterministic);
+    assert(large_budget.neural_runtime.portable_fallback);
     assert(std::string(atperson::neural_capacity_class_name(
                large_budget.neural.capacity_class)) == "expansive");
 
@@ -103,6 +110,7 @@ void test_neural_recommendation_scales_without_mutating_learned_shape() {
     const auto limited_budget =
         atperson::derive_resource_budget(cpu_limited, graph_stats(0u, 0u));
     assert(limited_budget.neural.capacity_class == atperson::NeuralCapacityClass::constrained);
+    assert(limited_budget.neural_runtime.surrounding_worker_allowance == 0u);
 }
 
 void test_fractional_cpu_can_reduce_page_to_one() {
