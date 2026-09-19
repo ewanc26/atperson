@@ -124,8 +124,10 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     const std::vector<std::string> dids =
         dids_file.empty() ? std::vector<std::string>{}
                           : atperson::load_jetstream_dids(dids_file);
+    const std::string initial_cursor =
+        ingestion.catchup.cursor.value_or(std::string{});
     atperson::JetstreamClient client(
-        endpoint, configured_self, collections, dids);
+        endpoint, configured_self, collections, dids, initial_cursor);
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
 
