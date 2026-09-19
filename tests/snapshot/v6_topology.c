@@ -17,6 +17,8 @@
 static const char *V6_PATH = "atperson-snapshot-test-v6.bin";
 static const char *V5_PATH = "atperson-snapshot-test-v5-legacy.bin";
 static const char *CORRUPT_V6_PATH = "atperson-snapshot-test-v6-corrupt.bin";
+static const char *V7_PATH = "atperson-snapshot-test-v7-migrated.bin";
+static const char *CORRUPT_V7_PATH = "atperson-snapshot-test-v7-corrupt.bin";
 
 /* One-hidden-layer non-legacy width: same depth, different hidden size, so
  * the graph is non-legacy and must save as v6. */
@@ -38,6 +40,52 @@ static atp_neural_architecture three_hidden(void) {
     architecture.hidden_widths[1] = 5u;
     architecture.hidden_widths[2] = 4u;
     return architecture;
+}
+
+static atp_neural_architecture migration_source(void) {
+    return one_hidden(5u);
+}
+
+static atp_neural_architecture migration_target_one(void) {
+    atp_neural_architecture architecture = one_hidden(8u);
+    architecture.embedding_dim = 20u;
+    architecture.input_dim = 40u;
+    architecture.hidden_layer_count = 2u;
+    architecture.hidden_widths[0] = 8u;
+    architecture.hidden_widths[1] = 5u;
+    return architecture;
+}
+
+static atp_neural_architecture migration_target_two(void) {
+    atp_neural_architecture architecture = one_hidden(10u);
+    architecture.embedding_dim = 24u;
+    architecture.input_dim = 48u;
+    architecture.hidden_layer_count = 3u;
+    architecture.hidden_widths[0] = 10u;
+    architecture.hidden_widths[1] = 7u;
+    architecture.hidden_widths[2] = 5u;
+    return architecture;
+}
+
+static void assert_architecture_equal(const atp_neural_architecture *left,
+                                      const atp_neural_architecture *right) {
+    assert(left->version == right->version);
+    assert(left->embedding_dim == right->embedding_dim);
+    assert(left->input_dim == right->input_dim);
+    assert(left->output_dim == right->output_dim);
+    assert(left->hidden_layer_count == right->hidden_layer_count);
+    for (uint32_t i = 0u; i < ATPERSON_NEURAL_MAX_HIDDEN_LAYERS; ++i) {
+        assert(left->hidden_widths[i] == right->hidden_widths[i]);
+    }
+}
+
+static void assert_migration_equal(const atp_neural_migration *left,
+                                   const atp_neural_migration *right) {
+    assert(left->version == right->version);
+    assert(left->seed == right->seed);
+    assert(left->ledger_boundary_id == right->ledger_boundary_id);
+    assert_architecture_equal(&left->source, &right->source);
+    assert_architecture_equal(&left->target, &right->target);
 }
 
 static atp_graph *graph_at(const atp_neural_architecture *architecture) {
@@ -122,6 +170,121 @@ static void test_roundtrip_two_hidden(void) {
 static void test_roundtrip_three_hidden(void) {
     const atp_neural_architecture architecture = three_hidden();
     roundtrip_topology(&architecture);
+}
+
+static void test_migration_history_roundtrip_v7(void) {
+    const atp_neural_architecture source = migration_source();
+    const atp_neural_architecture first_target = migration_target_one();
+    const atp_neural_architecture second_target = migration_target_two();
+    atp_graph *graph = graph_at(&source);
+
+    const atp_neural_migration first = {
+        .version = ATPERSON_NEURAL_MIGRATION_VERSION,
+        .seed = UINT64_C(0x1111222233334444),
+        .ledger_boundary_id = 2u,
+        .source = source,
+        .target = first_target,
+    };
+    const atp_neural_migration second = {
+        .version = ATPERSON_NEURAL_MIGRATION_VERSION,
+        .seed = UINT64_C(0x5555666677778888),
+        .ledger_boundary_id = 2u,
+        .source = first_target,
+        .target = second_target,
+    };
+    assert(atp_graph_expand_neural(graph, &first) == ATP_OK);
+    assert(atp_graph_expand_neural(graph, &second) == ATP_OK);
+    assert(atp_graph_neural_migration_count(graph) == 2u);
+
+    atp_neural_migration inspected = {0};
+    assert(atp_graph_neural_migration_at(graph, 0u, &inspected) == ATP_OK);
+    assert_migration_equal(&inspected, &first);
+    assert(atp_graph_neural_migration_at(graph, 1u, &inspected) == ATP_OK);
+    assert_migration_equal(&inspected, &second);
+    assert(atp_graph_neural_migration_at(graph, 2u, &inspected) == ATP_ERR_NOT_FOUND);
+    assert(atp_graph_neural_migration_at(NULL, 0u, &inspected) == ATP_ERR_INVALID_ARGUMENT);
+    assert(atp_graph_neural_migration_at(graph, 0u, NULL) == ATP_ERR_INVALID_ARGUMENT);
+
+    assert(atp_graph_save(graph, V7_PATH) == ATP_OK);
+    size_t original_size = 0u;
+    unsigned char *original = read_file(V7_PATH, &original_size);
+    assert(original_size > 32u);
+    assert(memcmp(original, "ATPERSN7", 8u) == 0);
+    assert(original[8] == 7u && original[9] == 0u &&
+           original[10] == 0u && original[11] == 0u);
+
+    atp_neural_architecture probed = {0};
+    assert(atp_snapshot_neural_architecture(V7_PATH, &probed) == ATP_OK);
+    assert_architecture_equal(&probed, &second_target);
+
+    atp_status status = ATP_OK;
+    atp_graph *loaded = atp_graph_load(V7_PATH, &status);
+    assert(loaded != NULL);
+    assert(status == ATP_OK);
+    assert_architecture_matches(loaded, &second_target);
+    assert(atp_graph_neural_migration_count(loaded) == 2u);
+    assert(atp_graph_neural_migration_at(loaded, 0u, &inspected) == ATP_OK);
+    assert_migration_equal(&inspected, &first);
+    assert(atp_graph_neural_migration_at(loaded, 1u, &inspected) == ATP_OK);
+    assert_migration_equal(&inspected, &second);
+
+    assert(atp_graph_save(loaded, V7_PATH) == ATP_OK);
+    size_t loaded_size = 0u;
+    unsigned char *loaded_bytes = read_file(V7_PATH, &loaded_size);
+    assert(loaded_size == original_size);
+    assert(memcmp(original, loaded_bytes, original_size) == 0);
+
+    free(original);
+    free(loaded_bytes);
+    atp_graph_destroy(graph);
+    atp_graph_destroy(loaded);
+    remove(V7_PATH);
+}
+
+static void test_corrupt_migration_history_rejected(void) {
+    const atp_neural_architecture source = migration_source();
+    const atp_neural_architecture target = migration_target_one();
+    atp_graph *graph = graph_at(&source);
+    const atp_neural_migration migration = {
+        .version = ATPERSON_NEURAL_MIGRATION_VERSION,
+        .seed = UINT64_C(0x9999aaaabbbbcccc),
+        .ledger_boundary_id = 2u,
+        .source = source,
+        .target = target,
+    };
+    assert(atp_graph_expand_neural(graph, &migration) == ATP_OK);
+    assert(atp_graph_save(graph, CORRUPT_V7_PATH) == ATP_OK);
+    atp_graph_destroy(graph);
+
+    size_t size = 0u;
+    unsigned char *data = read_file(CORRUPT_V7_PATH, &size);
+    size_t position = 12u;
+    int found = 0;
+    while (position + 12u <= size - 8u) {
+        const uint32_t tag = atp_load_u32le(data + position);
+        const uint64_t length = atp_load_u64le(data + position + 4u);
+        assert(length <= (uint64_t)(size - position - 12u));
+        if (tag == 12u) {
+            /* MIGRATIONS: count u64, migration version u32, then seed u64. */
+            assert(length >= 20u);
+            memset(data + position + 12u + 12u, 0, 8u);
+            found = 1;
+            break;
+        }
+        position += 12u + (size_t)length;
+    }
+    assert(found == 1);
+
+    const uint64_t digest = atp_fnv1a64(data, size - 8u);
+    atp_store_u64le(data + size - 8u, digest);
+    write_file(CORRUPT_V7_PATH, data, size);
+    free(data);
+
+    atp_status status = ATP_OK;
+    atp_graph *loaded = atp_graph_load(CORRUPT_V7_PATH, &status);
+    assert(loaded == NULL);
+    assert(status == ATP_ERR_FORMAT);
+    remove(CORRUPT_V7_PATH);
 }
 
 /* Legacy graphs keep saving byte-identical v5 and load as legacy. */
@@ -399,6 +562,8 @@ int main(void) {
     test_roundtrip_one_hidden();
     test_roundtrip_two_hidden();
     test_roundtrip_three_hidden();
+    test_migration_history_roundtrip_v7();
+    test_corrupt_migration_history_rejected();
     test_legacy_saves_v5();
     test_corrupt_arch_rejected();
     test_bitrot_rejected();
