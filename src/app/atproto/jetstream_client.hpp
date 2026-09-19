@@ -72,7 +72,7 @@ struct JetstreamEvent {
 class JetstreamClient {
   public:
     explicit JetstreamClient(
-        std::string endpoint,
+        std::string endpoint, std::string self_did,
         std::vector<std::string> collections = {"app.bsky.feed.post"},
         std::vector<std::string> dids = {});
     ~JetstreamClient();
@@ -112,6 +112,7 @@ class JetstreamClient {
     void *connect();
 
     std::string endpoint_;
+    std::string self_did_;
     std::vector<std::string> collections_;
     std::vector<std::string> dids_;
     std::string cursor_;
