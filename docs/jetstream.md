@@ -35,6 +35,8 @@ This separation is required for #60: switching from polling to Jetstream must no
 
 The Jetstream cursor is operational metadata only. It is never written into the model snapshot and is not evidence that an event was learned.
 
+The checkpoint is also bound to the exact Jetstream WebSocket endpoint. If `ATPERSON_JETSTREAM_ENDPOINT` changes, atperson deliberately starts that stream from a fresh cursor instead of assuming two servers share one cursor namespace. Any overlapping records are still suppressed by the shared observation ledger.
+
 ## Collection filter
 
 Without an explicit filter file, atperson subscribes only to:
