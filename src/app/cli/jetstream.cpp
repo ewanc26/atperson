@@ -54,17 +54,20 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     const atperson::StateLock writer_lock(data_dir);
     atperson::Ledger ledger(ledger_file);
 
-    const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
-    /* The Jetstream backfill is unauthenticated: it ingests public records
-     * without a session, so the DID field is empty rather than a DID. */
-    auto ingestion =
-        atperson::load_ingestion_state(state_file, service, "",
-                                       kSourceKindJetstream);
-
-    const JetstreamLimits limits = parse_limits(max_events, max_ms);
     const std::string endpoint = env_or(
         "ATPERSON_JETSTREAM_ENDPOINT",
         "wss://jetstream1.us-east.bsky.network/subscribe");
+
+    /*
+     * Bind the persisted cursor to the actual Jetstream endpoint, not the
+     * authenticated PDS/service URL used by timeline sync. A cursor from one
+     * Jetstream server is not assumed to be meaningful on another.
+     */
+    auto ingestion =
+        atperson::load_ingestion_state(state_file, endpoint, "",
+                                       kSourceKindJetstream);
+
+    const JetstreamLimits limits = parse_limits(max_events, max_ms);
     const std::vector<std::string> collections =
         collections_file.empty()
             ? atperson::default_jetstream_collections()
