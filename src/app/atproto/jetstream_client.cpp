@@ -38,10 +38,16 @@ std::int64_t seq_from_cursor(std::string_view cursor) {
     if (cursor.empty()) {
         return 0;
     }
+    std::size_t consumed = 0u;
     try {
-        return std::stoll(std::string(cursor));
-    } catch (...) {
-        return 0;
+        const std::int64_t value = std::stoll(std::string(cursor), &consumed, 10);
+        if (consumed != cursor.size() || value <= 0) {
+            throw std::runtime_error("invalid Jetstream cursor");
+        }
+        return value;
+    } catch (const std::exception &) {
+        throw std::runtime_error(
+            "JetstreamClient: persisted cursor is not a positive decimal timestamp");
     }
 }
 
@@ -49,9 +55,11 @@ std::int64_t seq_from_cursor(std::string_view cursor) {
 
 JetstreamClient::JetstreamClient(
     std::string endpoint, std::string self_did,
-    std::vector<std::string> collections, std::vector<std::string> dids)
+    std::vector<std::string> collections, std::vector<std::string> dids,
+    std::string initial_cursor)
     : endpoint_(std::move(endpoint)), self_did_(std::move(self_did)),
-      collections_(std::move(collections)), dids_(std::move(dids)) {
+      collections_(std::move(collections)), dids_(std::move(dids)),
+      cursor_(std::move(initial_cursor)) {
     if (self_did_.empty() || self_did_.rfind("did:", 0u) != 0u) {
         throw std::runtime_error(
             "JetstreamClient: a valid self DID is required for ingestion policy");
