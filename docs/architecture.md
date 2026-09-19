@@ -39,10 +39,14 @@ A new graph contains no tokens or edges. Tokens are interned only when an
 observation introduces them. There is no seeded vocabulary, biography,
 personality, ideology, preference set or opinion table.
 
-The neural component is deliberately small. Each token receives a
-16-dimensional embedding. A feed-forward scorer takes the source and target
-embeddings, passes their concatenation through a 16-unit `tanh` hidden layer,
-and predicts whether the pair belongs together. Observed adjacent pairs are
+The neural component is deliberately bounded and inspectable. A brand-new
+model generation selects a validated embedding width and hidden-layer topology
+from the current hardware capacity recommendation (or an explicit operator
+override) and persists that descriptor in snapshot v6. From then on the
+persisted topology is authoritative: moving to a different host never silently
+reshapes learned state. The feed-forward scorer consumes a source/target
+embedding pair, uses one to three runtime-selected `tanh` hidden layers, and
+predicts whether the pair belongs together. Observed adjacent pairs are
 positive examples; another known token is sampled as a negative example when
 possible. Both the shared scorer and token embeddings train online with
 gradient descent.
@@ -531,14 +535,17 @@ Snapshots are versioned and contain the complete mutable graph/neural state,
 counters and deterministic PRNG state, together with mirrored ledger metadata,
 episodic memory, familiarity, valence and conversation context.
 
-Snapshot v5 is the portable container format: little-endian integers, IEEE 754
-float bit patterns, framed sections (`tag u32le | length u64le | payload`) with
-bounds-checked lengths and skippable unknown tags, followed by a trailing
-FNV-1a digest over the entire file.
+Snapshot v6 is the current portable container format: little-endian integers,
+IEEE 754 float bit patterns, framed sections
+(`tag u32le | length u64le | payload`) with bounds-checked lengths and
+skippable unknown tags, followed by a trailing FNV-1a digest over the entire
+file. v6 also persists the neural architecture descriptor required to reproduce
+a model generation independently of the machine hosting it.
 
 Older optional state can be added as tagged sections without redefining the
-meaning of existing sections. v4 snapshots load portably and migrate to v5 on
-the next save; v1-v3 are refused rather than silently reinterpreted.
+meaning of existing sections. v4/v5 snapshots load at the legacy neural
+topology and migrate to v6 on the next save; v1-v3 are refused rather than
+silently reinterpreted.
 
 The snapshot is a durable fast-start representation of learned state. The
 observation ledger and action journal remain the evidence streams from which a
