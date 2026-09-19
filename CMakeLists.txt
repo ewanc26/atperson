@@ -51,6 +51,7 @@ add_library(
   src/core/bootstrap.c
   src/core/neural_layout.c
   src/core/neural.c
+  src/core/neural_migration.c
   src/core/ledger/lifecycle.c
   src/core/ledger/commit.c
   src/core/ledger/append.c
@@ -184,6 +185,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/config.cpp
     src/app/cli/usage.cpp
     src/app/cli/maintenance.cpp
+    src/app/cli/neural.cpp
     src/app/cli/inspection.cpp
     src/app/cli/ingest.cpp
     src/app/cli/control.cpp
@@ -372,15 +374,33 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson-growth_pathology
     COMMAND atperson-growth-test growth-pathology)
 
+  # Capacity/continual-learning benchmark foundation (#67). The smoke mode
+  # crosses runtime capacity selection into the C23 core and stays bounded for
+  # normal CI; the full five-profile run is in the explicit bench suite.
+  add_executable(atperson-capacity-benchmark tests/resource/capacity_bench.cpp)
+  target_link_libraries(atperson-capacity-benchmark PRIVATE atperson-cpp)
+  target_include_directories(
+    atperson-capacity-benchmark
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource)
+  add_test(
+    NAME atperson-capacity-smoke
+    COMMAND atperson-capacity-benchmark smoke)
+  add_test(
+    NAME atperson-capacity-bench
+    COMMAND atperson-capacity-benchmark bench)
+  set_tests_properties(atperson-capacity-bench PROPERTIES LABELS "bench")
+
   # Scale benchmarks (issue #9) are opt-in because the large profile is
   # intentionally expensive. Configure with -DATPERSON_BUILD_BENCH=ON and
   # invoke with: ctest -L bench.
   if(ATPERSON_BUILD_BENCH)
-    add_executable(atperson-bench tests/core/bench.c)
-    target_link_libraries(atperson-bench PRIVATE atperson-core)
-    add_test(
-      NAME atperson-bench
-      COMMAND atperson-bench bench)
+  add_executable(atperson-bench tests/core/bench.c)
+  target_link_libraries(atperson-bench PRIVATE atperson-core)
+  add_test(
+    NAME atperson-bench
+    COMMAND atperson-bench bench)
     set_tests_properties(atperson-bench PROPERTIES LABELS "bench")
   endif()
 
@@ -420,6 +440,18 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-resource-test PRIVATE atperson-cpp)
   target_include_directories(atperson-resource-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-resource COMMAND atperson-resource-test)
+
+  # Explicit neural expansion (#66): offline writer-lock, ledger-boundary,
+  # deterministic-seed and atomic snapshot replacement coverage.
+  add_executable(
+    atperson-neural-expand-test
+    tests/resource/neural_expand.cpp
+    src/app/cli/neural.cpp
+    src/app/state/lock.cpp)
+  target_link_libraries(atperson-neural-expand-test PRIVATE atperson-cpp)
+  target_include_directories(
+    atperson-neural-expand-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-neural-expand COMMAND atperson-neural-expand-test)
 
   # Ingestion-state format and sync-engine restart semantics; offline
   # (fixture page fetchers, no live network).

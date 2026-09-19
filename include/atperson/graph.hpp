@@ -53,6 +53,12 @@ class LanguageGraph {
     [[nodiscard]] atp_graph_stats stats() const noexcept;
     [[nodiscard]] atp_neural_architecture neural_architecture() const;
     [[nodiscard]] atp_neural_architecture_report neural_report() const;
+    /** Ordered durable neural-expansion history for this generation. */
+    [[nodiscard]] std::vector<atp_neural_migration> neural_migrations() const;
+
+    /** Apply one already-validated deterministic monotonic expansion. */
+    void expand_neural(const atp_neural_migration &migration);
+
     [[nodiscard]] std::vector<Association> associations(std::string_view token,
                                                         std::size_t limit = 10) const;
     [[nodiscard]] std::vector<ActionCandidate> action_candidates(std::string_view context,
@@ -174,6 +180,14 @@ class LanguageGraph {
 
     /** Replace this graph with a deterministic replay of the current ledger. */
     atp_replay_report rebuild_from_ledger(const Ledger &ledger);
+    /**
+     * Deterministic rebuild of an expanded generation. The graph must have
+     * been constructed at the first migration's source architecture; replay
+     * applies every migration at its persisted ledger boundary.
+     */
+    atp_replay_report replay(
+        const Ledger &ledger,
+        const std::vector<atp_neural_migration> &migrations);
 
   private:
     explicit LanguageGraph(atp_graph *graph) noexcept;

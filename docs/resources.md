@@ -87,4 +87,28 @@ Automatic budgeting is the default. Empty values or `0` mean automatic where sup
 
 An override that exceeds available safe headroom is rejected. Explicit node/edge ceilings below the graph's current counts are raised to the current counts instead of evicting learned state.
 
-The neural overrides only influence **first creation and rebuild-without-a-model**. Explicit shape overrides keep every field they leave unset from the automatic class's shape; the combined effective shape is validated as a whole (embedding within the C-core width limit, no zero-width active layer, no nonzero width beyond the declared layer count, parameter count within the C-core bound). A forced capacity class cannot be combined with the explicit shape variables, and both stay inside the runtime policy bounds: the recommendation's width vector expresses at most three hidden layers, so overrides above three are rejected even though the C core itself allows four. Overrides never reshape an existing model; an override that parks a fresh model beyond current memory headroom is refused at creation.
+The neural overrides influence **first creation, rebuild-without-a-model, and the read-only expansion proposal**. Explicit shape overrides keep every field they leave unset from the automatic class's shape; the combined effective shape is validated as a whole (embedding within the C-core width limit, no zero-width active layer, no nonzero width beyond the declared layer count, parameter count within the C-core bound). A forced capacity class cannot be combined with the explicit shape variables, and both stay inside the runtime policy bounds: the recommendation's width vector expresses at most three hidden layers, so overrides above three are rejected even though the C core itself allows four. Overrides never reshape an existing model merely by being present; an override that parks a fresh model beyond current memory headroom is refused at creation.
+
+## Neural expansion
+
+`atperson neural status` is read-only. It requires an existing persisted model generation, compares that active topology with the current recommendation, and prints migration version 1, both shapes, parameter counts, estimated learned-state footprints, additional memory cost and whether the proposed shape fits current safe memory headroom. It always ends with `mutation: none (inspection only)`.
+
+Migration-v1 eligibility is coordinate-wise and monotonic:
+
+- proposed embedding width must be at least the active width;
+- proposed hidden-layer count must be at least the active count;
+- every pre-existing hidden layer must stay the same width or widen;
+- when hidden layers are appended, the new final hidden width must still retain every old scalar-output weight;
+- at least one dimension or layer count must increase for expansion to be available;
+- an otherwise larger recommendation that narrows any active coordinate is incompatible.
+
+`atperson neural expand` is the explicit mutation path. It never runs automatically. The command takes the state-directory writer lock before loading the model, re-probes the current resource recommendation under that lock, and refuses incompatible or insufficient-memory proposals before migration.
+
+The mutation is bound to the greatest durable observation-ledger id at the time the lock is held. Its migration seed is derived deterministically from durable generation facts and then persisted; rebuild never has to derive that seed again. The C23 migration allocates the replacement network, embeddings and migration-history array before its commit point, preserves every overlapping learned value and plasticity-importance coordinate bit-for-bit, initialises only newly-created coordinates, and leaves the graph's ordinary RNG state unchanged.
+
+The CLI performs that mutation on a separately loaded candidate generation. The old `model.bin` is not modified during preflight or allocation. Saving uses the snapshot writer's temporary-file + atomic-rename path, so the active snapshot is replaced only after the complete expanded v7 image has encoded and synced successfully.
+
+Migrated generations persist ordered history in snapshot v7. Rebuild begins at the first migration's source architecture and applies each recorded migration immediately after its durable ledger boundary. Withdrawn, pending and failed observations still retain their place in ledger chronology, so withdrawal/rebuild cannot shift a topology transition merely because an observation no longer contributes learning.
+
+If the active topology already matches the recommendation, `neural expand` reports a no-op. A weaker recommendation is refused rather than shrinking or rewriting the generation.
+

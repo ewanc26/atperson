@@ -90,7 +90,7 @@ That gives `atperson` a few properties I care about:
 - episodic memories retain a route back to their source evidence;
 - skipped material remains distinguishable from material that was never seen.
 
-The current snapshot format is **v6**. It persists the neural architecture descriptor together with the mutable graph and neural state, mirrored ledger state, memory, familiarity, valence, counters and deterministic PRNG state. v4/v5 generations remain readable at the legacy topology. The standalone ledger remains the durable observation authority.
+Snapshots remain generation-aware rather than being upgraded gratuitously. Legacy graphs still write **v5**; variable-topology generations that have never expanded write **v6**; and a generation with deterministic neural expansion history writes **v7**. v7 adds the ordered migration records (algorithm version, seed, source/target architecture and ledger boundary) required to reproduce topology changes during rebuild. v4/v5 generations remain readable at the legacy topology, and existing v6 generations remain readable unchanged. The standalone ledger remains the durable observation authority.
 
 ## Learning and memory
 
@@ -227,6 +227,22 @@ The daemon uses the same ledger and cursor as `sync`, holds the writer lock for 
 
 See [`docs/daemon.md`](docs/daemon.md).
 
+### Neural capacity expansion
+
+A stronger host can recommend a larger persisted neural topology without changing the model automatically:
+
+```sh
+./build/atperson neural status
+```
+
+If the proposal is monotonic and fits current safe memory headroom, expansion is an explicit operator action:
+
+```sh
+./build/atperson neural expand
+```
+
+The command takes the state writer lock, binds migration v1 to the current durable ledger boundary, expands a separately loaded candidate deterministically, and atomically replaces the snapshot only after the complete v7 generation is safely written. Smaller or incompatible recommendations are refused; merely moving the model to another machine never reshapes it.
+
 ### Rebuild
 
 Learned state can be reconstructed from the observation ledger without network access or an existing snapshot:
@@ -235,7 +251,7 @@ Learned state can be reconstructed from the observation ledger without network a
 ./build/atperson rebuild
 ```
 
-Replay uses the same observation path as live ingestion. The replacement snapshot is written atomically, and incompatible or incomplete replay data fails instead of quietly producing a different model.
+Replay uses the same observation path as live ingestion. For an expanded v7 generation, rebuild also replays the persisted neural migrations at their exact ledger boundaries rather than training the whole history at the final topology. The replacement snapshot is written atomically, and incompatible, incomplete or discontinuous replay metadata fails instead of quietly producing a different model.
 
 ### Withdrawal
 

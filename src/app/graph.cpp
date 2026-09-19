@@ -93,6 +93,20 @@ atp_neural_architecture_report LanguageGraph::neural_report() const {
     return report;
 }
 
+std::vector<atp_neural_migration> LanguageGraph::neural_migrations() const {
+    std::vector<atp_neural_migration> result(
+        atp_graph_neural_migration_count(graph_));
+    for (std::size_t i = 0u; i < result.size(); ++i) {
+        require(atp_graph_neural_migration_at(graph_, i, &result[i]),
+                "read neural migration history");
+    }
+    return result;
+}
+
+void LanguageGraph::expand_neural(const atp_neural_migration &migration) {
+    require(atp_graph_expand_neural(graph_, &migration), "expand neural architecture");
+}
+
 std::vector<Association> LanguageGraph::associations(std::string_view token,
                                                      std::size_t limit) const {
     if (limit == 0u) {
@@ -345,6 +359,28 @@ atp_replay_report LanguageGraph::rebuild_from_ledger(const Ledger &ledger) {
     LanguageGraph rebuilt(atp_graph_default_config(), neural_architecture());
     const atp_replay_report report = rebuilt.replay(ledger);
     *this = std::move(rebuilt);
+    return report;
+}
+
+atp_replay_report LanguageGraph::replay(
+    const Ledger &ledger,
+    const std::vector<atp_neural_migration> &migrations) {
+    atp_replay_report report = {};
+    const atp_status status = atp_replay_ledger_with_migrations(
+        ledger.handle(), graph_, migrations.empty() ? nullptr : migrations.data(),
+        migrations.size(), &report);
+    if (status == ATP_ERR_SCHEMA) {
+        throw std::runtime_error(
+            "replay ledger: entry " + std::to_string(report.failed_at_id) +
+            " was recorded under learning schema " + std::to_string(report.failed_schema) +
+            ", which this build cannot replay");
+    }
+    if (status == ATP_ERR_MIGRATION) {
+        throw std::runtime_error(
+            "replay ledger: neural migration history cannot be reproduced at ledger "
+            "boundary " + std::to_string(report.failed_at_id));
+    }
+    require(status, "replay ledger with neural migrations");
     return report;
 }
 

@@ -31,13 +31,17 @@ extern "C" {
  * Version 6 persists the explicit neural architecture descriptor
  * (ATP_SECTION_ARCH) and variable-length network/node payloads, so a graph
  * trained at any supported topology round-trips exactly, including its
- * plasticity-importance values. v6 files are identified by the "ATPERSN6"
- * magic; v5 files keep the "ATPERSN5" magic and load through the legacy
- * compatibility path at the named legacy architecture. v5 snapshots stay
- * byte-for-byte compatible and are still written by legacy graphs until an
- * explicit migration changes their topology.
+ * plasticity-importance values.
+ *
+ * Version 7 adds the ordered neural-migration history required to rebuild an
+ * expanded generation at the exact ledger boundaries where its topology
+ * changed. A graph with no migration history continues to write v5/v6 exactly
+ * as before; only migrated generations require v7. This makes older builds
+ * fail closed on expanded generations instead of silently replaying the whole
+ * ledger at the final topology.
  */
-#define ATPERSON_SNAPSHOT_VERSION 6u
+#define ATPERSON_SNAPSHOT_VERSION 7u
+#define ATPERSON_SNAPSHOT_VERSION_V6 6u
 /* Previous portable fragment format, still loadable as the legacy graph. */
 #define ATPERSON_SNAPSHOT_VERSION_V5 5u
 
@@ -169,7 +173,10 @@ typedef enum atp_status {
      * reached. The observation is rejected whole — never partially
      * learned. Distinct from ATP_ERR_OUT_OF_MEMORY: the allocator is
      * fine, the budget is the limit. */
-    ATP_ERR_CAPACITY = 7
+    ATP_ERR_CAPACITY = 7,
+    /** A requested learned-state migration is unsupported, non-monotonic, or
+     * does not match the graph generation it names. */
+    ATP_ERR_MIGRATION = 8
 } atp_status;
 
 typedef struct atp_graph atp_graph;
@@ -178,15 +185,15 @@ typedef struct atp_ledger atp_ledger;
 /*
  * Durable neural topology descriptor (issue #65).
  *
- * Version 1 describes the current legacy scorer exactly: 16-dimensional token
- * embeddings, their pairwise concatenation as a 32-wide input, one 16-unit
- * tanh hidden layer, and one sigmoid output. The descriptor is explicit now so
- * later variable-shape snapshots and deterministic capacity migrations have a
- * stable C ABI instead of inferring topology from compile-time constants.
+ * Version 1 names the current dense scorer topology contract: token
+ * embeddings are concatenated source-first/target-second, followed by one to
+ * four tanh hidden layers and a scalar sigmoid output. The legacy shape is
+ * 16-dimensional embeddings with one 16-unit hidden layer; snapshot v6 also
+ * persists larger validated shapes explicitly.
  *
- * The current core accepts only this legacy shape; exposing the descriptor
- * does not yet make topology configurable and does not change learning
- * semantics or snapshot bytes.
+ * The descriptor is durable learned-state metadata. Deterministic expansion
+ * therefore maps coordinates by semantic role rather than treating flattened
+ * parameter arrays as interchangeable.
  */
 typedef struct atp_neural_architecture {
     uint32_t version;
@@ -196,6 +203,27 @@ typedef struct atp_neural_architecture {
     uint32_t hidden_widths[ATPERSON_NEURAL_MAX_HIDDEN_LAYERS];
     uint32_t output_dim;
 } atp_neural_architecture;
+
+#define ATPERSON_NEURAL_MIGRATION_VERSION 1u
+
+/*
+ * Deterministic monotonic learned-state migration descriptor (issue #66).
+ *
+ * The source architecture is part of the contract rather than inferred
+ * silently: replay can verify that a migration is being applied to the
+ * generation it was recorded against. ledger_boundary_id is the greatest
+ * observation-ledger id committed before this migration; 0 is valid for a
+ * generation expanded before its first observation. The seed initialises only
+ * newly-created coordinates and never advances the graph's ordinary learning
+ * RNG.
+ */
+typedef struct atp_neural_migration {
+    uint32_t version;
+    uint64_t seed;
+    uint64_t ledger_boundary_id;
+    atp_neural_architecture source;
+    atp_neural_architecture target;
+} atp_neural_migration;
 
 /*
  * Inspectable storage accounting for the active architecture. Parameter bytes
@@ -390,9 +418,57 @@ atp_status atp_graph_neural_architecture(const atp_graph *graph,
  */
 uint64_t atp_neural_parameter_count(const atp_neural_architecture *architecture);
 
+/**
+ * Validate a deterministic monotonic migration descriptor without mutating a
+ * graph. Migration v1 requires valid source/target architectures, a non-zero
+ * persisted seed, no shrinking embedding/hidden coordinates, no hidden-layer
+ * removal, and enough target output-input width to retain every existing
+ * scalar-output weight. At least one dimension must grow.
+ *
+ * Returns ATP_ERR_MIGRATION for a well-formed pointer whose migration contract
+ * is unsupported/non-monotonic, or ATP_ERR_INVALID_ARGUMENT for NULL.
+ */
+atp_status atp_neural_migration_validate(const atp_neural_migration *migration);
+
+/**
+ * Expand a live graph transactionally under an already-validated migration.
+ *
+ * Every overlapping embedding, weight, bias and plasticity-importance value is
+ * copied bit-for-bit. Newly-created coordinates use the migration-v1 PRNG
+ * stream derived only from seed and version. The graph's ordinary RNG state is
+ * not advanced. Allocation/validation failure leaves the graph unchanged.
+ *
+ * This primitive migrates in-memory learned state only. Durable migration
+ * history/boundaries are persisted by the snapshot/runtime layer before the
+ * operator-facing expansion command is enabled.
+ */
+atp_status atp_graph_expand_neural(atp_graph *graph,
+                                   const atp_neural_migration *migration);
+
+/** Number of durable neural migrations recorded on this model generation. */
+size_t atp_graph_neural_migration_count(const atp_graph *graph);
+
+/**
+ * Copy the i-th durable neural migration (0-based, chronological order).
+ * Returns ATP_ERR_NOT_FOUND when index is outside the recorded history.
+ */
+atp_status atp_graph_neural_migration_at(const atp_graph *graph, size_t index,
+                                         atp_neural_migration *out_migration);
+
 /** Read topology plus parameter/storage accounting for inspection. */
 atp_status atp_graph_neural_report(const atp_graph *graph,
                                    atp_neural_architecture_report *out_report);
+
+/**
+ * Read the neural scorer's current value for two known vocabulary tokens.
+ *
+ * This is an inspection surface only: it never interns tokens, mutates learned
+ * state or changes recall counters. Returns ATP_ERR_NOT_FOUND when either
+ * token is not present in the graph and ATP_ERR_INVALID_ARGUMENT for invalid
+ * pointers. The returned score is finite and in (0, 1) for a valid graph.
+ */
+atp_status atp_graph_neural_score(const atp_graph *graph, const char *source_token,
+                                  const char *target_token, float *out_score);
 
 /** Read plasticity control statistics (issue #59). */
 atp_status atp_graph_plasticity_report(const atp_graph *graph, atp_plasticity_report *out_report);
@@ -688,6 +764,8 @@ typedef struct atp_replay_report {
     size_t excluded_failed;
     /** WITHDRAWN entries excluded. */
     size_t excluded_withdrawn;
+    /** Deterministic neural migrations applied at their ledger boundaries. */
+    size_t migrations_applied;
     /** Ledger id of the entry that failed (0 when none did). */
     uint64_t failed_at_id;
     /** Schema version of the entry that failed (0 when none did, or when
@@ -702,6 +780,25 @@ typedef struct atp_replay_report {
  */
 atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
                              atp_replay_report *report);
+
+/**
+ * Replay a ledger while reproducing an expanded generation's ordered topology
+ * transitions. The caller creates `graph` at the first migration's source
+ * architecture. Boundary 0 migrations apply before the first ledger entry;
+ * every other migration applies immediately after the entry whose id equals
+ * `ledger_boundary_id`. Multiple migrations may share a boundary and apply
+ * in their persisted order.
+ *
+ * The migration chain is validated before any observation is replayed. Missing
+ * boundaries, discontinuous source/target architectures, non-monotonic
+ * boundaries, or a graph that does not match the first source fail with
+ * ATP_ERR_MIGRATION. With migration_count == 0 this is equivalent to
+ * atp_replay_ledger.
+ */
+atp_status atp_replay_ledger_with_migrations(
+    const atp_ledger *ledger, atp_graph *graph,
+    const atp_neural_migration *migrations, size_t migration_count,
+    atp_replay_report *report);
 
 /*
  * Graph-side ledger mirror.

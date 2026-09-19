@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iosfwd>
+#include <string>
 #include <vector>
 
 namespace atperson {
@@ -17,6 +18,49 @@ struct RuntimeResourceStatus {
     SystemResources system;
     ResourceBudget budget;
 };
+
+/*
+ * Read-only preflight for issue #66. Migration version 1 defines only the
+ * monotonic-shape eligibility contract; it does not mutate learned state.
+ */
+enum class NeuralExpansionStatus {
+    at_recommendation,
+    available,
+    incompatible,
+};
+
+struct NeuralExpansionPlan {
+    static constexpr std::uint32_t migration_version =
+        ATPERSON_NEURAL_MIGRATION_VERSION;
+
+    NeuralExpansionStatus status{NeuralExpansionStatus::at_recommendation};
+    atp_neural_architecture active{};
+    atp_neural_architecture proposed{};
+    std::uint64_t active_parameter_count{};
+    std::uint64_t proposed_parameter_count{};
+    std::uint64_t active_footprint_bytes{};
+    std::uint64_t proposed_footprint_bytes{};
+    std::uint64_t additional_footprint_bytes{};
+    std::uint64_t available_after_reserve_bytes{};
+    bool memory_headroom_known{};
+    bool fits_current_headroom{true};
+    std::string reason;
+};
+
+const char *neural_expansion_status_name(NeuralExpansionStatus status) noexcept;
+
+/*
+ * Compare the persisted active topology with the current recommendation.
+ * A migration is eligible only when embedding width, hidden-layer count and
+ * every pre-existing hidden-layer width are non-decreasing, with at least one
+ * strict increase. If hidden layers are appended, the new final hidden width
+ * must also retain the complete old scalar-output weight vector. This is
+ * inspection only; no graph state is modified.
+ */
+NeuralExpansionPlan plan_neural_expansion(const LanguageGraph &graph,
+                                          const RuntimeResourceStatus &status);
+
+void print_neural_expansion_plan(std::ostream &out, const NeuralExpansionPlan &plan);
 
 /* Probe + derive without mutating graph policy. */
 RuntimeResourceStatus inspect_runtime_resources(

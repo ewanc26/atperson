@@ -134,9 +134,11 @@ struct atp_graph {
     uint32_t *edge_index_slots;
     size_t edge_index_capacity; /* power of two, or 0 */
 
-    /* Explicit topology metadata; legacy-fixed until issue #65 variable shape lands. */
+    /* Explicit durable topology metadata plus ordered expansion history. */
     atp_neural_architecture neural_architecture;
     atp_network network;
+    atp_neural_migration *neural_migrations;
+    size_t neural_migration_count;
 
     atp_ledger_entry *ledger_entries;
     atp_conversation_context *ledger_contexts; /* parallel to ledger_entries */

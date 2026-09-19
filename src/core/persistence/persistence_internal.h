@@ -32,13 +32,14 @@
  * change, not a refactor.
  *
  * v6 carries the explicit neural architecture descriptor and
- * variable-length network/node payloads. v5 remains the legacy fragment
- * format with its historical one-hidden-layer wire shape; both load as
- * current graphs, v5 at the named legacy architecture. */
+ * variable-length network/node payloads. v7 adds ordered neural migration
+ * history. v5 remains the legacy fragment format with its historical
+ * one-hidden-layer wire shape; all three remain readable. */
 
 #define ATP_SNAPSHOT_MAGIC_V4 "ATPERSN1"
 #define ATP_SNAPSHOT_MAGIC_V5 "ATPERSN5"
 #define ATP_SNAPSHOT_MAGIC_V6 "ATPERSN6"
+#define ATP_SNAPSHOT_MAGIC_V7 "ATPERSN7"
 #define ATPERSON_SNAPSHOT_VERSION_V4 4u
 
 #define ATP_SECTION_HEADER 1u
@@ -53,6 +54,9 @@
 #define ATP_SECTION_CONTEXT 10u
 /* v6: explicit neural architecture descriptor (issue #72). */
 #define ATP_SECTION_ARCH 11u
+/* v7: ordered deterministic neural migration history (issue #66). */
+#define ATP_SECTION_MIGRATIONS 12u
+#define ATP_SECTION_TRACKED_MAX 12u
 
 /* --- Wire buffer (wire.h) --- */
 
@@ -97,10 +101,10 @@ bool atp_reader_string(atp_reader *reader, char *out, size_t capacity);
 bool atp_reader_string_opt(atp_reader *reader, char *out, size_t capacity);
 bool atp_reader_section(atp_reader *reader, atp_section *section);
 
-bool atp_reader_next_section(atp_reader *reader, bool seen[12], uint32_t max_tag,
+bool atp_reader_next_section(atp_reader *reader, bool seen[ATP_SECTION_TRACKED_MAX + 1u], uint32_t max_tag,
                              atp_section *section, size_t *payload_end);
 
-atp_graph *atp_load_finish(atp_graph *graph, const bool seen[12], uint32_t required_mask,
+atp_graph *atp_load_finish(atp_graph *graph, const bool seen[ATP_SECTION_TRACKED_MAX + 1u], uint32_t required_mask,
                            uint32_t learning_schema, atp_reader *reader, atp_status *status);
 
 atp_graph *atp_load_failure(atp_graph *graph, atp_status *status, atp_status failure);
@@ -130,10 +134,12 @@ bool atp_encode_snapshot_v5(const atp_graph *graph, atp_buffer *buffer);
 atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *status);
 bool atp_decode_network(atp_reader *reader, atp_graph *graph);
 
-/* --- Explicit architecture format (v6.c) --- */
+/* --- Explicit architecture formats v6/v7 (v6.c) --- */
 
 bool atp_encode_snapshot_v6(const atp_graph *graph, atp_buffer *buffer);
+bool atp_encode_snapshot_v7(const atp_graph *graph, atp_buffer *buffer);
 atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *status);
+atp_graph *atp_load_v7(const unsigned char *data, size_t size, atp_status *status);
 
 /* --- Historical migration (migration.c) --- */
 

@@ -148,6 +148,20 @@ atp_status atp_network_score(const atp_graph *graph, uint32_t source, uint32_t t
     return ATP_OK;
 }
 
+
+atp_status atp_graph_neural_score(const atp_graph *graph, const char *source_token,
+                                  const char *target_token, float *out_score) {
+    if (!graph || !source_token || !target_token || !out_score) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    const int32_t source = atp_find_node(graph, source_token);
+    const int32_t target = atp_find_node(graph, target_token);
+    if (source < 0 || target < 0) {
+        return ATP_ERR_NOT_FOUND;
+    }
+    return atp_network_score(graph, (uint32_t)source, (uint32_t)target, out_score);
+}
+
 float atp_network_score_owned(atp_graph *graph, uint32_t source, uint32_t target) {
     float *activations = graph->network.training_activations;
     atp_pair_input(graph, source, target, activations);

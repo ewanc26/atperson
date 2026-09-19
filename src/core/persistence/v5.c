@@ -142,7 +142,7 @@ atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *statu
 
     atp_reader reader = {data, size, 12u};
     atp_graph *graph = NULL;
-    bool seen[12] = {false};
+    bool seen[ATP_SECTION_TRACKED_MAX + 1u] = {false};
     uint32_t learning_schema = 1u;
 
     while (reader.size - reader.position > 8u) {

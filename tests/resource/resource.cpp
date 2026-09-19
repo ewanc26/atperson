@@ -610,6 +610,105 @@ void test_neural_parameter_accounting() {
     assert(atperson::neural_memory_footprint(invalid, 0u, 0u) == 0u);
 }
 
+void test_neural_expansion_preflight() {
+    const auto capable = status_for(capable_system());
+    const atp_neural_architecture capable_arch =
+        atperson::neural_architecture_of(capable.budget.neural);
+    atperson::LanguageGraph graph(atp_graph_default_config(), capable_arch);
+
+    atperson::RuntimeResourceStatus expansive{
+        .system = roomy_system(),
+        .budget = atperson::derive_resource_budget(roomy_system(), graph.stats()),
+    };
+    const auto expansion = atperson::plan_neural_expansion(graph, expansive);
+    assert(expansion.status == atperson::NeuralExpansionStatus::available);
+    assert(expansion.active.embedding_dim == 128u);
+    assert(expansion.proposed.embedding_dim == 384u);
+    assert(expansion.proposed.hidden_layer_count == 3u);
+    assert(expansion.proposed_parameter_count > expansion.active_parameter_count);
+    assert(expansion.proposed_footprint_bytes > expansion.active_footprint_bytes);
+    assert(expansion.additional_footprint_bytes ==
+           expansion.proposed_footprint_bytes - expansion.active_footprint_bytes);
+    assert(expansion.fits_current_headroom);
+
+    /* A monotonic proposal can be structurally valid while still being unsafe
+     * on the current host. The mutation path must refuse this before allocating
+     * or saving any expanded generation. */
+    auto tight_headroom = expansive;
+    assert(expansion.proposed_footprint_bytes > 0u);
+    tight_headroom.system.effective_memory_available_bytes =
+        tight_headroom.budget.memory_reserve_bytes +
+        expansion.proposed_footprint_bytes - 1u;
+    const auto memory_refused =
+        atperson::plan_neural_expansion(graph, tight_headroom);
+    assert(memory_refused.status == atperson::NeuralExpansionStatus::available);
+    assert(memory_refused.memory_headroom_known);
+    assert(!memory_refused.fits_current_headroom);
+    assert(memory_refused.reason.find("does not fit") != std::string::npos);
+    bool headroom_rejected = false;
+    try {
+        const auto stats = graph.stats();
+        atperson::require_runtime_neural_headroom(
+            tight_headroom, memory_refused.proposed, stats.node_count,
+            stats.edge_count);
+    } catch (const std::runtime_error &) {
+        headroom_rejected = true;
+    }
+    assert(headroom_rejected);
+
+    const auto same = atperson::plan_neural_expansion(graph, capable);
+    assert(same.status == atperson::NeuralExpansionStatus::at_recommendation);
+    assert(same.additional_footprint_bytes == 0u);
+
+    atperson::SystemResources small;
+    small.host_logical_cpus = 1u;
+    small.effective_cpu_capacity = 1.0;
+    small.host_memory_total_bytes = 512u * MIB;
+    small.effective_memory_total_bytes = 512u * MIB;
+    small.effective_memory_available_bytes = 256u * MIB;
+    small.disk_capacity_bytes = 16u * GIB;
+    small.disk_available_bytes = 2u * GIB;
+    const auto smaller = status_for(small);
+    const auto downgrade = atperson::plan_neural_expansion(graph, smaller);
+    assert(downgrade.status == atperson::NeuralExpansionStatus::incompatible);
+    assert(downgrade.proposed.embedding_dim < downgrade.active.embedding_dim);
+    assert(downgrade.reason.find("smaller") != std::string::npos);
+
+    /* A larger total parameter count is not sufficient if any existing
+     * hidden layer would narrow: monotonicity is coordinate-wise. */
+    auto mixed = expansive;
+    mixed.budget.neural.hidden_widths[1] = 64u;
+    mixed.budget.neural.shared_parameter_count =
+        atperson::neural_parameter_count(mixed.budget.neural);
+    mixed.budget.neural.shared_parameter_bytes =
+        mixed.budget.neural.shared_parameter_count * sizeof(float);
+    const auto incompatible = atperson::plan_neural_expansion(graph, mixed);
+    assert(incompatible.status == atperson::NeuralExpansionStatus::incompatible);
+    assert(incompatible.reason.find("hidden layer 2") != std::string::npos);
+
+    /* Appending a hidden layer also moves the scalar output layer. The new
+     * final hidden layer must be wide enough to carry every old output
+     * weight, even when all pre-existing hidden coordinates are monotonic. */
+    auto narrow_final = expansive;
+    narrow_final.budget.neural.hidden_widths[2] = 64u;
+    narrow_final.budget.neural.shared_parameter_count =
+        atperson::neural_parameter_count(narrow_final.budget.neural);
+    narrow_final.budget.neural.shared_parameter_bytes =
+        narrow_final.budget.neural.shared_parameter_count * sizeof(float);
+    const auto output_incompatible =
+        atperson::plan_neural_expansion(graph, narrow_final);
+    assert(output_incompatible.status ==
+           atperson::NeuralExpansionStatus::incompatible);
+    assert(output_incompatible.reason.find("scalar-output") != std::string::npos);
+
+    std::ostringstream output;
+    atperson::print_neural_expansion_plan(output, expansion);
+    const std::string text = output.str();
+    assert(text.find("migration v1") != std::string::npos);
+    assert(text.find("status: available") != std::string::npos);
+    assert(text.find("mutation: none") != std::string::npos);
+}
+
 void test_resource_inspection_distinguishes_active_and_recommended() {
     const auto capable = status_for(capable_system());
     const atp_neural_architecture active =
@@ -648,6 +747,7 @@ int main() {
     test_neural_override_validation();
     test_neural_override_environment_parsing();
     test_neural_parameter_accounting();
+    test_neural_expansion_preflight();
     test_resource_inspection_distinguishes_active_and_recommended();
     std::cout << "resource: ok\n";
     return 0;
