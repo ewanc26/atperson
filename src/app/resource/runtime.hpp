@@ -51,10 +51,10 @@ void require_runtime_snapshot_headroom(const RuntimeResourceStatus &status,
 
 /*
  * Conservative learned-state memory footprint for hosting `architecture`
- * with `node_count` nodes and `edge_count` edges (issue #73). Nodes/edges use
- * the same conservative per-item bytes as the growth budget (issue #9), and
- * shared parameters use the exact C-core count times sizeof(float). An
- * estimate, never a promise.
+ * with `node_count` nodes and `edge_count` edges (issue #73). The estimate
+ * includes value+importance storage for shared parameters and per-node
+ * embeddings, training scratch, and conservative structural node/edge bytes.
+ * An estimate, never a promise.
  */
 std::uint64_t neural_memory_footprint(const atp_neural_architecture &architecture,
                                       std::uint64_t node_count,
