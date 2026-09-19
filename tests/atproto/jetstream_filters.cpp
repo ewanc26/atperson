@@ -17,6 +17,14 @@ int main() {
     try { (void)atperson::cli::load_jetstream_collections(path); }
     catch (const std::runtime_error &) { rejected = true; }
     assert(rejected);
+    { std::ofstream out(path); out << "did:plc:one\ndid:plc:one\n"; }
+    const auto dids = atperson::cli::load_jetstream_dids(path);
+    assert(dids.size() == 1u && dids[0] == "did:plc:one");
+    { std::ofstream out(path); out << "not-a-did\n"; }
+    rejected = false;
+    try { (void)atperson::cli::load_jetstream_dids(path); }
+    catch (const std::runtime_error &) { rejected = true; }
+    assert(rejected);
     std::filesystem::remove(path);
     return 0;
 }

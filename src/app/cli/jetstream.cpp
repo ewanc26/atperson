@@ -37,6 +37,11 @@ std::vector<std::string> jetstream_collections() {
     return load_jetstream_collections(path);
 }
 
+std::vector<std::string> jetstream_dids() {
+    const std::string path = env_or("ATPERSON_JETSTREAM_DIDS_FILE");
+    return path.empty() ? std::vector<std::string>{} : load_jetstream_dids(path);
+}
+
 } // namespace
 
 int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_status,
@@ -69,7 +74,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     const std::string endpoint =
         env_or("ATPERSON_JETSTREAM_ENDPOINT",
                "wss://jetstream.us-east.bsky.network/subscribe");
-    atperson::JetstreamClient client(endpoint, jetstream_collections());
+    atperson::JetstreamClient client(endpoint, jetstream_collections(), jetstream_dids());
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
 
