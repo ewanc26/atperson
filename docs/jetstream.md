@@ -71,6 +71,10 @@ Blank lines and `#` comments are ignored. Duplicate filters are removed while pr
 
 A transport filter does not automatically make a new record kind learnable. The existing extraction/ingestion policy remains authoritative; today only public `app.bsky.feed.post` records become post observations.
 
+DID filtering is optional. Pass `--dids <file>` or set `ATPERSON_JETSTREAM_DIDS_FILE`. The file uses the same blank/comment/dedup rules, requires every entry to begin with `did:`, and accepts at most 10,000 unique values. With no DID file, the subscription is not restricted by repository DID.
+
+Both collection and DID files are transport policy only. They are not model state and are not persisted into the learned snapshot.
+
 ## Durability order
 
 For every supported event, Jetstream uses the same durable ordering as polling:
