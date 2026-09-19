@@ -2,10 +2,10 @@
 
 /*
  * Public snapshot save dispatch (atp_graph_save, declared in
- * atperson/core.h). Legacy graphs save as byte-identical v5 (persistence/v5.c);
- * every other topology saves as v6 (persistence/v6.c). Both formats share
- * their non-topology sections and the atomic rename write
- * (persistence/sections.c).
+ * atperson/core.h). Legacy graphs with no migration history save as
+ * byte-identical v5; variable-topology generations with no migration history
+ * save as byte-identical v6; generations that have expanded save as v7 with
+ * their ordered migration history. All formats share the atomic rename writer.
  */
 
 atp_status atp_graph_save(const atp_graph *graph, const char *path) {
@@ -14,9 +14,12 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
     }
 
     atp_buffer buffer = {0};
-    const bool encoded = atp_neural_architecture_is_legacy(&graph->neural_architecture)
-                             ? atp_encode_snapshot_v5(graph, &buffer)
-                             : atp_encode_snapshot_v6(graph, &buffer);
+    const bool encoded =
+        graph->neural_migration_count != 0u
+            ? atp_encode_snapshot_v7(graph, &buffer)
+            : atp_neural_architecture_is_legacy(&graph->neural_architecture)
+                  ? atp_encode_snapshot_v5(graph, &buffer)
+                  : atp_encode_snapshot_v6(graph, &buffer);
     if (!encoded) {
         free(buffer.data);
         return ATP_ERR_OUT_OF_MEMORY;
