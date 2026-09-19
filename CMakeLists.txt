@@ -195,6 +195,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/config.cpp
     src/app/cli/usage.cpp
     src/app/cli/maintenance.cpp
+    src/app/cli/neural.cpp
     src/app/cli/inspection.cpp
     src/app/cli/ingest.cpp
     src/app/cli/control.cpp
