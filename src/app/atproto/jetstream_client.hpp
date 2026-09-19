@@ -58,6 +58,7 @@ struct JetstreamEvent {
     std::string reply_root;
     std::string reply_parent;
     std::string quote_uri;
+    PolicyReason policy_reason{PolicyReason::Eligible};
     std::int64_t seq{0};
 };
 
