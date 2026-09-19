@@ -34,6 +34,50 @@ JetstreamLimits parse_limits(int max_events, int max_ms) {
 
 } // namespace
 
+int run_jetstream_status(
+    std::ostream &out, const std::filesystem::path &state_file,
+    const std::filesystem::path &collections_file,
+    const std::filesystem::path &dids_file) {
+    const std::string endpoint = env_or(
+        "ATPERSON_JETSTREAM_ENDPOINT",
+        "wss://jetstream1.us-east.bsky.network/subscribe");
+    const std::vector<std::string> collections =
+        collections_file.empty()
+            ? atperson::default_jetstream_collections()
+            : atperson::load_jetstream_collections(collections_file);
+    const std::vector<std::string> dids =
+        dids_file.empty() ? std::vector<std::string>{}
+                          : atperson::load_jetstream_dids(dids_file);
+    const IngestionState state = load_ingestion_state(
+        state_file, endpoint, "", kSourceKindJetstream);
+
+    out << "jetstream endpoint: " << endpoint << '\n'
+        << "phase: live-only (network replay not configured)\n"
+        << "state: " << state_file.string() << '\n'
+        << "cursor: ";
+    if (state.catchup.active && state.catchup.cursor) {
+        out << *state.catchup.cursor;
+    } else {
+        out << "none";
+    }
+    out << '\n'
+        << "checkpoint generation: " << state.checkpoint.generation << '\n'
+        << "collections (" << collections.size() << "):";
+    for (const std::string &collection : collections) {
+        out << "\n  " << collection;
+    }
+    out << "\nDID filters (" << dids.size() << "):";
+    if (dids.empty()) {
+        out << " none";
+    } else {
+        for (const std::string &did : dids) {
+            out << "\n  " << did;
+        }
+    }
+    out << '\n';
+    return 0;
+}
+
 int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_status,
                   const std::filesystem::path &data_dir, LanguageGraph &graph,
                   const std::filesystem::path &model_path,
