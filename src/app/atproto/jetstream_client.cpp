@@ -211,13 +211,12 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                 js.seq = event.time_us;
                 js.deleted = true;
                 on_event(js);
-                ++consumed;
             }
             wf_jetstream_event_typed_free(&typed);
             SyncObservation observation;
             if (typed_status == WF_OK && !typed_delete &&
                 atperson::extract_jetstream_commit(event.json, event.json_len,
-                                                   observation)) {
+                                                   self_did_, observation)) {
                 JetstreamEvent js;
                 js.source_uri = observation.source_uri;
                 js.author_did = observation.author_did;
