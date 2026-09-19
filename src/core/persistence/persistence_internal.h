@@ -86,10 +86,7 @@ typedef struct atp_reader {
     size_t position;
 } atp_reader;
 
-typedef struct atp_section {
-    uint32_t tag;
-    uint64_t length;
-} atp_section;
+/* atp_section is defined by io/portable.h and shared by the reader. */
 
 bool atp_reader_take(atp_reader *reader, size_t count, const unsigned char **out);
 bool atp_reader_u32(atp_reader *reader, uint32_t *value);
