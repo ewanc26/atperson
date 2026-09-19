@@ -14,6 +14,7 @@
 #include "parallel.hpp"
 #include "worker/pool.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <optional>
 #include <ostream>
@@ -72,7 +73,9 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
 
     auto mutable_status = resource_status;
     SyncLimits limits;
-    limits.page_size = mutable_status.budget.sync_page_size;
+    limits.page_size = std::min(
+        mutable_status.budget.sync_page_size,
+        static_cast<int>(mutable_status.neural_runtime.observation_work_batch));
     limits.max_pages = config.pages_per_cycle;
     limits.max_observations = mutable_status.budget.sync_max_observations;
 
@@ -82,7 +85,10 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                              &resource_paths, &err](const std::optional<std::string> &cursor) {
         mutable_status = refresh_runtime_resources(graph, resource_paths, resource_overrides);
         require_runtime_write_headroom(mutable_status);
-        limits.page_size = mutable_status.budget.sync_page_size;
+        limits.page_size = std::min(
+            mutable_status.budget.sync_page_size,
+            static_cast<int>(
+                mutable_status.neural_runtime.observation_work_batch));
         limits.max_observations = mutable_status.budget.sync_max_observations;
         try {
             return client.fetch_timeline_page(cursor, limits.page_size);
@@ -108,9 +114,11 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
      * and the daemon backs off rather than touching the cursor or the
      * ledger. */
     atperson::WorkerPool *pool = nullptr;
-    if (parallel_sync_enabled()) {
+    if (parallel_sync_enabled() &&
+        mutable_status.neural_runtime.surrounding_worker_threads != 0u) {
         const auto pool_config = atperson::WorkerPool::config_from_system(
-            mutable_status.system);
+            mutable_status.system,
+            mutable_status.neural_runtime.surrounding_worker_threads);
         pool = new atperson::WorkerPool(pool_config);
     }
 

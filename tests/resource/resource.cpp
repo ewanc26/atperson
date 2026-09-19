@@ -245,6 +245,18 @@ atperson::SystemResources capable_system() {
     return system;
 }
 
+atperson::SystemResources baseline_system() {
+    atperson::SystemResources system;
+    system.host_logical_cpus = 1u;
+    system.effective_cpu_capacity = 1.0;
+    system.host_memory_total_bytes = 1u * GIB;
+    system.effective_memory_total_bytes = 1u * GIB;
+    system.effective_memory_available_bytes = 512u * MIB;
+    system.disk_capacity_bytes = 32u * GIB;
+    system.disk_available_bytes = 8u * GIB;
+    return system;
+}
+
 atperson::SystemResources large_system() {
     atperson::SystemResources system;
     system.host_logical_cpus = 4u;
@@ -258,9 +270,13 @@ atperson::SystemResources large_system() {
 }
 
 atperson::RuntimeResourceStatus status_for(const atperson::SystemResources &system) {
+    const auto budget =
+        atperson::derive_resource_budget(system, graph_stats(0u, 0u));
     return atperson::RuntimeResourceStatus{
         .system = system,
-        .budget = atperson::derive_resource_budget(system, graph_stats(0u, 0u)),
+        .budget = budget,
+        .neural_runtime =
+            atperson::derive_neural_runtime_policy(system, budget),
     };
 }
 
@@ -676,6 +692,92 @@ void test_neural_expansion_preflight() {
     assert(text.find("mutation: none") != std::string::npos);
 }
 
+void test_neural_runtime_policy_adapts_without_topology_mutation() {
+    atperson::SystemResources constrained;
+    constrained.host_logical_cpus = 1u;
+    constrained.effective_cpu_capacity = 1.0;
+    constrained.host_memory_total_bytes = 512u * MIB;
+    constrained.effective_memory_total_bytes = 512u * MIB;
+    constrained.effective_memory_available_bytes = 256u * MIB;
+    constrained.disk_capacity_bytes = 16u * GIB;
+    constrained.disk_available_bytes = 2u * GIB;
+
+    const auto small = status_for(constrained);
+    const auto baseline = status_for(baseline_system());
+    const auto large = status_for(large_system());
+    const auto roomy = status_for(roomy_system());
+
+    assert(small.budget.neural.capacity_class ==
+           atperson::NeuralCapacityClass::constrained);
+    assert(baseline.budget.neural.capacity_class ==
+           atperson::NeuralCapacityClass::baseline);
+    assert(large.budget.neural.capacity_class ==
+           atperson::NeuralCapacityClass::large);
+
+    assert(small.neural_runtime.policy_version ==
+           atperson::NeuralRuntimePolicy::current_version);
+    assert(small.neural_runtime.backend ==
+           atperson::NeuralExecutionBackend::portable_cpu);
+    assert(small.neural_runtime.core_owner_threads == 1u);
+    assert(small.neural_runtime.surrounding_worker_threads == 0u);
+    assert(roomy.neural_runtime.core_owner_threads == 1u);
+    assert(roomy.neural_runtime.surrounding_worker_threads == 7u);
+    assert(baseline.neural_runtime.observation_work_batch >=
+           small.neural_runtime.observation_work_batch);
+    assert(large.neural_runtime.observation_work_batch >
+           baseline.neural_runtime.observation_work_batch);
+    assert(roomy.neural_runtime.observation_work_batch >=
+           large.neural_runtime.observation_work_batch);
+    assert(baseline.neural_runtime.workspace_bytes >
+           small.neural_runtime.workspace_bytes);
+    assert(large.neural_runtime.workspace_bytes >
+           baseline.neural_runtime.workspace_bytes);
+    assert(roomy.neural_runtime.deterministic);
+    assert(roomy.neural_runtime.portable_fallback);
+    assert(std::string(atperson::neural_execution_backend_name(
+               roomy.neural_runtime.backend)) == "portable-cpu");
+
+    /* Current host policy is operational only. The same already-selected
+     * architecture remains byte-for-byte identical while work allowances
+     * change around it. */
+    const atp_neural_architecture persisted =
+        atperson::neural_architecture_of(
+            status_for(capable_system()).budget.neural);
+    atperson::LanguageGraph graph(atp_graph_default_config(), persisted);
+    const auto before = graph.neural_architecture();
+    const auto after_small = graph.neural_architecture();
+    const auto after_roomy = graph.neural_architecture();
+    assert(before.embedding_dim == after_small.embedding_dim);
+    assert(before.embedding_dim == after_roomy.embedding_dim);
+    assert(before.hidden_layer_count == after_small.hidden_layer_count);
+    assert(before.hidden_layer_count == after_roomy.hidden_layer_count);
+
+    /* Severe current memory pressure reduces execution work without changing
+     * the persisted shape. */
+    auto pressured_system = roomy_system();
+    pressured_system.effective_memory_total_bytes = 128u * MIB;
+    pressured_system.effective_memory_available_bytes = 8u * MIB;
+    pressured_system.memory_limited_by_container = true;
+    const auto pressured = status_for(pressured_system);
+    assert(pressured.budget.memory_pressure);
+    assert(pressured.neural_runtime.observation_work_batch <
+           roomy.neural_runtime.observation_work_batch);
+    assert(pressured.neural_runtime.workspace_bytes <
+           roomy.neural_runtime.workspace_bytes);
+    assert(graph.neural_architecture().embedding_dim == persisted.embedding_dim);
+
+    std::ostringstream output;
+    atperson::print_runtime_resources(output, roomy);
+    const std::string text = output.str();
+    assert(text.find("neural execution: portable-cpu (policy v1)") !=
+           std::string::npos);
+    assert(text.find("core owner threads 1") != std::string::npos);
+    assert(text.find("surrounding workers 7") != std::string::npos);
+    assert(text.find("workspace") != std::string::npos);
+    assert(text.find("deterministic yes") != std::string::npos);
+    assert(text.find("portable fallback yes") != std::string::npos);
+}
+
 void test_resource_inspection_distinguishes_active_and_recommended() {
     const auto capable = status_for(capable_system());
     const atp_neural_architecture active =
@@ -715,6 +817,7 @@ int main() {
     test_neural_override_environment_parsing();
     test_neural_parameter_accounting();
     test_neural_expansion_preflight();
+    test_neural_runtime_policy_adapts_without_topology_mutation();
     test_resource_inspection_distinguishes_active_and_recommended();
     std::cout << "resource: ok\n";
     return 0;

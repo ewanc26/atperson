@@ -169,6 +169,12 @@ The project uses strict C23 and C++23. Unix builds explicitly request POSIX.1-20
 
 GitHub Actions covers Linux GCC, Linux Clang, macOS Apple Clang, ASan/UBSan and the Wolfram-backed network build. See [`docs/ci-matrix.md`](docs/ci-matrix.md).
 
+## Runtime execution policy
+
+The persisted neural architecture is not the same thing as the resources used to execute it. `atperson resources` reports a separate runtime neural execution policy derived from the CPU and memory available to the current process.
+
+Policy v1 uses the portable deterministic CPU backend, keeps the C23 learner under one owner thread, and adapts surrounding worker allowance, staged observation work and transient workspace to current headroom. A weaker host can therefore reduce throughput without silently shrinking the learned model. Future SIMD or accelerator backends must define their replay/numeric compatibility before they can be selected.
+
 ## Runtime
 
 By default, state lives under:

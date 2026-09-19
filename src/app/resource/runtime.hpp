@@ -3,6 +3,7 @@
 
 #include "atperson/graph.hpp"
 #include "budget.hpp"
+#include "neural_runtime.hpp"
 #include "system.hpp"
 
 #include <cstddef>
@@ -17,6 +18,7 @@ namespace atperson {
 struct RuntimeResourceStatus {
     SystemResources system;
     ResourceBudget budget;
+    NeuralRuntimePolicy neural_runtime;
 };
 
 /*

@@ -96,6 +96,7 @@ add_library(
   src/app/resource/system.cpp
   src/app/resource/filesystems.cpp
   src/app/resource/budget.cpp
+  src/app/resource/neural_runtime.cpp
   src/app/resource/runtime.cpp
   src/app/worker/pool.cpp)
 target_include_directories(
