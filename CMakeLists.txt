@@ -388,8 +388,7 @@ if(ATPERSON_BUILD_TESTS)
     atperson-capacity-benchmark
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src/app
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource)
   add_test(
     NAME atperson-capacity-smoke
     COMMAND atperson-capacity-benchmark smoke)
