@@ -84,8 +84,9 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     };
 
     const auto batch = client.fetch_batch(limits, on_event);
-    result.events_consumed = batch.first;
-    result.exhausted = batch.second;
+    result.events_consumed = batch.frames_consumed;
+    result.malformed_frames = batch.malformed_frames;
+    result.exhausted = batch.exhausted;
 
     if (result.exhausted) {
         state.catchup.active = false;
