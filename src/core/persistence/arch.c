@@ -18,7 +18,7 @@
  * how they load.
  *
  * Failure modes: NULL arguments -> ATP_ERR_INVALID_ARGUMENT; an unreadable or
- * truncated file -> ATP_ERR_IO; a file that is not a v4/v5/v6 snapshot, a
+ * truncated file -> ATP_ERR_IO; a file that is not a v4/v5/v6/v7 snapshot, a
  * malformed section walk, or a structurally invalid descriptor ->
  * ATP_ERR_FORMAT. Callers own `*out_architecture` only on ATP_OK.
  */
@@ -54,10 +54,11 @@ atp_status atp_snapshot_neural_architecture(const char *path,
         fclose(file);
         return ATP_ERR_IO;
     }
-    bool v6 = memcmp(magic, ATP_SNAPSHOT_MAGIC_V6, sizeof(magic)) == 0;
+    const bool v7 = memcmp(magic, ATP_SNAPSHOT_MAGIC_V7, sizeof(magic)) == 0;
+    const bool v6 = memcmp(magic, ATP_SNAPSHOT_MAGIC_V6, sizeof(magic)) == 0;
     const bool v5 = memcmp(magic, ATP_SNAPSHOT_MAGIC_V5, sizeof(magic)) == 0;
     const bool v4 = memcmp(magic, ATP_SNAPSHOT_MAGIC_V4, sizeof(magic)) == 0;
-    if (!v6 && !v5 && !v4) {
+    if (!v7 && !v6 && !v5 && !v4) {
         fclose(file);
         return ATP_ERR_FORMAT;
     }
@@ -75,7 +76,9 @@ atp_status atp_snapshot_neural_architecture(const char *path,
         *out_architecture = atp_neural_legacy_architecture();
         return ATP_OK;
     }
-    if (version != ATPERSON_SNAPSHOT_VERSION || size < 8u + 4u + 12u + 8u) {
+    const uint32_t explicit_expected =
+        v7 ? ATPERSON_SNAPSHOT_VERSION : ATPERSON_SNAPSHOT_VERSION_V6;
+    if (version != explicit_expected || size < 8u + 4u + 12u + 8u) {
         fclose(file);
         return ATP_ERR_FORMAT;
     }
