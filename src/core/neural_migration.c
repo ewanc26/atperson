@@ -232,6 +232,12 @@ atp_status atp_graph_expand_neural(atp_graph *graph,
                                 &migration->source)) {
         return ATP_ERR_MIGRATION;
     }
+    if (graph->neural_migration_count != 0u &&
+        migration->ledger_boundary_id <
+            graph->neural_migrations[graph->neural_migration_count - 1u]
+                .ledger_boundary_id) {
+        return ATP_ERR_MIGRATION;
+    }
 
     /*
      * Allocate every replacement before touching authoritative graph state.
@@ -306,6 +312,26 @@ atp_status atp_graph_expand_neural(atp_graph *graph,
     }
     atp_copy_output_layer(graph, &scratch.network, &migration->target);
 
+    if (graph->neural_migration_count == SIZE_MAX ||
+        graph->neural_migration_count + 1u >
+            SIZE_MAX / sizeof(*graph->neural_migrations)) {
+        atp_free_migrated_vectors(vectors, graph->node_count);
+        atp_network_destroy(&scratch.network);
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
+    atp_neural_migration *new_history =
+        malloc((graph->neural_migration_count + 1u) * sizeof(*new_history));
+    if (!new_history) {
+        atp_free_migrated_vectors(vectors, graph->node_count);
+        atp_network_destroy(&scratch.network);
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
+    if (graph->neural_migration_count != 0u) {
+        memcpy(new_history, graph->neural_migrations,
+               graph->neural_migration_count * sizeof(*new_history));
+    }
+    new_history[graph->neural_migration_count] = *migration;
+
     /*
      * Commit point. There are no fallible operations below this line.
      * Swap authoritative pointers/topology, then release the old storage.
@@ -326,7 +352,28 @@ atp_status atp_graph_expand_neural(atp_graph *graph,
     memset(&scratch.network, 0, sizeof(scratch.network));
     graph->neural_architecture = migration->target;
 
+    atp_neural_migration *old_history = graph->neural_migrations;
+    graph->neural_migrations = new_history;
+    graph->neural_migration_count++;
+
     atp_network_destroy(&old_network);
+    free(old_history);
     atp_free_migrated_vectors(vectors, graph->node_count);
+    return ATP_OK;
+}
+
+size_t atp_graph_neural_migration_count(const atp_graph *graph) {
+    return graph ? graph->neural_migration_count : 0u;
+}
+
+atp_status atp_graph_neural_migration_at(const atp_graph *graph, size_t index,
+                                         atp_neural_migration *out_migration) {
+    if (!graph || !out_migration) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (index >= graph->neural_migration_count) {
+        return ATP_ERR_NOT_FOUND;
+    }
+    *out_migration = graph->neural_migrations[index];
     return ATP_OK;
 }
