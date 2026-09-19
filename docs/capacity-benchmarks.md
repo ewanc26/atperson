@@ -42,9 +42,13 @@ Each profile reports:
 - recall matches/returns;
 - action-candidate count, top candidate and score;
 - exact snapshot/restart equivalence;
+- exact learned-state reconstruction from the durable observation ledger;
+- withdrawal followed by a fresh ledger rebuild, including excluded-entry accounting;
 - wall-clock duration.
 
 The same fixture is run twice for every profile. All learned metrics must match exactly. Wall-clock duration is excluded from the determinism comparison.
+
+Each fixture now also records its observations through the real append-only ledger. Before recall mutates episodic usage counters, a fresh graph at the same persisted topology replays that ledger and must reproduce graph counts, mean loss and the measured neural pair scores exactly. The fixture then withdraws one repeated domain-B observation and performs another fresh rebuild; the replay report must name exactly one withdrawn entry and the rebuilt observation count must fall by exactly one.
 
 The benchmark does **not** assert that a larger profile must score better. That is intentional: #67 is supposed to expose when extra capacity is not worth its cost rather than baking monotonic improvement into the test.
 
@@ -54,7 +58,6 @@ This foundation does not close #67. Follow-up work still needs to add:
 
 - longer multi-domain continual-learning streams and held-out evaluation;
 - explicit plasticity-control comparisons;
-- ledger rebuild and withdrawal equivalence inside the benchmark run;
 - richer semantic-recall quality metrics rather than return counts alone;
 - guarded planning/abstention quality fixtures;
 - resident/peak process memory where portable measurement is available;
