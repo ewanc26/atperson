@@ -347,7 +347,7 @@ void test_jetstream_endpoint_mismatch_does_not_reuse_cursor() {
     constexpr std::string_view first =
         "wss://jetstream.us-east.bsky.network/subscribe";
     constexpr std::string_view second =
-        "wss://jetstream2.us-east.bsky.network/subscribe";
+        "wss://jetstream.us-west.bsky.network/subscribe";
 
     atperson::IngestionState state = atperson::initial_ingestion_state(
         first, "", atperson::kSourceKindJetstream);
