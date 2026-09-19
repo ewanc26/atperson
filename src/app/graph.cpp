@@ -103,6 +103,10 @@ std::vector<atp_neural_migration> LanguageGraph::neural_migrations() const {
     return result;
 }
 
+void LanguageGraph::expand_neural(const atp_neural_migration &migration) {
+    require(atp_graph_expand_neural(graph_, &migration), "expand neural architecture");
+}
+
 std::vector<Association> LanguageGraph::associations(std::string_view token,
                                                      std::size_t limit) const {
     if (limit == 0u) {
