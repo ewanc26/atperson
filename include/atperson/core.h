@@ -207,12 +207,16 @@ typedef struct atp_neural_architecture {
  *
  * The source architecture is part of the contract rather than inferred
  * silently: replay can verify that a migration is being applied to the
- * generation it was recorded against. The seed initialises only newly-created
- * coordinates and never advances the graph's ordinary learning RNG.
+ * generation it was recorded against. ledger_boundary_id is the greatest
+ * observation-ledger id committed before this migration; 0 is valid for a
+ * generation expanded before its first observation. The seed initialises only
+ * newly-created coordinates and never advances the graph's ordinary learning
+ * RNG.
  */
 typedef struct atp_neural_migration {
     uint32_t version;
     uint64_t seed;
+    uint64_t ledger_boundary_id;
     atp_neural_architecture source;
     atp_neural_architecture target;
 } atp_neural_migration;
