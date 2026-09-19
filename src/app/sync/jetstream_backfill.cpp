@@ -42,8 +42,7 @@ SyncObservation jetstream_to_observation(const JetstreamEvent &event) {
     observation.context.reply_root_uri = event.reply_root;
     observation.context.reply_parent_uri = event.reply_parent;
     observation.context.quote_uri = event.quote_uri;
-    observation.policy_reason = event.text.empty() ? PolicyReason::EmptyText
-                                                   : PolicyReason::Eligible;
+    observation.policy_reason = event.policy_reason;
     return observation;
 }
 
