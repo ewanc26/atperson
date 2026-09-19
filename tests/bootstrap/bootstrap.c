@@ -89,6 +89,9 @@ static void test_env_template_lists_credentials(void) {
     assert(strstr(contents, "ATPERSON_NEURAL_HIDDEN_WIDTHS=") != NULL);
     assert(strstr(contents, "ATPERSON_SYNC_PAGE_SIZE=") != NULL);
     assert(strstr(contents, "ATPERSON_SYNC_MAX_OBSERVATIONS=") != NULL);
+    assert(strstr(contents, "ATPERSON_JETSTREAM_STATE=") != NULL);
+    assert(strstr(contents, "ATPERSON_JETSTREAM_ENDPOINT=") != NULL);
+    assert(strstr(contents, "ATPERSON_JETSTREAM_COLLECTIONS_FILE=") != NULL);
 }
 
 static void test_env_permissions_are_owner_only(void) {
