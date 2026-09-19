@@ -18,6 +18,7 @@
 
 #include "wolfram/jetstream.h"
 
+#include <algorithm>
 #include <chrono>
 #include <stdexcept>
 #include <utility>
@@ -37,10 +38,16 @@ std::int64_t seq_from_cursor(std::string_view cursor) {
     if (cursor.empty()) {
         return 0;
     }
+    if (std::any_of(cursor.begin(), cursor.end(),
+                    [](unsigned char c) { return c < '0' || c > '9'; })) {
+        throw std::runtime_error("JetstreamClient: persisted cursor is not a decimal timestamp");
+    }
     try {
-        return std::stoll(std::string(cursor));
-    } catch (...) {
-        return 0;
+        const auto value = std::stoll(std::string(cursor));
+        if (value <= 0) throw std::runtime_error("non-positive cursor");
+        return value;
+    } catch (const std::exception &) {
+        throw std::runtime_error("JetstreamClient: persisted cursor is out of range");
     }
 }
 
