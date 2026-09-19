@@ -6,7 +6,10 @@
  * delete, other collections, malformed envelopes, empty text, replies and
  * quotes. */
 #include "atproto/jetstream.hpp"
+#include "atproto/extract.hpp"
 #include "atproto/jetstream_filter.hpp"
+#include "atperson/graph.hpp"
+#include "atperson/ledger.hpp"
 
 #include <cJSON.h>
 
@@ -34,6 +37,7 @@ struct JsonDelete {
 
 using Json = std::unique_ptr<cJSON, JsonDelete>;
 
+constexpr std::string_view SELF = "did:plc:self";
 constexpr std::string_view AUTHOR = "did:plc:author";
 constexpr std::string_view ROOT = "at://did:plc:root/app.bsky.feed.post/3k0";
 constexpr std::string_view PARENT = "at://did:plc:parent/app.bsky.feed.post/3k1";
@@ -78,7 +82,8 @@ std::string post(const std::string &text) {
 }
 
 bool extract(const std::string &json, SyncObservation &out) {
-    return atperson::extract_jetstream_commit(json.data(), json.size(), out);
+    return atperson::extract_jetstream_commit(
+        json.data(), json.size(), SELF, out);
 }
 
 std::filesystem::path filter_path(const char *name) {
@@ -256,6 +261,18 @@ void test_create_top_level_post() {
     std::printf("ok create top-level post\n");
 }
 
+void test_self_authored_post_is_skipped() {
+    SyncObservation out;
+    if (!extract(commit("create", "app.bsky.feed.post", "self1",
+                        post("do not learn me"), std::string(SELF)), out)) {
+        fail("self-authored post rejected instead of ledgered");
+    }
+    if (!out.text.empty() || out.policy_reason != PolicyReason::SelfAuthored) {
+        fail("self-authored policy");
+    }
+    std::printf("ok self-authored Jetstream post skipped\n");
+}
+
 void test_update_post() {
     SyncObservation out;
     if (!extract(commit("update", "app.bsky.feed.post", "3kcz9", post("edited text")), out)) {
@@ -333,8 +350,8 @@ void test_reply_context_preserved() {
     if (!out.context.quote_uri.empty()) {
         fail("reply should carry no quote");
     }
-    if (out.policy_reason != PolicyReason::Eligible) {
-        fail("reply reason must remain Eligible on the bare commit path");
+    if (out.policy_reason != PolicyReason::Reply) {
+        fail("reply reason");
     }
     std::printf("ok reply context preserved\n");
 }
@@ -374,8 +391,8 @@ void test_quote_context_preserved() {
     if (out.context.quote_uri != QUOTED) {
         fail("quote uri");
     }
-    if (out.policy_reason != PolicyReason::Eligible) {
-        fail("quote reason must remain Eligible on the bare commit path");
+    if (out.policy_reason != PolicyReason::Quote) {
+        fail("quote reason");
     }
     std::printf("ok quote context preserved\n");
 }
@@ -397,6 +414,88 @@ void test_non_record_embed_is_ignored() {
     std::printf("ok non-record embed ignored\n");
 }
 
+void test_polling_and_jetstream_converge() {
+    const std::string record = post("same public observation");
+    SyncObservation js;
+    if (!extract(commit("create", "app.bsky.feed.post", "same1", record), js)) {
+        fail("Jetstream parity fixture");
+    }
+
+    const std::string feed_json = R"({
+        "post": {
+            "uri": "at://did:plc:author/app.bsky.feed.post/same1",
+            "author": {"did": "did:plc:author"},
+            "record": {
+                "$type": "app.bsky.feed.post",
+                "text": "same public observation",
+                "createdAt": "2026-09-17T00:00:00.000Z"
+            },
+            "viewer": {}
+        }
+    })";
+    Json item(cJSON_Parse(feed_json.c_str()));
+    if (!item) {
+        fail("polling parity fixture parse");
+    }
+    SyncObservation polling;
+    if (!atperson::extract_feed_item(item.get(), SELF, polling)) {
+        fail("polling parity fixture extraction");
+    }
+
+    if (js.text != polling.text || js.source_uri != polling.source_uri ||
+        js.author_did != polling.author_did ||
+        js.created_at != polling.created_at ||
+        js.policy_reason != polling.policy_reason ||
+        js.context.reply_root_uri != polling.context.reply_root_uri ||
+        js.context.reply_parent_uri != polling.context.reply_parent_uri ||
+        js.context.quote_uri != polling.context.quote_uri) {
+        fail("polling/Jetstream distilled observation mismatch");
+    }
+
+    const auto root = std::filesystem::temp_directory_path() /
+                      "atperson-jetstream-parity";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    atperson::LanguageGraph graph_a;
+    atperson::LanguageGraph graph_b;
+    atperson::Ledger ledger_a(root / "polling.bin");
+    atperson::Ledger ledger_b(root / "jetstream.bin");
+
+    if (!atperson::process_observation(graph_a, ledger_a, polling) ||
+        !atperson::process_observation(graph_b, ledger_b, js)) {
+        fail("parity fixture unexpectedly deduplicated");
+    }
+
+    const auto entries_a = ledger_a.entries();
+    const auto entries_b = ledger_b.entries();
+    if (entries_a.size() != 1u || entries_b.size() != 1u) {
+        fail("parity ledger count");
+    }
+    const auto &a = entries_a.front();
+    const auto &b = entries_b.front();
+    if (a.observed_at != b.observed_at ||
+        a.content_digest != b.content_digest ||
+        a.schema_version != b.schema_version ||
+        a.outcome != b.outcome ||
+        std::string(a.source_id) != std::string(b.source_id) ||
+        std::string(a.author_did) != std::string(b.author_did) ||
+        ledger_a.payload(a.id) != ledger_b.payload(b.id)) {
+        fail("polling/Jetstream ledger mismatch");
+    }
+
+    const auto stats_a = graph_a.stats();
+    const auto stats_b = graph_b.stats();
+    if (stats_a.node_count != stats_b.node_count ||
+        stats_a.edge_count != stats_b.edge_count ||
+        stats_a.training_steps != stats_b.training_steps ||
+        stats_a.observations != stats_b.observations) {
+        fail("polling/Jetstream graph mismatch");
+    }
+
+    std::filesystem::remove_all(root);
+    std::printf("ok polling and Jetstream converge\n");
+}
+
 void test_record_not_an_object_is_rejected() {
     SyncObservation out;
     if (extract(commit("create", "app.bsky.feed.post", "3kcz9", R"("just a string")"), out)) {
@@ -413,6 +512,7 @@ int main() {
     test_did_filter_file();
     test_did_filter_rejects_invalid_input();
     test_create_top_level_post();
+    test_self_authored_post_is_skipped();
     test_update_post();
     test_delete_is_not_an_observation();
     test_other_collection_is_not_an_observation();
@@ -423,6 +523,7 @@ int main() {
     test_malformed_reply_context_is_graceful();
     test_quote_context_preserved();
     test_non_record_embed_is_ignored();
+    test_polling_and_jetstream_converge();
     test_record_not_an_object_is_rejected();
 
     std::printf("jetstream extract tests passed\n");
