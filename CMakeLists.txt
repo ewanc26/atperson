@@ -190,6 +190,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/cursor.cpp
     src/app/cli/daemon.cpp
     src/app/cli/jetstream.cpp
+    src/app/cli/jetstream_filters.cpp
     src/app/cli/outbound.cpp
     src/app/cli/publish.cpp
     src/app/cli/sync.cpp
@@ -630,6 +631,13 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-jetstream-extract-test PRIVATE atperson-cpp cjson)
   target_include_directories(atperson-jetstream-extract-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-jetstream-extract COMMAND atperson-jetstream-extract-test)
+
+  add_executable(atperson-jetstream-filter-test
+                 tests/atproto/jetstream_filters.cpp
+                 src/app/cli/jetstream_filters.cpp)
+  target_compile_features(atperson-jetstream-filter-test PRIVATE cxx_std_23)
+  target_include_directories(atperson-jetstream-filter-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-jetstream-filter COMMAND atperson-jetstream-filter-test)
 
   add_executable(
     atperson-lock-test
