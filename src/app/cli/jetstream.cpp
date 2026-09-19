@@ -40,6 +40,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
                   const std::filesystem::path &ledger_file,
                   const std::filesystem::path &state_file,
                   const std::filesystem::path &collections_file,
+                  const std::filesystem::path &dids_file,
                   int max_events, int max_ms,
                   const std::function<void(const LanguageGraph &)> &print_stats) {
     /* Operator pause gate (#22): refuse new ingestion work while paused. */
@@ -72,7 +73,10 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         collections_file.empty()
             ? atperson::default_jetstream_collections()
             : atperson::load_jetstream_collections(collections_file);
-    atperson::JetstreamClient client(endpoint, collections);
+    const std::vector<std::string> dids =
+        dids_file.empty() ? std::vector<std::string>{}
+                          : atperson::load_jetstream_dids(dids_file);
+    atperson::JetstreamClient client(endpoint, collections, dids);
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
 
@@ -102,7 +106,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         << (result.exhausted ? ", feed exhausted" : ", catch-up pending")
         << "; learned from " << result.learned << " (skipped " << result.skipped
         << ", duplicate " << result.duplicates << "); collections "
-        << collections.size() << "\n";
+        << collections.size() << ", DID filters " << dids.size() << "\n";
     print_stats(graph);
     return 0;
 }
