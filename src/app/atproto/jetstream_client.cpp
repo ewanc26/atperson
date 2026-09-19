@@ -48,8 +48,10 @@ std::int64_t seq_from_cursor(std::string_view cursor) {
 } // namespace
 
 JetstreamClient::JetstreamClient(
-    std::string endpoint, std::vector<std::string> collections)
-    : endpoint_(std::move(endpoint)), collections_(std::move(collections)) {
+    std::string endpoint, std::vector<std::string> collections,
+    std::vector<std::string> dids)
+    : endpoint_(std::move(endpoint)), collections_(std::move(collections)),
+      dids_(std::move(dids)) {
     if (collections_.empty()) {
         throw std::runtime_error(
             "JetstreamClient: at least one collection filter is required");
@@ -57,6 +59,10 @@ JetstreamClient::JetstreamClient(
     if (collections_.size() > 100u) {
         throw std::runtime_error(
             "JetstreamClient: more than 100 collection filters are not supported");
+    }
+    if (dids_.size() > 10000u) {
+        throw std::runtime_error(
+            "JetstreamClient: more than 10000 DID filters are not supported");
     }
 }
 
@@ -78,8 +84,14 @@ void *JetstreamClient::connect() {
     }
     options.wanted_collections = collection_ptrs.data();
     options.wanted_collections_count = collection_ptrs.size();
-    options.wanted_dids = nullptr;
-    options.wanted_dids_count = 0u;
+
+    std::vector<const char *> did_ptrs;
+    did_ptrs.reserve(dids_.size());
+    for (const std::string &did : dids_) {
+        did_ptrs.push_back(did.c_str());
+    }
+    options.wanted_dids = did_ptrs.empty() ? nullptr : did_ptrs.data();
+    options.wanted_dids_count = did_ptrs.size();
     /* Cursor 0 omits the query parameter entirely; Jetstream starts at the
      * head. A persisted cursor resumes exactly after the last processed frame,
      * which is fine for a public backfill and deduplicated by the ledger. */
