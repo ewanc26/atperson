@@ -21,14 +21,16 @@
 #include <chrono>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace atperson {
 
 namespace {
 
-/* The Jetstream sequence number is the envelope microsecond timestamp, an
- * opaque int64_t. We store it as a decimal string in the ingestion state and
- * pass it back to Wolfram verbatim; it is never parsed here. */
+/* The pinned Wolfram live API exposes Jetstream's envelope time_us as its
+ * cursor. Jetstream v2 accepts this legacy unix-microsecond cursor form on the
+ * live tail for v1 compatibility. Native v2 replay/cutover uses event seq and
+ * belongs to the separate Wolfram #36 integration. */
 std::string cursor_from_seq(std::int64_t seq) {
     return seq <= 0 ? std::string() : std::to_string(seq);
 }
@@ -37,17 +39,48 @@ std::int64_t seq_from_cursor(std::string_view cursor) {
     if (cursor.empty()) {
         return 0;
     }
+    std::size_t consumed = 0u;
     try {
-        return std::stoll(std::string(cursor));
-    } catch (...) {
-        return 0;
+        const std::int64_t value = std::stoll(std::string(cursor), &consumed, 10);
+        if (consumed != cursor.size() || value <= 0) {
+            throw std::runtime_error("invalid Jetstream cursor");
+        }
+        return value;
+    } catch (const std::exception &) {
+        throw std::runtime_error(
+            "JetstreamClient: persisted cursor is not a positive decimal timestamp");
     }
 }
 
 } // namespace
 
-JetstreamClient::JetstreamClient(std::string endpoint, std::string_view collections)
-    : endpoint_(std::move(endpoint)), collections_(collections) {}
+JetstreamClient::JetstreamClient(
+    std::string endpoint, std::string self_did,
+    std::vector<std::string> collections, std::vector<std::string> dids,
+    std::string initial_cursor)
+    : endpoint_(std::move(endpoint)), self_did_(std::move(self_did)),
+      collections_(std::move(collections)), dids_(std::move(dids)),
+      cursor_(std::move(initial_cursor)) {
+    if (self_did_.empty() || self_did_.rfind("did:", 0u) != 0u) {
+        throw std::runtime_error(
+            "JetstreamClient: a valid self DID is required for ingestion policy");
+    }
+    if (collections_.empty()) {
+        throw std::runtime_error(
+            "JetstreamClient: at least one collection filter is required");
+    }
+    if (collections_.size() > 100u) {
+        throw std::runtime_error(
+            "JetstreamClient: more than 100 collection filters are not supported");
+    }
+    if (dids_.size() > 10000u) {
+        throw std::runtime_error(
+            "JetstreamClient: more than 10000 DID filters are not supported");
+    }
+    if (!cursor_.empty()) {
+        static_cast<void>(seq_from_cursor(cursor_));
+    }
+}
 
 JetstreamClient::~JetstreamClient() {
     if (impl_ != nullptr) {
@@ -59,11 +92,22 @@ JetstreamClient::~JetstreamClient() {
 void *JetstreamClient::connect() {
     wf_jetstream_options options{};
     options.endpoint = endpoint_.c_str();
-    const char *collection_ptr = collections_.empty() ? nullptr : collections_.c_str();
-    options.wanted_collections = collection_ptr == nullptr ? nullptr : &collection_ptr;
-    options.wanted_collections_count = collection_ptr == nullptr ? 0u : 1u;
-    options.wanted_dids = nullptr;
-    options.wanted_dids_count = 0u;
+
+    std::vector<const char *> collection_ptrs;
+    collection_ptrs.reserve(collections_.size());
+    for (const std::string &collection : collections_) {
+        collection_ptrs.push_back(collection.c_str());
+    }
+    options.wanted_collections = collection_ptrs.data();
+    options.wanted_collections_count = collection_ptrs.size();
+
+    std::vector<const char *> did_ptrs;
+    did_ptrs.reserve(dids_.size());
+    for (const std::string &did : dids_) {
+        did_ptrs.push_back(did.c_str());
+    }
+    options.wanted_dids = did_ptrs.empty() ? nullptr : did_ptrs.data();
+    options.wanted_dids_count = did_ptrs.size();
     /* Cursor 0 omits the query parameter entirely; Jetstream starts at the
      * head. A persisted cursor resumes exactly after the last processed frame,
      * which is fine for a public backfill and deduplicated by the ledger. */
@@ -92,18 +136,19 @@ std::uint32_t JetstreamClient::reconnect_after_ms() const {
     return wf_jetstream_reconnect_after_ms(static_cast<const wf_jetstream *>(impl_));
 }
 
-std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
+JetstreamClient::BatchResult JetstreamClient::fetch_batch(
     const JetstreamLimits &limits, std::function<void(const JetstreamEvent &)> on_event) {
     if (impl_ == nullptr) {
         impl_ = connect();
     }
     wf_jetstream *stream = static_cast<wf_jetstream *>(impl_);
 
-    std::uint64_t consumed = 0;
+    BatchResult result;
     const auto start = std::chrono::steady_clock::now();
 
     while (true) {
-        if (limits.max_events > 0 && consumed >= limits.max_events) {
+        if (limits.max_events > 0 &&
+            result.frames_consumed >= limits.max_events) {
             break;
         }
         if (limits.max_ms > 0) {
@@ -119,11 +164,27 @@ std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
         wf_jetstream_event event{};
         const wf_status status = wf_jetstream_next(stream, &event);
         if (status == WF_ERR_WOULD_BLOCK) {
-            /* Idle socket or reconnect backoff: not a failure and not a clean
-             * close we can detect. The client stays connected (Wolfram
-             * reconnects internally from its own last-delivered cursor); the
-             * caller sleeps for reconnect_after_ms() and retries. */
-            return {consumed, false};
+            /*
+             * Idle socket or reconnect backoff: not a failure. The caller may
+             * sleep for reconnect_after_ms() and retry this batch.
+             */
+            return result;
+        }
+        if (status == WF_ERR_PARSE) {
+            /*
+             * Wolfram has already consumed this WebSocket message. Count it
+             * against the work budget and skip it; one malformed public frame
+             * must not tear down the entire ingestion run.
+             *
+             * No cursor can safely be derived from an unparseable envelope.
+             * The next valid frame advances the stream cursor. If a reconnect
+             * occurs first, replaying and skipping this frame again is safer
+             * than fabricating a cursor.
+             */
+            wf_jetstream_event_free(&event);
+            ++result.frames_consumed;
+            ++result.malformed_frames;
+            continue;
         }
         if (status != WF_OK) {
             wf_jetstream_event_free(&event);
@@ -132,6 +193,7 @@ std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
             throw std::runtime_error("JetstreamClient: wf_jetstream_next failed");
         }
 
+        ++result.frames_consumed;
         if (event.kind == WF_JETSTREAM_EVENT_COMMIT && event.did != nullptr &&
             event.json != nullptr) {
             wf_jetstream_event_typed typed{};
@@ -164,9 +226,9 @@ std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
                 js.reply_root = observation.context.reply_root_uri;
                 js.reply_parent = observation.context.reply_parent_uri;
                 js.quote_uri = observation.context.quote_uri;
+                js.policy_reason = observation.policy_reason;
                 js.seq = event.time_us;
                 on_event(js);
-                ++consumed;
             }
         }
 
@@ -178,7 +240,7 @@ std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
     }
 
     /* Budget exhausted: the connection stays open for the next batch. */
-    return {consumed, false};
+    return result;
 }
 
 } // namespace atperson

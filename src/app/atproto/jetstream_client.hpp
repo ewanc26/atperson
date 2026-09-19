@@ -1,8 +1,9 @@
 /* Jetstream public backfill client (#60).
  *
- * Jetstream is an unauthenticated public firehose: the agent ingests
- * `com.atproto.sync.subscribeRepos` commit frames over a WebSocket without
- * ever logging in. This module owns the transport and the per-cycle budget;
+ * Jetstream is an unauthenticated JSON stream derived from the AT Protocol
+ * repository firehose. The agent consumes Jetstream commit envelopes over a
+ * WebSocket without ever logging in. This module owns the transport and the
+ * per-cycle budget;
  * it owns no learned state and never writes.
  *
  * The connection is created on the first `fetch_batch` (never in the
@@ -24,8 +25,9 @@
  * been durably handled, matching the engine's ordering invariant.
  *
  * Failure modes: throws std::runtime_error on a fatal transport error
- * (connect failure, parse failure of a frame the feed emitted). A
- * WOULD_BLOCK return from `wf_jetstream_next` (idle socket or reconnect
+ * (connect failure or non-parse stream error). Malformed frames are counted
+ * and skipped because the transport has already consumed their WebSocket
+ * message. A WOULD_BLOCK return from `wf_jetstream_next` (idle socket or reconnect
  * backoff) is not a failure: the caller sleeps for the advertised delay and
  * retries the same batch.
  */
@@ -41,6 +43,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace atperson {
 
@@ -55,6 +58,7 @@ struct JetstreamEvent {
     std::string reply_root;
     std::string reply_parent;
     std::string quote_uri;
+    PolicyReason policy_reason{PolicyReason::Eligible};
     std::int64_t seq{0};
     bool deleted{false};
 };
@@ -69,18 +73,32 @@ struct JetstreamEvent {
  * string. An empty string means "start at the feed head". */
 class JetstreamClient {
   public:
-    explicit JetstreamClient(std::string endpoint,
-                             std::string_view collections = "app.bsky.feed.post");
+    explicit JetstreamClient(
+        std::string endpoint, std::string self_did,
+        std::vector<std::string> collections = {"app.bsky.feed.post"},
+        std::vector<std::string> dids = {},
+        std::string initial_cursor = {});
     ~JetstreamClient();
     JetstreamClient(const JetstreamClient &) = delete;
     JetstreamClient &operator=(const JetstreamClient &) = delete;
 
-    /* Fetch at most `limits.max_events` commit frames, calling `on_event`
-     * for each one that translates to an observation. Returns the number of
-     * events consumed and whether the feed was exhausted (never true in this
-     * API — the socket simply goes idle and WOULD_BLOCKs). Throws
-     * std::runtime_error on a fatal connect or parse failure. */
-    std::pair<std::uint64_t, bool> fetch_batch(
+    /* Fetch at most `limits.max_events` received frames, calling
+     * `on_event` for each commit that translates to an observation. The
+     * result separates total bounded work from malformed frames. The live
+     * socket never reports clean exhaustion; it goes idle/WOULD_BLOCK instead.
+     * Throws only on fatal connect/non-parse stream failures. */
+    struct BatchResult {
+        std::uint64_t frames_consumed{};
+        std::uint64_t malformed_frames{};
+        bool exhausted{};
+    };
+
+    /*
+     * max_events bounds every received frame, including unsupported and
+     * malformed frames. A malformed frame is consumed/skipped with accounting
+     * rather than terminating the whole stream.
+     */
+    BatchResult fetch_batch(
         const JetstreamLimits &limits,
         std::function<void(const JetstreamEvent &)> on_event);
 
@@ -97,7 +115,9 @@ class JetstreamClient {
     void *connect();
 
     std::string endpoint_;
-    std::string collections_;
+    std::string self_did_;
+    std::vector<std::string> collections_;
+    std::vector<std::string> dids_;
     std::string cursor_;
     void *impl_{nullptr};
 };
