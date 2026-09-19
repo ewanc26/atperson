@@ -67,6 +67,55 @@ static atp_ledger *open_ledger(const char *dir) {
 }
 
 /* Append one observation with the given outcome and return its id. */
+static atp_neural_architecture replay_source_architecture(void) {
+    atp_neural_architecture architecture = {0};
+    architecture.version = ATPERSON_NEURAL_ARCHITECTURE_VERSION;
+    architecture.embedding_dim = 4u;
+    architecture.input_dim = 8u;
+    architecture.hidden_layer_count = 1u;
+    architecture.hidden_widths[0] = 4u;
+    architecture.output_dim = 1u;
+    return architecture;
+}
+
+static atp_neural_architecture replay_target_one(void) {
+    atp_neural_architecture architecture = replay_source_architecture();
+    architecture.embedding_dim = 6u;
+    architecture.input_dim = 12u;
+    architecture.hidden_layer_count = 2u;
+    architecture.hidden_widths[0] = 6u;
+    architecture.hidden_widths[1] = 4u;
+    return architecture;
+}
+
+static atp_neural_architecture replay_target_two(void) {
+    atp_neural_architecture architecture = replay_source_architecture();
+    architecture.embedding_dim = 8u;
+    architecture.input_dim = 16u;
+    architecture.hidden_layer_count = 3u;
+    architecture.hidden_widths[0] = 8u;
+    architecture.hidden_widths[1] = 6u;
+    architecture.hidden_widths[2] = 4u;
+    return architecture;
+}
+
+static int architectures_equal(const atp_neural_architecture *left,
+                               const atp_neural_architecture *right) {
+    if (left->version != right->version ||
+        left->embedding_dim != right->embedding_dim ||
+        left->input_dim != right->input_dim ||
+        left->hidden_layer_count != right->hidden_layer_count ||
+        left->output_dim != right->output_dim) {
+        return 0;
+    }
+    for (size_t i = 0u; i < ATPERSON_NEURAL_MAX_HIDDEN_LAYERS; ++i) {
+        if (left->hidden_widths[i] != right->hidden_widths[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static uint64_t append_observation(atp_ledger *ledger, const char *source, const char *author,
                                    const char *text, atp_ledger_outcome outcome) {
     uint64_t id = 0u;
@@ -194,6 +243,119 @@ static int run_replay(const char *dir) {
     atp_graph_destroy(reloaded);
     atp_graph_destroy(second);
     atp_graph_destroy(first);
+    atp_ledger_destroy(ledger);
+
+    /* --- Expanded-generation replay: migrations are chronology, not a final
+     * topology hint. They apply immediately after their persisted ledger
+     * boundary and become part of the rebuilt graph's durable history. --- */
+    remove_dir_files(dir);
+    CHECK(atp_mkdir(dir) == 0);
+    ledger = open_ledger(dir);
+    CHECK(append_observation(ledger, "at://m/1", "did:plc:m", "alpha beta",
+                             ATP_LEDGER_OUTCOME_LEARNED) == 1u);
+    CHECK(append_observation(ledger, "at://m/2", "did:plc:m", "beta gamma",
+                             ATP_LEDGER_OUTCOME_LEARNED) == 2u);
+    CHECK(append_observation(ledger, "at://m/3", "did:plc:m", "gamma delta",
+                             ATP_LEDGER_OUTCOME_LEARNED) == 3u);
+    CHECK(append_observation(ledger, "at://m/4", "did:plc:m", "delta epsilon",
+                             ATP_LEDGER_OUTCOME_LEARNED) == 4u);
+
+    const atp_neural_architecture migration_source =
+        replay_source_architecture();
+    const atp_neural_architecture migration_target1 = replay_target_one();
+    const atp_neural_architecture migration_target2 = replay_target_two();
+    const atp_neural_migration migrations[2] = {
+        {
+            .version = ATPERSON_NEURAL_MIGRATION_VERSION,
+            .seed = UINT64_C(0x1111222233334444),
+            .ledger_boundary_id = 2u,
+            .source = migration_source,
+            .target = migration_target1,
+        },
+        {
+            .version = ATPERSON_NEURAL_MIGRATION_VERSION,
+            .seed = UINT64_C(0x5555666677778888),
+            .ledger_boundary_id = 3u,
+            .source = migration_target1,
+            .target = migration_target2,
+        },
+    };
+
+    atp_graph *expanded_first =
+        atp_graph_create_with_architecture(&config, &migration_source);
+    atp_graph *expanded_second =
+        atp_graph_create_with_architecture(&config, &migration_source);
+    CHECK(expanded_first != NULL && expanded_second != NULL);
+    atp_replay_report migration_report = {0};
+    atp_replay_report migration_report_two = {0};
+    CHECK(atp_replay_ledger_with_migrations(
+              ledger, expanded_first, migrations, 2u,
+              &migration_report) == ATP_OK);
+    CHECK(atp_replay_ledger_with_migrations(
+              ledger, expanded_second, migrations, 2u,
+              &migration_report_two) == ATP_OK);
+    CHECK(migration_report.replayed == 4u);
+    CHECK(migration_report.migrations_applied == 2u);
+    CHECK(migration_report_two.migrations_applied == 2u);
+    CHECK(atp_graph_neural_migration_count(expanded_first) == 2u);
+    atp_neural_architecture final_architecture = {0};
+    CHECK(atp_graph_neural_architecture(expanded_first,
+                                        &final_architecture) == ATP_OK);
+    CHECK(architectures_equal(&final_architecture, &migration_target2));
+    CHECK(graphs_equivalent(expanded_first, expanded_second) == 0);
+    float expanded_score_one = 0.0f;
+    float expanded_score_two = 0.0f;
+    CHECK(atp_graph_neural_score(expanded_first, "gamma", "delta",
+                                 &expanded_score_one) == ATP_OK);
+    CHECK(atp_graph_neural_score(expanded_second, "gamma", "delta",
+                                 &expanded_score_two) == ATP_OK);
+    CHECK(expanded_score_one == expanded_score_two);
+    atp_graph_destroy(expanded_second);
+    atp_graph_destroy(expanded_first);
+
+    /* Withdrawal does not erase chronology. Entry 2 no longer trains, but the
+     * boundary-2 migration still applies immediately after that ledger id. */
+    CHECK(atp_ledger_withdraw(ledger, 2u) == ATP_OK);
+    atp_graph *withdrawn_expanded =
+        atp_graph_create_with_architecture(&config, &migration_source);
+    CHECK(withdrawn_expanded != NULL);
+    migration_report = (atp_replay_report){0};
+    CHECK(atp_replay_ledger_with_migrations(
+              ledger, withdrawn_expanded, migrations, 2u,
+              &migration_report) == ATP_OK);
+    CHECK(migration_report.replayed == 3u);
+    CHECK(migration_report.excluded_withdrawn == 1u);
+    CHECK(migration_report.migrations_applied == 2u);
+    CHECK(atp_graph_neural_architecture(withdrawn_expanded,
+                                        &final_architecture) == ATP_OK);
+    CHECK(architectures_equal(&final_architecture, &migration_target2));
+    atp_graph_destroy(withdrawn_expanded);
+
+    /* Chain errors fail before replaying any observation. */
+    atp_graph *wrong_start =
+        atp_graph_create_with_architecture(&config, &migration_target1);
+    CHECK(wrong_start != NULL);
+    migration_report = (atp_replay_report){0};
+    CHECK(atp_replay_ledger_with_migrations(
+              ledger, wrong_start, migrations, 2u,
+              &migration_report) == ATP_ERR_MIGRATION);
+    CHECK(atp_graph_get_stats(wrong_start).observations == 0u);
+    atp_graph_destroy(wrong_start);
+
+    atp_neural_migration impossible[2] = {migrations[0], migrations[1]};
+    impossible[1].ledger_boundary_id = 99u;
+    atp_graph *missing_boundary =
+        atp_graph_create_with_architecture(&config, &migration_source);
+    CHECK(missing_boundary != NULL);
+    migration_report = (atp_replay_report){0};
+    CHECK(atp_replay_ledger_with_migrations(
+              ledger, missing_boundary, impossible, 2u,
+              &migration_report) == ATP_ERR_MIGRATION);
+    CHECK(atp_graph_get_stats(missing_boundary).observations == 0u);
+    atp_graph_destroy(missing_boundary);
+    CHECK(atp_replay_ledger_with_migrations(
+              ledger, NULL, migrations, 2u, NULL) ==
+          ATP_ERR_INVALID_ARGUMENT);
     atp_ledger_destroy(ledger);
 
     /* --- Compatible schema transition: entries recorded under the
