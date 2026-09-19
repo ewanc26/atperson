@@ -108,18 +108,19 @@ std::uint32_t JetstreamClient::reconnect_after_ms() const {
     return wf_jetstream_reconnect_after_ms(static_cast<const wf_jetstream *>(impl_));
 }
 
-std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
+JetstreamClient::BatchResult JetstreamClient::fetch_batch(
     const JetstreamLimits &limits, std::function<void(const JetstreamEvent &)> on_event) {
     if (impl_ == nullptr) {
         impl_ = connect();
     }
     wf_jetstream *stream = static_cast<wf_jetstream *>(impl_);
 
-    std::uint64_t consumed = 0;
+    BatchResult result;
     const auto start = std::chrono::steady_clock::now();
 
     while (true) {
-        if (limits.max_events > 0 && consumed >= limits.max_events) {
+        if (limits.max_events > 0 &&
+            result.frames_consumed >= limits.max_events) {
             break;
         }
         if (limits.max_ms > 0) {
@@ -135,11 +136,27 @@ std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
         wf_jetstream_event event{};
         const wf_status status = wf_jetstream_next(stream, &event);
         if (status == WF_ERR_WOULD_BLOCK) {
-            /* Idle socket or reconnect backoff: not a failure and not a clean
-             * close we can detect. The client stays connected (Wolfram
-             * reconnects internally from its own last-delivered cursor); the
-             * caller sleeps for reconnect_after_ms() and retries. */
-            return {consumed, false};
+            /*
+             * Idle socket or reconnect backoff: not a failure. The caller may
+             * sleep for reconnect_after_ms() and retry this batch.
+             */
+            return result;
+        }
+        if (status == WF_ERR_PARSE) {
+            /*
+             * Wolfram has already consumed this WebSocket message. Count it
+             * against the work budget and skip it; one malformed public frame
+             * must not tear down the entire ingestion run.
+             *
+             * No cursor can safely be derived from an unparseable envelope.
+             * The next valid frame advances the stream cursor. If a reconnect
+             * occurs first, replaying and skipping this frame again is safer
+             * than fabricating a cursor.
+             */
+            wf_jetstream_event_free(&event);
+            ++result.frames_consumed;
+            ++result.malformed_frames;
+            continue;
         }
         if (status != WF_OK) {
             wf_jetstream_event_free(&event);
@@ -148,6 +165,7 @@ std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
             throw std::runtime_error("JetstreamClient: wf_jetstream_next failed");
         }
 
+        ++result.frames_consumed;
         if (event.kind == WF_JETSTREAM_EVENT_COMMIT && event.did != nullptr &&
             event.json != nullptr) {
             SyncObservation observation;
@@ -163,7 +181,6 @@ std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
                 js.quote_uri = observation.context.quote_uri;
                 js.seq = event.time_us;
                 on_event(js);
-                ++consumed;
             }
         }
 
@@ -175,7 +192,7 @@ std::pair<std::uint64_t, bool> JetstreamClient::fetch_batch(
     }
 
     /* Budget exhausted: the connection stays open for the next batch. */
-    return {consumed, false};
+    return result;
 }
 
 } // namespace atperson
