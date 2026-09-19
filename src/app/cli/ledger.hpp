@@ -27,6 +27,14 @@
 namespace atperson {
 namespace cli {
 
+int run_neural_expand(
+    std::ostream &out, const RuntimeResourceStatus &resource_status,
+    const std::filesystem::path &data_dir,
+    const std::filesystem::path &ledger_file,
+    const std::filesystem::path &model_path,
+    const std::vector<std::filesystem::path> &resource_paths,
+    const ResourceOverrides &resource_overrides);
+
 int run_rebuild(std::ostream &out, const RuntimeResourceStatus &resource_status,
                 const std::filesystem::path &data_dir,
                 const std::filesystem::path &ledger_file,
