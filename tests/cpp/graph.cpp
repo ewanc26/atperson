@@ -92,6 +92,28 @@ int main() {
     assert(mirrored.ledger_entries().front().content_digest == digest);
     std::filesystem::remove(mirror_path);
 
+    /* A durable withdrawal is reconciled by replacing the live graph with a
+     * deterministic replay, not by attempting inverse training. */
+    atperson::LanguageGraph live;
+    atperson::Ledger reconcile_ledger(dir / "reconcile.bin");
+    const std::string withdrawn_text = "withdraw this learned source";
+    const auto withdrawn_digest = atperson::Ledger::digest(withdrawn_text);
+    std::uint64_t withdrawn_id = 0u;
+    assert(reconcile_ledger.append("at://cpp/withdraw", "did:plc:cpp", 200u,
+                                   withdrawn_digest, ATPERSON_SCHEMA_VERSION,
+                                   ATP_LEDGER_OUTCOME_PENDING, withdrawn_text,
+                                   &withdrawn_id) == atperson::LedgerResult::New);
+    reconcile_ledger.set_outcome(withdrawn_id, ATP_LEDGER_OUTCOME_LEARNED);
+    assert(live.remember(withdrawn_text, "at://cpp/withdraw", "did:plc:cpp", 200u,
+                         withdrawn_digest, ATPERSON_SCHEMA_VERSION, withdrawn_id));
+    live.record_ledger_entry(reconcile_ledger.entries().front());
+    assert(live.has_token("withdraw"));
+    assert(reconcile_ledger.withdraw_source("at://cpp/withdraw") == 1u);
+    assert(reconcile_ledger.withdraw_source("at://cpp/withdraw") == 0u);
+    const auto rebuild_report = live.rebuild_from_ledger(reconcile_ledger);
+    assert(rebuild_report.excluded_withdrawn == 1u);
+    assert(!live.has_token("withdraw"));
+
     std::filesystem::remove_all(dir);
     return 0;
 }
