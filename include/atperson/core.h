@@ -394,6 +394,17 @@ uint64_t atp_neural_parameter_count(const atp_neural_architecture *architecture)
 atp_status atp_graph_neural_report(const atp_graph *graph,
                                    atp_neural_architecture_report *out_report);
 
+/**
+ * Read the neural scorer's current value for two known vocabulary tokens.
+ *
+ * This is an inspection surface only: it never interns tokens, mutates learned
+ * state or changes recall counters. Returns ATP_ERR_NOT_FOUND when either
+ * token is not present in the graph and ATP_ERR_INVALID_ARGUMENT for invalid
+ * pointers. The returned score is finite and in (0, 1) for a valid graph.
+ */
+atp_status atp_graph_neural_score(const atp_graph *graph, const char *source_token,
+                                  const char *target_token, float *out_score);
+
 /** Read plasticity control statistics (issue #59). */
 atp_status atp_graph_plasticity_report(const atp_graph *graph, atp_plasticity_report *out_report);
 
