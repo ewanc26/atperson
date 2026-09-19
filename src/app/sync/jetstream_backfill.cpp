@@ -100,6 +100,15 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     result.events_consumed = batch.first;
     result.exhausted = batch.second;
 
+    /* A delete is a durable ledger patch, not an inverse-training operation.
+     * Rebuild once after the batch so multiple deletes coalesce. If replay
+     * throws, this function never returns and the caller cannot checkpoint
+     * the client cursor past the unreconciled batch. */
+    if (result.withdrawn > 0u) {
+        (void)graph.rebuild_from_ledger(ledger);
+        result.reconciled = true;
+    }
+
     if (result.exhausted) {
         state.catchup.active = false;
         state.catchup.cursor = std::nullopt;

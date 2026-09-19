@@ -172,6 +172,9 @@ class LanguageGraph {
      */
     atp_replay_report replay(const Ledger &ledger);
 
+    /** Replace this graph with a deterministic replay of the current ledger. */
+    atp_replay_report rebuild_from_ledger(const Ledger &ledger);
+
   private:
     explicit LanguageGraph(atp_graph *graph) noexcept;
     atp_graph *graph_{};

@@ -341,4 +341,11 @@ atp_replay_report LanguageGraph::replay(const Ledger &ledger) {
     return report;
 }
 
+atp_replay_report LanguageGraph::rebuild_from_ledger(const Ledger &ledger) {
+    LanguageGraph rebuilt(atp_graph_default_config(), neural_architecture());
+    const atp_replay_report report = rebuilt.replay(ledger);
+    *this = std::move(rebuilt);
+    return report;
+}
+
 } // namespace atperson
