@@ -206,6 +206,8 @@ const char *atp_status_string(atp_status status) {
         return "learning schema not replayable by this build";
     case ATP_ERR_CAPACITY:
         return "configured resource ceiling reached";
+    case ATP_ERR_MIGRATION:
+        return "neural migration not permitted";
     }
     return "unknown error";
 }
