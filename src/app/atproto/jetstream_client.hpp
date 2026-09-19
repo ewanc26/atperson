@@ -41,6 +41,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace atperson {
 
@@ -68,8 +69,9 @@ struct JetstreamEvent {
  * string. An empty string means "start at the feed head". */
 class JetstreamClient {
   public:
-    explicit JetstreamClient(std::string endpoint,
-                             std::string_view collections = "app.bsky.feed.post");
+    explicit JetstreamClient(
+        std::string endpoint,
+        std::vector<std::string> collections = {"app.bsky.feed.post"});
     ~JetstreamClient();
     JetstreamClient(const JetstreamClient &) = delete;
     JetstreamClient &operator=(const JetstreamClient &) = delete;
@@ -96,7 +98,7 @@ class JetstreamClient {
     void *connect();
 
     std::string endpoint_;
-    std::string collections_;
+    std::vector<std::string> collections_;
     std::string cursor_;
     void *impl_{nullptr};
 };
