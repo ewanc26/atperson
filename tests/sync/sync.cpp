@@ -765,6 +765,32 @@ void test_policy_skipped_items_deduplicate_across_runs() {
     assert(ledger.count() == 1u);
 }
 
+void test_quote_reason_is_learned() {
+    const auto dir = scratch_dir("policy-quote");
+    atperson::LanguageGraph graph;
+    atperson::Ledger ledger(dir / "ledger.bin");
+    auto state = atperson::initial_ingestion_state("https://bsky.social", "did:plc:abc");
+
+    atperson::SyncObservation quote = obs("at://fixture/quote", "my own quote words");
+    quote.policy_reason = atperson::PolicyReason::Quote;
+    quote.context.quote_uri = "at://did:plc:quoted/app.bsky.feed.post/1";
+
+    const auto feed = [&](const std::optional<std::string> &) -> atperson::SyncPage {
+        return atperson::SyncPage{
+            .items = {quote},
+            .next_cursor = std::nullopt,
+        };
+    };
+
+    atperson::SyncLimits limits;
+    limits.max_pages = 1;
+    const auto result = atperson::run_sync(graph, ledger, state, feed, limits);
+    assert(result.learned == 1u);
+    assert(result.skipped == 0u);
+    assert(ledger.count() == 1u);
+    assert(ledger.entries().front().outcome == ATP_LEDGER_OUTCOME_LEARNED);
+}
+
 void test_reposts_and_replies_are_learned_with_reason() {
     const auto dir = scratch_dir("policy-eligible-tags");
     atperson::LanguageGraph graph;
@@ -826,6 +852,7 @@ int main() {
 
     test_policy_skipped_items_are_ledgered_not_trained();
     test_policy_skipped_items_deduplicate_across_runs();
+    test_quote_reason_is_learned();
     test_reposts_and_replies_are_learned_with_reason();
 
     std::printf("sync tests passed\n");
