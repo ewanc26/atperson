@@ -387,7 +387,8 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(
     atperson-capacity-benchmark
     PRIVATE
-      ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS}
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/resource
       ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
   add_test(
     NAME atperson-capacity-smoke
