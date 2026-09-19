@@ -53,6 +53,21 @@ bool neural_overrides_active(const ResourceOverrides &overrides) {
            overrides.neural_hidden_layer_count || overrides.neural_hidden_widths;
 }
 
+std::uint64_t saturating_add_u64(std::uint64_t a, std::uint64_t b) noexcept {
+    return b > std::numeric_limits<std::uint64_t>::max() - a
+               ? std::numeric_limits<std::uint64_t>::max()
+               : a + b;
+}
+
+std::uint64_t saturating_mul_u64(std::uint64_t a, std::uint64_t b) noexcept {
+    if (a == 0u || b == 0u) {
+        return 0u;
+    }
+    return a > std::numeric_limits<std::uint64_t>::max() / b
+               ? std::numeric_limits<std::uint64_t>::max()
+               : a * b;
+}
+
 } // namespace
 
 RuntimeResourceStatus inspect_runtime_resources(
@@ -76,7 +91,12 @@ RuntimeResourceStatus inspect_runtime_resources(
     const LanguageGraph &graph,
     const std::vector<std::filesystem::path> &durable_paths,
     const ResourceOverrides &overrides) {
-    return inspect_runtime_resources(graph.stats(), durable_paths, overrides);
+    RuntimeResourceStatus status;
+    status.system = probe_system_resources(durable_paths);
+    const atp_neural_architecture active = graph.neural_architecture();
+    status.budget =
+        derive_resource_budget(status.system, graph.stats(), overrides, &active);
+    return status;
 }
 
 RuntimeResourceStatus inspect_runtime_resources(const LanguageGraph &graph,
@@ -139,11 +159,35 @@ void require_runtime_snapshot_headroom(const RuntimeResourceStatus &status,
 std::uint64_t neural_memory_footprint(const atp_neural_architecture &architecture,
                                       std::uint64_t node_count,
                                       std::uint64_t edge_count) noexcept {
-    constexpr std::uint64_t NODE_BYTES = 256u;
+    constexpr std::uint64_t LEGACY_NODE_BYTES = 256u;
     constexpr std::uint64_t EDGE_BYTES = 64u;
-    const std::uint64_t learned_state = node_count * NODE_BYTES + edge_count * EDGE_BYTES;
     const std::uint64_t parameters = atp_neural_parameter_count(&architecture);
-    return learned_state + parameters * sizeof(float);
+    if (parameters == 0u) {
+        return 0u;
+    }
+
+    std::uint64_t footprint =
+        saturating_mul_u64(parameters, 2u * sizeof(float));
+    std::uint64_t activations =
+        static_cast<std::uint64_t>(architecture.input_dim) + architecture.output_dim;
+    for (std::uint32_t i = 0u; i < architecture.hidden_layer_count; ++i) {
+        activations = saturating_add_u64(activations, architecture.hidden_widths[i]);
+    }
+    footprint = saturating_add_u64(
+        footprint, saturating_mul_u64(activations, 2u * sizeof(float)));
+
+    std::uint64_t node_bytes = LEGACY_NODE_BYTES;
+    if (architecture.embedding_dim > ATPERSON_EMBEDDING_DIM) {
+        const std::uint64_t extra_dims =
+            static_cast<std::uint64_t>(architecture.embedding_dim - ATPERSON_EMBEDDING_DIM);
+        node_bytes = saturating_add_u64(
+            node_bytes, saturating_mul_u64(extra_dims, 2u * sizeof(float)));
+    }
+    footprint = saturating_add_u64(
+        footprint, saturating_mul_u64(node_count, node_bytes));
+    footprint = saturating_add_u64(
+        footprint, saturating_mul_u64(edge_count, EDGE_BYTES));
+    return footprint;
 }
 
 void require_runtime_neural_headroom(const RuntimeResourceStatus &status,
@@ -165,8 +209,9 @@ void require_runtime_neural_headroom(const RuntimeResourceStatus &status,
         message << ") needs ~" << footprint << " bytes of learned state, exceeding the "
                 << available_after_reserve
                 << " bytes available after the safety reserve; refusing to load instead of "
-                   "silently shrinking a persisted model. Free memory, lower ATPERSON_NEURAL_* "
-                   "capacity overrides, or rebuild from the ledger on a larger machine";
+                   "silently shrinking a persisted model. Free memory or move this generation "
+                   "to a larger machine; ATPERSON_NEURAL_* overrides do not reshape persisted "
+                   "models";
         throw std::runtime_error(message.str());
     }
 }
@@ -179,6 +224,16 @@ LanguageGraph load_or_create_graph(const RuntimeResourceStatus &status,
         if (!error) {
             require_runtime_snapshot_headroom(status, snapshot_bytes);
         }
+        atp_neural_architecture persisted{};
+        const atp_status probe =
+            atp_snapshot_neural_architecture(model_path.string().c_str(), &persisted);
+        if (probe != ATP_OK) {
+            throw std::runtime_error(
+                "cannot read persisted neural architecture from " + model_path.string() +
+                ": " + atp_status_string(probe));
+        }
+        require_runtime_neural_headroom(status, persisted, 0u, 0u);
+
         LanguageGraph graph = LanguageGraph::load(model_path);
         const atp_graph_stats stats = graph.stats();
         require_runtime_neural_headroom(status, graph.neural_architecture(), stats.node_count,

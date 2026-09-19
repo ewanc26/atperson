@@ -83,6 +83,10 @@ static void test_env_template_lists_credentials(void) {
     assert(strstr(contents, "ATPERSON_DISK_RESERVE_BYTES=") != NULL);
     assert(strstr(contents, "ATPERSON_NODE_CAPACITY=") != NULL);
     assert(strstr(contents, "ATPERSON_EDGE_CAPACITY=") != NULL);
+    assert(strstr(contents, "ATPERSON_NEURAL_CAPACITY=") != NULL);
+    assert(strstr(contents, "ATPERSON_NEURAL_EMBEDDING_DIM=") != NULL);
+    assert(strstr(contents, "ATPERSON_NEURAL_HIDDEN_LAYERS=") != NULL);
+    assert(strstr(contents, "ATPERSON_NEURAL_HIDDEN_WIDTHS=") != NULL);
     assert(strstr(contents, "ATPERSON_SYNC_PAGE_SIZE=") != NULL);
     assert(strstr(contents, "ATPERSON_SYNC_MAX_OBSERVATIONS=") != NULL);
 }

@@ -55,7 +55,7 @@ The project is already beyond the initial scaffold. The important pieces current
 
 | Area | State | Notes |
 | --- | --- | --- |
-| Language graph | Implemented | Empty-start vocabulary, directed associations, trainable 16D embeddings, online neural scoring and negative sampling |
+| Language graph | Implemented | Empty-start vocabulary, directed associations, persisted variable-width embeddings, online neural scoring and negative sampling |
 | Observation ledger | Implemented | Crash-safe append-only log with provenance, outcomes, canonical payloads and restart-safe deduplication |
 | Episodic memory | Implemented | Source-linked memories, weighted token summaries, recall accounting and deterministic eviction |
 | Familiarity | Implemented | Exposure-derived per-token familiarity |
@@ -90,15 +90,15 @@ That gives `atperson` a few properties I care about:
 - episodic memories retain a route back to their source evidence;
 - skipped material remains distinguishable from material that was never seen.
 
-The current snapshot format is **v5**. It stores the mutable graph and neural state alongside the mirrored ledger state, memory, familiarity, valence, counters and deterministic PRNG state. The standalone ledger remains the durable observation authority.
+The current snapshot format is **v6**. It persists the neural architecture descriptor together with the mutable graph and neural state, mirrored ledger state, memory, familiarity, valence, counters and deterministic PRNG state. v4/v5 generations remain readable at the legacy topology. The standalone ledger remains the durable observation authority.
 
 ## Learning and memory
 
 The C23 core currently provides:
 
 - an initially empty directed token graph;
-- 16-dimensional trainable embeddings created only when a token is observed;
-- a small online neural scorer trained from observed bigrams with negative sampling;
+- trainable embeddings whose persisted width is selected when a model generation is first created;
+- a persisted variable-shape online neural scorer trained from observed bigrams with negative sampling;
 - learned edge strength, exposure counts and hashed source provenance;
 - source-linked episodic memory with bounded deterministic retention;
 - per-token familiarity learned from repeated exposure;

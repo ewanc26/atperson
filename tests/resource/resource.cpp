@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -251,6 +253,18 @@ atperson::SystemResources capable_system() {
     return system;
 }
 
+atperson::SystemResources large_system() {
+    atperson::SystemResources system;
+    system.host_logical_cpus = 4u;
+    system.effective_cpu_capacity = 4.0;
+    system.host_memory_total_bytes = 16u * GIB;
+    system.effective_memory_total_bytes = 16u * GIB;
+    system.effective_memory_available_bytes = 12u * GIB;
+    system.disk_capacity_bytes = 128u * GIB;
+    system.disk_available_bytes = 64u * GIB;
+    return system;
+}
+
 atperson::RuntimeResourceStatus status_for(const atperson::SystemResources &system) {
     return atperson::RuntimeResourceStatus{
         .system = system,
@@ -284,9 +298,47 @@ void test_neural_architecture_translation() {
     assert(graph.neural_architecture().embedding_dim == architecture.embedding_dim);
 }
 
+/* Issue #73 acceptance: distinct synthetic host classes create and persist
+ * distinct first-generation topologies. */
+void test_first_creation_profiles_differ() {
+    atperson::SystemResources constrained;
+    constrained.host_logical_cpus = 1u;
+    constrained.effective_cpu_capacity = 1.0;
+    constrained.host_memory_total_bytes = 512u * MIB;
+    constrained.effective_memory_total_bytes = 512u * MIB;
+    constrained.effective_memory_available_bytes = 256u * MIB;
+    constrained.disk_capacity_bytes = 16u * GIB;
+    constrained.disk_available_bytes = 2u * GIB;
+
+    const auto constrained_path = resource_test_model("first-constrained");
+    const auto large_path = resource_test_model("first-large");
+    std::filesystem::remove(constrained_path);
+    std::filesystem::remove(large_path);
+
+    auto constrained_graph =
+        atperson::load_or_create_graph(status_for(constrained), constrained_path);
+    auto large_graph =
+        atperson::load_or_create_graph(status_for(large_system()), large_path);
+    constrained_graph.save(constrained_path);
+    large_graph.save(large_path);
+
+    atp_neural_architecture constrained_arch{};
+    atp_neural_architecture large_arch{};
+    assert(atp_snapshot_neural_architecture(
+               constrained_path.string().c_str(), &constrained_arch) == ATP_OK);
+    assert(atp_snapshot_neural_architecture(
+               large_path.string().c_str(), &large_arch) == ATP_OK);
+    assert(constrained_arch.embedding_dim == 32u);
+    assert(large_arch.embedding_dim == 256u);
+    assert(constrained_arch.embedding_dim != large_arch.embedding_dim);
+
+    std::filesystem::remove(constrained_path);
+    std::filesystem::remove(large_path);
+}
+
 /* Issue #73: first creation binds topology to the hardware recommendation and
  * persists it; an existing model loads at its persisted topology even when a
- * smaller host now recommends something else (never silently reshaped). */
+ * smaller or stronger host now recommends something else. */
 void test_first_creation_and_host_migration() {
     const auto model_path = resource_test_model("migration");
     std::filesystem::remove(model_path);
@@ -315,6 +367,10 @@ void test_first_creation_and_host_migration() {
     small.disk_available_bytes = 2u * GIB;
     const auto small_status = status_for(small);
     assert(small_status.budget.neural.capacity_class == atperson::NeuralCapacityClass::constrained);
+
+    auto stronger =
+        atperson::load_or_create_graph(status_for(roomy_system()), model_path);
+    assert(stronger.neural_architecture().embedding_dim == 128u);
 
     auto migrated = atperson::load_or_create_graph(small_status, model_path);
     assert(migrated.neural_architecture().embedding_dim == 128u);
@@ -371,6 +427,7 @@ void test_memory_refusal_on_smaller_host() {
  * probe + fresh-create at that topology reproduces the persisted shape. */
 void test_persisted_architecture_probe() {
     const auto status = status_for(capable_system());
+    std::filesystem::remove(resource_test_model("probe"));
     auto graph = atperson::load_or_create_graph(status, resource_test_model("probe"));
     graph.save(resource_test_model("probe"));
 
@@ -463,48 +520,48 @@ void test_neural_override_validation() {
 
 /* Issue #73: operator overrides come out of ATPERSON_NEURAL_* env vars. */
 void test_neural_override_environment_parsing() {
-    const char *previous_capacity = std::getenv("ATPERSON_NEURAL_CAPACITY");
-    const char *previous_layers = std::getenv("ATPERSON_NEURAL_HIDDEN_LAYERS");
-    const char *previous_widths = std::getenv("ATPERSON_NEURAL_HIDDEN_WIDTHS");
+    const char *raw_capacity = std::getenv("ATPERSON_NEURAL_CAPACITY");
+    const char *raw_layers = std::getenv("ATPERSON_NEURAL_HIDDEN_LAYERS");
+    const char *raw_widths = std::getenv("ATPERSON_NEURAL_HIDDEN_WIDTHS");
+    const std::optional<std::string> previous_capacity =
+        raw_capacity ? std::optional<std::string>{raw_capacity} : std::nullopt;
+    const std::optional<std::string> previous_layers =
+        raw_layers ? std::optional<std::string>{raw_layers} : std::nullopt;
+    const std::optional<std::string> previous_widths =
+        raw_widths ? std::optional<std::string>{raw_widths} : std::nullopt;
+
+    const auto restore = [](const char *name, const std::optional<std::string> &value) {
+        if (value) {
+            assert(setenv(name, value->c_str(), 1) == 0);
+        } else {
+            unsetenv(name);
+        }
+    };
+
     assert(setenv("ATPERSON_NEURAL_CAPACITY", "expansive", 1) == 0);
     unsetenv("ATPERSON_NEURAL_HIDDEN_LAYERS");
     unsetenv("ATPERSON_NEURAL_HIDDEN_WIDTHS");
     auto overrides = atperson::resource_overrides_from_environment();
     assert(overrides.neural_capacity_class == atperson::NeuralCapacityClass::expansive);
-    assert(!overrides.neural_hidden_layer_count);
-    assert(!overrides.neural_hidden_widths);
-    if (previous_capacity) {
-        assert(setenv("ATPERSON_NEURAL_CAPACITY", previous_capacity, 1) == 0);
-    } else {
-        unsetenv("ATPERSON_NEURAL_CAPACITY");
-    }
-    if (previous_layers) {
-        assert(setenv("ATPERSON_NEURAL_HIDDEN_LAYERS", previous_layers, 1) == 0);
-    } else {
-        unsetenv("ATPERSON_NEURAL_HIDDEN_LAYERS");
-    }
-    if (previous_widths) {
-        assert(setenv("ATPERSON_NEURAL_HIDDEN_WIDTHS", previous_widths, 1) == 0);
-    } else {
-        unsetenv("ATPERSON_NEURAL_HIDDEN_WIDTHS");
-    }
 
+    unsetenv("ATPERSON_NEURAL_CAPACITY");
     assert(setenv("ATPERSON_NEURAL_HIDDEN_LAYERS", "3", 1) == 0);
     assert(setenv("ATPERSON_NEURAL_HIDDEN_WIDTHS", "512:256:128", 1) == 0);
     overrides = atperson::resource_overrides_from_environment();
-    assert(overrides.neural_hidden_layer_count && *overrides.neural_hidden_layer_count == 3u);
+    assert(overrides.neural_hidden_layer_count &&
+           *overrides.neural_hidden_layer_count == 3u);
     assert(overrides.neural_hidden_widths &&
-           (*overrides.neural_hidden_widths == std::array<std::size_t, 3u>{512u, 256u, 128u}));
-    if (previous_layers) {
-        assert(setenv("ATPERSON_NEURAL_HIDDEN_LAYERS", previous_layers, 1) == 0);
-    } else {
-        unsetenv("ATPERSON_NEURAL_HIDDEN_LAYERS");
+           (*overrides.neural_hidden_widths ==
+            std::array<std::size_t, 3u>{512u, 256u, 128u}));
+
+    assert(setenv("ATPERSON_NEURAL_HIDDEN_WIDTHS", "256junk:128", 1) == 0);
+    bool trailing_junk_rejected = false;
+    try {
+        (void)atperson::resource_overrides_from_environment();
+    } catch (const std::runtime_error &) {
+        trailing_junk_rejected = true;
     }
-    if (previous_widths) {
-        assert(setenv("ATPERSON_NEURAL_HIDDEN_WIDTHS", previous_widths, 1) == 0);
-    } else {
-        unsetenv("ATPERSON_NEURAL_HIDDEN_WIDTHS");
-    }
+    assert(trailing_junk_rejected);
 
     assert(setenv("ATPERSON_NEURAL_HIDDEN_WIDTHS", "bogus", 1) == 0);
     bool parsed_rejected = false;
@@ -514,11 +571,10 @@ void test_neural_override_environment_parsing() {
         parsed_rejected = true;
     }
     assert(parsed_rejected);
-    if (previous_widths) {
-        assert(setenv("ATPERSON_NEURAL_HIDDEN_WIDTHS", previous_widths, 1) == 0);
-    } else {
-        unsetenv("ATPERSON_NEURAL_HIDDEN_WIDTHS");
-    }
+
+    restore("ATPERSON_NEURAL_CAPACITY", previous_capacity);
+    restore("ATPERSON_NEURAL_HIDDEN_LAYERS", previous_layers);
+    restore("ATPERSON_NEURAL_HIDDEN_WIDTHS", previous_widths);
 }
 
 /* Exact parameter accounting agrees between the runtime and the C core, and
@@ -533,15 +589,43 @@ void test_neural_parameter_accounting() {
 
     const std::uint64_t empty_footprint =
         atperson::neural_memory_footprint(architecture, 0u, 0u);
-    assert(empty_footprint == profile.shared_parameter_count * sizeof(float));
+    const std::uint64_t activations =
+        architecture.input_dim + architecture.hidden_widths[0] +
+        architecture.hidden_widths[1] + architecture.output_dim;
+    const std::uint64_t expected_shared =
+        profile.shared_parameter_count * 2u * sizeof(float) +
+        activations * 2u * sizeof(float);
+    assert(empty_footprint == expected_shared);
+    const std::uint64_t node_bytes =
+        256u + (architecture.embedding_dim - ATPERSON_EMBEDDING_DIM) *
+                   2u * sizeof(float);
     const std::uint64_t grown_footprint =
         atperson::neural_memory_footprint(architecture, 1000u, 4000u);
-    assert(grown_footprint == empty_footprint + 1000u * 256u + 4000u * 64u);
+    assert(grown_footprint ==
+           empty_footprint + 1000u * node_bytes + 4000u * 64u);
 
     atp_neural_architecture invalid = architecture;
     invalid.hidden_layer_count = 0u;
     assert(atp_neural_parameter_count(&invalid) == 0u);
     assert(atperson::neural_memory_footprint(invalid, 0u, 0u) == 0u);
+}
+
+void test_resource_inspection_distinguishes_active_and_recommended() {
+    const auto capable = status_for(capable_system());
+    const atp_neural_architecture active =
+        atperson::neural_architecture_of(capable.budget.neural);
+    atperson::LanguageGraph graph(atp_graph_default_config(), active);
+
+    const atperson::RuntimeResourceStatus roomy{
+        .system = roomy_system(),
+        .budget = atperson::derive_resource_budget(roomy_system(), graph.stats()),
+    };
+    std::ostringstream output;
+    atperson::print_runtime_resources(output, roomy, graph, {});
+    const std::string text = output.str();
+    assert(text.find("neural architecture (active)") != std::string::npos);
+    assert(text.find("neural recommendation: expansive") != std::string::npos);
+    assert(text.find("expansion available") != std::string::npos);
 }
 
 } // namespace
@@ -557,12 +641,14 @@ int main() {
     test_snapshot_load_preflight();
     test_probe_smoke();
     test_neural_architecture_translation();
+    test_first_creation_profiles_differ();
     test_first_creation_and_host_migration();
     test_memory_refusal_on_smaller_host();
     test_persisted_architecture_probe();
     test_neural_override_validation();
     test_neural_override_environment_parsing();
     test_neural_parameter_accounting();
+    test_resource_inspection_distinguishes_active_and_recommended();
     std::cout << "resource: ok\n";
     return 0;
 }

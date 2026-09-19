@@ -41,10 +41,10 @@ Issue #73 binds the first run of a brand-new model generation to the machine's h
 - **First creation**: when no model snapshot exists, the runtime derives the current resource budget first, translates the `NeuralCapacityRecommendation` into a validated C23 `atp_neural_architecture`, and creates a fresh graph at exactly that topology. The first save persists the architecture as durable model-generation metadata.
 - **Every later run**: the persisted topology is authoritative. The current recommendation is only an execution/headroom check and an expansion suggestion. A smaller or changed host never silently reshapes the model; `atperson resources` keeps *active*, *recommended* and *expansion available* separate.
 - **Rebuild**: recovers the model-generation topology from the durable snapshot via the metadata probe, never from current host hardware.
-- **Refusal, not shrinkage**: if the current machine cannot safely host the persisted architecture's learned-state footprint within the memory safety reserve, load is refused with an explicit error. Lowering `ATPERSON_NEURAL_*` overrides or rebuilding on a larger machine are the documented recovery paths.
+- **Refusal, not shrinkage**: if the current machine cannot safely host the persisted architecture's learned-state footprint within the memory safety reserve, load is refused with an explicit error. Free memory or move the generation to a larger machine; `ATPERSON_NEURAL_*` overrides never reshape an existing generation.
 - **Pre-v6 generations** carry no topology descriptor and keep their legacy architecture; `rebuild` and `load` report the legacy topology for them. Future migration to variable shapes is a separate decision, not a side effect of this change.
 
-The memory footprint check is deliberately an estimate: shared parameters use the exact C-core parameter count, and per-node/per-edge state uses the same conservative bytes as the growth budget.
+The memory footprint check is deliberately an estimate: it includes values plus plasticity-importance storage for shared parameters and per-node embeddings, training scratch, and conservative structural node/edge allowances. Graph-growth ceilings use the active persisted embedding width so a wide model is not budgeted as though it still used the legacy 16D vectors.
 
 ## Disk and sync budgets
 

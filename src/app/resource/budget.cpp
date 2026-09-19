@@ -23,6 +23,15 @@ constexpr std::uint64_t NODE_GROWTH_BYTES = 256u;
 constexpr std::uint64_t EDGE_GROWTH_BYTES = 64u;
 constexpr std::uint64_t OBSERVATION_DISK_RESERVE_BYTES = 512u * KIB;
 
+std::uint64_t node_growth_bytes(std::size_t embedding_dim) {
+    if (embedding_dim <= ATPERSON_EMBEDDING_DIM) {
+        return NODE_GROWTH_BYTES;
+    }
+    const std::uint64_t extra_dims =
+        static_cast<std::uint64_t>(embedding_dim - ATPERSON_EMBEDDING_DIM);
+    return NODE_GROWTH_BYTES + extra_dims * 2u * sizeof(float);
+}
+
 std::optional<std::uint64_t> environment_u64(const char *name) {
     const char *raw = std::getenv(name);
     if (!raw || raw[0] == '\0') {
@@ -280,7 +289,8 @@ std::optional<std::array<std::size_t, 3u>> neural_hidden_widths_from_environment
         const std::string_view token = text.substr(start, end - start);
         std::size_t width = 0u;
         const auto parsed = std::from_chars(token.data(), token.data() + token.size(), width);
-        if (token.empty() || parsed.ec != std::errc{}) {
+        if (token.empty() || parsed.ec != std::errc{} ||
+            parsed.ptr != token.data() + token.size()) {
             throw std::runtime_error(std::string(name) + " entries must be unsigned integers");
         }
         widths[count++] = width;
@@ -386,9 +396,10 @@ atp_neural_architecture neural_architecture_of(const NeuralCapacityRecommendatio
     return architecture;
 }
 
-ResourceBudget derive_resource_budget(const SystemResources &system,
-                                      const atp_graph_stats &graph,
-                                      const ResourceOverrides &overrides) {
+ResourceBudget derive_resource_budget(
+    const SystemResources &system, const atp_graph_stats &graph,
+    const ResourceOverrides &overrides,
+    const atp_neural_architecture *active_architecture) {
     ResourceBudget budget;
 
     const std::uint64_t total_memory = system.effective_memory_total_bytes;
@@ -408,7 +419,11 @@ ResourceBudget derive_resource_budget(const SystemResources &system,
         budget.memory_growth_budget_bytes = std::min(total_bound, memory_headroom / 2u);
     }
     budget.memory_pressure =
-        available_memory <= budget.memory_reserve_bytes || budget.memory_growth_budget_bytes < 16u * MIB;
+        available_memory <= budget.memory_reserve_bytes ||
+        budget.memory_growth_budget_bytes < 16u * MIB;
+
+    budget.neural = neural_recommendation(system, budget);
+    apply_neural_overrides(budget.neural, overrides);
 
     bool have_disk = false;
     const auto consider_disk = [&](const std::filesystem::path &path, std::uint64_t capacity,
@@ -441,8 +456,10 @@ ResourceBudget derive_resource_budget(const SystemResources &system,
 
     const std::uint64_t node_budget = budget.memory_growth_budget_bytes * 3u / 10u;
     const std::uint64_t edge_budget = budget.memory_growth_budget_bytes - node_budget;
+    const std::size_t growth_embedding_dim =
+        active_architecture ? active_architecture->embedding_dim : budget.neural.embedding_dim;
     budget.node_capacity_max =
-        saturating_add(graph.node_count, node_budget / NODE_GROWTH_BYTES);
+        saturating_add(graph.node_count, node_budget / node_growth_bytes(growth_embedding_dim));
     budget.edge_capacity_max =
         saturating_add(graph.edge_count, edge_budget / EDGE_GROWTH_BYTES);
 

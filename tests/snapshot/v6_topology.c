@@ -336,6 +336,23 @@ static void test_arch_probe_legacy(void) {
     remove(V5_PATH);
 }
 
+/* Legacy probes must validate the legacy snapshot version and minimum framing,
+ * not accept a magic/version stub as a generation. */
+static void test_arch_probe_rejects_invalid_legacy_framing(void) {
+    unsigned char image[32] = {0};
+    memcpy(image, "ATPERSN5", 8u);
+    atp_store_u32le(image + 8u, UINT32_C(0xFFFFFFFF));
+    write_file(V5_PATH, image, sizeof(image));
+
+    atp_neural_architecture probed = {0};
+    assert(atp_snapshot_neural_architecture(V5_PATH, &probed) == ATP_ERR_FORMAT);
+
+    atp_store_u32le(image + 8u, 5u);
+    write_file(V5_PATH, image, 12u);
+    assert(atp_snapshot_neural_architecture(V5_PATH, &probed) == ATP_ERR_FORMAT);
+    remove(V5_PATH);
+}
+
 /* A structurally invalid ARCH payload in an otherwise intact v6 snapshot is
  * FORMAT from the probe as well as from the whole-file loader. */
 static void test_arch_probe_rejects_corrupt(void) {
@@ -389,6 +406,7 @@ int main(void) {
     test_deterministic_save();
     test_arch_probe();
     test_arch_probe_legacy();
+    test_arch_probe_rejects_invalid_legacy_framing();
     test_arch_probe_rejects_corrupt();
     printf("v6_topology_test: all tests passed\n");
     return 0;
