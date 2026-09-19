@@ -18,7 +18,6 @@
 #include <filesystem>
 #include <functional>
 #include <iostream>
-#include <limits>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -60,7 +59,7 @@ std::uint64_t mix_architecture(std::uint64_t hash,
 std::uint64_t derive_migration_seed(
     const LanguageGraph &graph, std::uint64_t ledger_boundary,
     const atp_neural_architecture &source,
-    const atp_neural_architecture &target) noexcept {
+    const atp_neural_architecture &target) {
     std::uint64_t hash = UINT64_C(1469598103934665603);
     hash = migration_seed_mix(hash, UINT64_C(0x4154504552534f4e)); /* ATPERSON */
     hash = migration_seed_mix(hash, ATPERSON_NEURAL_MIGRATION_VERSION);
