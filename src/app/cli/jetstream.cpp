@@ -52,6 +52,7 @@ int run_jetstream_status(
         state_file, endpoint, "", kSourceKindJetstream);
 
     out << "jetstream endpoint: " << endpoint << '\n'
+        << "self DID: " << (configured_self.empty() ? "missing (live ingestion will refuse)" : configured_self) << '\n'
         << "phase: live-only (network replay not configured)\n"
         << "state: " << state_file.string() << '\n'
         << "cursor: ";
@@ -103,6 +104,9 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         "ATPERSON_JETSTREAM_ENDPOINT",
         "wss://jetstream1.us-east.bsky.network/subscribe");
 
+    const std::string configured_self = required_self_did();
+
+    const std::string configured_self = self_did();
     /*
      * Bind the persisted cursor to the actual Jetstream endpoint, not the
      * authenticated PDS/service URL used by timeline sync. A cursor from one
@@ -120,7 +124,8 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     const std::vector<std::string> dids =
         dids_file.empty() ? std::vector<std::string>{}
                           : atperson::load_jetstream_dids(dids_file);
-    atperson::JetstreamClient client(endpoint, collections, dids);
+    atperson::JetstreamClient client(
+        endpoint, configured_self, collections, dids);
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
 
