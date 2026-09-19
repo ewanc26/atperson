@@ -21,6 +21,25 @@ std::string required_env(const char *name) {
     return value;
 }
 
+std::string self_did() {
+    const std::string value = env_or("ATPERSON_SELF_DID");
+    if (!value.empty() && value.rfind("did:", 0u) != 0u) {
+        throw std::runtime_error(
+            "ATPERSON_SELF_DID must be a DID beginning with 'did:'");
+    }
+    return value;
+}
+
+std::string required_self_did() {
+    const std::string value = self_did();
+    if (value.empty()) {
+        throw std::runtime_error(
+            "missing required environment variable ATPERSON_SELF_DID "
+            "(Jetstream needs the entity DID to exclude self-authored records)");
+    }
+    return value;
+}
+
 std::filesystem::path data_dir() {
     if (const std::string home_data = env_or("ATPERSON_HOME"); !home_data.empty()) {
         return home_data;
