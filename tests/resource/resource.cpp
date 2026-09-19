@@ -245,6 +245,18 @@ atperson::SystemResources capable_system() {
     return system;
 }
 
+atperson::SystemResources baseline_system() {
+    atperson::SystemResources system;
+    system.host_logical_cpus = 1u;
+    system.effective_cpu_capacity = 1.0;
+    system.host_memory_total_bytes = 1u * GIB;
+    system.effective_memory_total_bytes = 1u * GIB;
+    system.effective_memory_available_bytes = 512u * MIB;
+    system.disk_capacity_bytes = 32u * GIB;
+    system.disk_available_bytes = 8u * GIB;
+    return system;
+}
+
 atperson::SystemResources large_system() {
     atperson::SystemResources system;
     system.host_logical_cpus = 4u;
@@ -676,7 +688,16 @@ void test_neural_runtime_policy_adapts_without_topology_mutation() {
     constrained.disk_available_bytes = 2u * GIB;
 
     const auto small = status_for(constrained);
+    const auto baseline = status_for(baseline_system());
+    const auto large = status_for(large_system());
     const auto roomy = status_for(roomy_system());
+
+    assert(small.budget.neural.capacity_class ==
+           atperson::NeuralCapacityClass::constrained);
+    assert(baseline.budget.neural.capacity_class ==
+           atperson::NeuralCapacityClass::baseline);
+    assert(large.budget.neural.capacity_class ==
+           atperson::NeuralCapacityClass::large);
 
     assert(small.neural_runtime.policy_version ==
            atperson::NeuralRuntimePolicy::current_version);
@@ -686,10 +707,16 @@ void test_neural_runtime_policy_adapts_without_topology_mutation() {
     assert(small.neural_runtime.surrounding_worker_threads == 0u);
     assert(roomy.neural_runtime.core_owner_threads == 1u);
     assert(roomy.neural_runtime.surrounding_worker_threads == 7u);
-    assert(roomy.neural_runtime.observation_work_batch >
+    assert(baseline.neural_runtime.observation_work_batch >=
            small.neural_runtime.observation_work_batch);
-    assert(roomy.neural_runtime.workspace_bytes >
+    assert(large.neural_runtime.observation_work_batch >
+           baseline.neural_runtime.observation_work_batch);
+    assert(roomy.neural_runtime.observation_work_batch >=
+           large.neural_runtime.observation_work_batch);
+    assert(baseline.neural_runtime.workspace_bytes >
            small.neural_runtime.workspace_bytes);
+    assert(large.neural_runtime.workspace_bytes >
+           baseline.neural_runtime.workspace_bytes);
     assert(roomy.neural_runtime.deterministic);
     assert(roomy.neural_runtime.portable_fallback);
     assert(std::string(atperson::neural_execution_backend_name(
