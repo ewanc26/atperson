@@ -32,6 +32,7 @@ std::filesystem::path jetstream_state_path();
 /* Optional operator-owned one-collection-filter-per-line file. Empty path
  * means the default public-post collection. */
 std::filesystem::path jetstream_collections_path();
+std::filesystem::path jetstream_dids_path();
 
 std::filesystem::path control_state_path();
 std::filesystem::path outbound_policy_path();
