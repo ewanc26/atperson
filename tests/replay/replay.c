@@ -339,6 +339,7 @@ static int run_replay(const char *dir) {
     CHECK(atp_replay_ledger_with_migrations(
               ledger, wrong_start, migrations, 2u,
               &migration_report) == ATP_ERR_MIGRATION);
+    CHECK(migration_report.failed_at_id == 2u);
     CHECK(atp_graph_get_stats(wrong_start).observations == 0u);
     atp_graph_destroy(wrong_start);
 
@@ -351,6 +352,7 @@ static int run_replay(const char *dir) {
     CHECK(atp_replay_ledger_with_migrations(
               ledger, missing_boundary, impossible, 2u,
               &migration_report) == ATP_ERR_MIGRATION);
+    CHECK(migration_report.failed_at_id == 99u);
     CHECK(atp_graph_get_stats(missing_boundary).observations == 0u);
     atp_graph_destroy(missing_boundary);
     CHECK(atp_replay_ledger_with_migrations(
