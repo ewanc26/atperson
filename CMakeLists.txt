@@ -649,7 +649,10 @@ if(ATPERSON_BUILD_TESTS)
     atperson-jetstream-extract-test
     tests/atproto/jetstream.cpp
     src/app/atproto/jetstream.cpp
-    src/app/ingestion/policy.cpp)
+    src/app/atproto/extract.cpp
+    src/app/ingestion/policy.cpp
+    src/app/sync/engine.cpp
+    src/app/state/time.cpp)
   target_compile_features(atperson-jetstream-extract-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-jetstream-extract-test PRIVATE atperson-cpp cjson)
   target_include_directories(atperson-jetstream-extract-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
