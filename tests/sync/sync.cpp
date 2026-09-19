@@ -345,7 +345,7 @@ void test_jetstream_endpoint_mismatch_does_not_reuse_cursor() {
     const auto path = dir / "jetstream-state.json";
 
     constexpr std::string_view first =
-        "wss://jetstream1.us-east.bsky.network/subscribe";
+        "wss://jetstream.us-east.bsky.network/subscribe";
     constexpr std::string_view second =
         "wss://jetstream2.us-east.bsky.network/subscribe";
 
