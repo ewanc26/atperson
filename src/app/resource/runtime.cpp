@@ -216,6 +216,127 @@ void require_runtime_neural_headroom(const RuntimeResourceStatus &status,
     }
 }
 
+const char *neural_expansion_status_name(NeuralExpansionStatus status) noexcept {
+    switch (status) {
+    case NeuralExpansionStatus::at_recommendation:
+        return "at-recommendation";
+    case NeuralExpansionStatus::available:
+        return "available";
+    case NeuralExpansionStatus::incompatible:
+        return "incompatible";
+    }
+    return "unknown";
+}
+
+NeuralExpansionPlan plan_neural_expansion(const LanguageGraph &graph,
+                                          const RuntimeResourceStatus &status) {
+    NeuralExpansionPlan plan;
+    plan.active = graph.neural_architecture();
+    plan.proposed = neural_architecture_of(status.budget.neural);
+
+    const atp_graph_stats stats = graph.stats();
+    plan.active_parameter_count = atp_neural_parameter_count(&plan.active);
+    plan.proposed_parameter_count = atp_neural_parameter_count(&plan.proposed);
+    plan.active_footprint_bytes =
+        neural_memory_footprint(plan.active, stats.node_count, stats.edge_count);
+    plan.proposed_footprint_bytes =
+        neural_memory_footprint(plan.proposed, stats.node_count, stats.edge_count);
+    plan.additional_footprint_bytes =
+        plan.proposed_footprint_bytes > plan.active_footprint_bytes
+            ? plan.proposed_footprint_bytes - plan.active_footprint_bytes
+            : 0u;
+
+    if (status.system.effective_memory_available_bytes != 0u) {
+        plan.memory_headroom_known = true;
+        plan.available_after_reserve_bytes =
+            status.system.effective_memory_available_bytes >
+                    status.budget.memory_reserve_bytes
+                ? status.system.effective_memory_available_bytes -
+                      status.budget.memory_reserve_bytes
+                : 0u;
+        plan.fits_current_headroom =
+            plan.proposed_footprint_bytes <= plan.available_after_reserve_bytes;
+    }
+
+    if (plan.proposed.version != plan.active.version ||
+        plan.proposed.output_dim != plan.active.output_dim) {
+        plan.status = NeuralExpansionStatus::incompatible;
+        plan.reason = "architecture version/output contract differs from the active generation";
+        return plan;
+    }
+    if (plan.proposed.embedding_dim < plan.active.embedding_dim) {
+        plan.status = NeuralExpansionStatus::incompatible;
+        plan.reason = "recommended embedding width is smaller than the active generation";
+        return plan;
+    }
+    if (plan.proposed.hidden_layer_count < plan.active.hidden_layer_count) {
+        plan.status = NeuralExpansionStatus::incompatible;
+        plan.reason = "recommended hidden-layer count is smaller than the active generation";
+        return plan;
+    }
+    for (std::uint32_t layer = 0u; layer < plan.active.hidden_layer_count; ++layer) {
+        if (plan.proposed.hidden_widths[layer] < plan.active.hidden_widths[layer]) {
+            plan.status = NeuralExpansionStatus::incompatible;
+            plan.reason = "recommended hidden layer " + std::to_string(layer + 1u) +
+                          " is narrower than the active generation";
+            return plan;
+        }
+    }
+
+    bool strictly_larger = plan.proposed.embedding_dim > plan.active.embedding_dim ||
+                           plan.proposed.hidden_layer_count >
+                               plan.active.hidden_layer_count;
+    for (std::uint32_t layer = 0u; layer < plan.active.hidden_layer_count; ++layer) {
+        strictly_larger =
+            strictly_larger ||
+            plan.proposed.hidden_widths[layer] > plan.active.hidden_widths[layer];
+    }
+
+    if (!strictly_larger) {
+        plan.status = NeuralExpansionStatus::at_recommendation;
+        plan.reason = "active topology already matches the current recommendation";
+        return plan;
+    }
+
+    plan.status = NeuralExpansionStatus::available;
+    plan.reason = plan.fits_current_headroom
+                      ? "monotonic expansion candidate is available"
+                      : "monotonic expansion exists but does not fit current safe memory headroom";
+    return plan;
+}
+
+void print_neural_expansion_plan(std::ostream &out, const NeuralExpansionPlan &plan) {
+    out << "neural expansion preflight: migration v"
+        << NeuralExpansionPlan::migration_version << '\n';
+    out << "status: " << neural_expansion_status_name(plan.status) << '\n';
+
+    out << "active: embedding " << plan.active.embedding_dim << "; hidden ";
+    print_hidden(out, plan.active.hidden_widths, plan.active.hidden_layer_count);
+    out << "; params " << plan.active_parameter_count << "; footprint ~";
+    print_bytes(out, plan.active_footprint_bytes);
+    out << '\n';
+
+    out << "proposed: embedding " << plan.proposed.embedding_dim << "; hidden ";
+    print_hidden(out, plan.proposed.hidden_widths, plan.proposed.hidden_layer_count);
+    out << "; params " << plan.proposed_parameter_count << "; footprint ~";
+    print_bytes(out, plan.proposed_footprint_bytes);
+    out << '\n';
+
+    out << "additional footprint: ~";
+    print_bytes(out, plan.additional_footprint_bytes);
+    if (plan.memory_headroom_known) {
+        out << "; safe memory headroom ";
+        print_bytes(out, plan.available_after_reserve_bytes);
+        out << "; fits: " << (plan.fits_current_headroom ? "yes" : "no");
+    } else {
+        out << "; safe memory headroom unknown";
+    }
+    out << '\n';
+
+    out << "reason: " << plan.reason << '\n'
+        << "mutation: none (inspection only)\n";
+}
+
 LanguageGraph load_or_create_graph(const RuntimeResourceStatus &status,
                                    const std::filesystem::path &model_path) {
     if (std::filesystem::exists(model_path)) {
@@ -350,13 +471,19 @@ void print_runtime_resources(std::ostream &out, const RuntimeResourceStatus &sta
     out << "; embedding " << neural.embedding_dim << "; hidden "
         << hidden_string(neural.hidden_widths, neural.hidden_layer_count)
         << "; params " << neural.shared_parameter_count;
-    if (neural.shared_parameter_count > active_params) {
-        out << "; expansion available: +" << (neural.shared_parameter_count - active_params)
-            << " params (~";
-        print_bytes(out, (neural.shared_parameter_count - active_params) * sizeof(float));
-        out << ')';
-    } else if (neural.shared_parameter_count < active_params) {
-        out << "; active architecture is above current recommended capacity";
+
+    const NeuralExpansionPlan expansion = plan_neural_expansion(graph, status);
+    if (expansion.status == NeuralExpansionStatus::available) {
+        out << "; expansion available: migration v"
+            << NeuralExpansionPlan::migration_version << ", +"
+            << (expansion.proposed_parameter_count - expansion.active_parameter_count)
+            << " params, footprint +";
+        print_bytes(out, expansion.additional_footprint_bytes);
+        if (!expansion.fits_current_headroom) {
+            out << " (insufficient safe memory headroom)";
+        }
+    } else if (expansion.status == NeuralExpansionStatus::incompatible) {
+        out << "; no monotonic expansion: " << expansion.reason;
     } else {
         out << "; at recommended capacity";
     }
