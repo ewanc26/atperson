@@ -79,6 +79,9 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         throw std::runtime_error("ATPERSON_SELF_DID must be a DID");
     }
     atperson::JetstreamClient client(endpoint, jetstream_collections(), jetstream_dids());
+    if (ingestion.catchup.active && ingestion.catchup.cursor.has_value()) {
+        client.resume_from(*ingestion.catchup.cursor);
+    }
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
 
