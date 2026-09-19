@@ -73,7 +73,7 @@ void print_usage(std::ostream &out) {
         << "  ATPERSON_APP_PASSWORD  app password for sync/daemon\n"
         << "  ATPERSON_SELF_DID      entity DID for unauthenticated Jetstream self-filtering\n"
         << "  ATPERSON_JETSTREAM_ENDPOINT  Jetstream ws(s) URL for public ingestion\n"
-        << "                              (default wss://jetstream1.us-east.bsky.network/subscribe)\n"
+        << "                              (default wss://jetstream.us-east.bsky.network/subscribe)\n"
         << "  ATPERSON_JETSTREAM_COLLECTIONS_FILE  one wantedCollections filter per line\n"
         << "  ATPERSON_JETSTREAM_DIDS_FILE         one wantedDids DID per line\n\n"
         << "  ATPERSON_DAEMON_PAGES_PER_CYCLE  pages per daemon sync cycle (default 1)\n"
