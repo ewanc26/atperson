@@ -97,6 +97,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     atperson::save_control_state(control, control_file);
 
     out << "jetstream: " << result.events_consumed << " frame(s), "
+        << result.malformed_frames << " malformed skipped, "
         << result.observations_seen << " observation(s)"
         << (result.exhausted ? ", feed exhausted" : ", catch-up pending")
         << "; learned from " << result.learned << " (skipped " << result.skipped
