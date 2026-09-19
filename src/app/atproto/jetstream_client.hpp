@@ -25,8 +25,9 @@
  * been durably handled, matching the engine's ordering invariant.
  *
  * Failure modes: throws std::runtime_error on a fatal transport error
- * (connect failure, parse failure of a frame the feed emitted). A
- * WOULD_BLOCK return from `wf_jetstream_next` (idle socket or reconnect
+ * (connect failure or non-parse stream error). Malformed frames are counted
+ * and skipped because the transport has already consumed their WebSocket
+ * message. A WOULD_BLOCK return from `wf_jetstream_next` (idle socket or reconnect
  * backoff) is not a failure: the caller sleeps for the advertised delay and
  * retries the same batch.
  */
@@ -82,7 +83,18 @@ class JetstreamClient {
      * events consumed and whether the feed was exhausted (never true in this
      * API — the socket simply goes idle and WOULD_BLOCKs). Throws
      * std::runtime_error on a fatal connect or parse failure. */
-    std::pair<std::uint64_t, bool> fetch_batch(
+    struct BatchResult {
+        std::uint64_t frames_consumed{};
+        std::uint64_t malformed_frames{};
+        bool exhausted{};
+    };
+
+    /*
+     * max_events bounds every received frame, including unsupported and
+     * malformed frames. A malformed frame is consumed/skipped with accounting
+     * rather than terminating the whole stream.
+     */
+    BatchResult fetch_batch(
         const JetstreamLimits &limits,
         std::function<void(const JetstreamEvent &)> on_event);
 
