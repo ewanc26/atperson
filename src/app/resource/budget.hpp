@@ -130,9 +130,10 @@ ResourceOverrides resource_overrides_from_environment();
  * produce the same result. Graph ceilings never fall below current counts;
  * no eviction is implied by a lower machine budget.
  */
-ResourceBudget derive_resource_budget(const SystemResources &system,
-                                      const atp_graph_stats &graph,
-                                      const ResourceOverrides &overrides = {});
+ResourceBudget derive_resource_budget(
+    const SystemResources &system, const atp_graph_stats &graph,
+    const ResourceOverrides &overrides = {},
+    const atp_neural_architecture *active_architecture = nullptr);
 
 } // namespace atperson
 
