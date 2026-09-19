@@ -32,9 +32,9 @@
  * change, not a refactor.
  *
  * v6 carries the explicit neural architecture descriptor and
- * variable-length network/node payloads. v5 remains the legacy fragment
- * format with its historical one-hidden-layer wire shape; both load as
- * current graphs, v5 at the named legacy architecture. */
+ * variable-length network/node payloads. v7 adds ordered neural migration
+ * history. v5 remains the legacy fragment format with its historical
+ * one-hidden-layer wire shape; all three remain readable. */
 
 #define ATP_SNAPSHOT_MAGIC_V4 "ATPERSN1"
 #define ATP_SNAPSHOT_MAGIC_V5 "ATPERSN5"
@@ -134,7 +134,7 @@ bool atp_encode_snapshot_v5(const atp_graph *graph, atp_buffer *buffer);
 atp_graph *atp_load_v5(const unsigned char *data, size_t size, atp_status *status);
 bool atp_decode_network(atp_reader *reader, atp_graph *graph);
 
-/* --- Explicit architecture format (v6.c) --- */
+/* --- Explicit architecture formats v6/v7 (v6.c) --- */
 
 bool atp_encode_snapshot_v6(const atp_graph *graph, atp_buffer *buffer);
 bool atp_encode_snapshot_v7(const atp_graph *graph, atp_buffer *buffer);
