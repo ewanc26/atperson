@@ -15,7 +15,7 @@ The positional limits bound one invocation by event count and wall-clock millise
 The default public endpoint is:
 
 ```text
-wss://jetstream1.us-east.bsky.network/subscribe
+wss://jetstream.us-east.bsky.network/subscribe
 ```
 
 Override it with `ATPERSON_JETSTREAM_ENDPOINT` for another public or self-hosted Jetstream service.
