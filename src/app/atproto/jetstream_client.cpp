@@ -46,8 +46,8 @@ std::int64_t seq_from_cursor(std::string_view cursor) {
 
 } // namespace
 
-JetstreamClient::JetstreamClient(std::string endpoint, std::string_view collections)
-    : endpoint_(std::move(endpoint)), collections_(collections) {}
+JetstreamClient::JetstreamClient(std::string endpoint, std::vector<std::string> collections)
+    : endpoint_(std::move(endpoint)), collections_(std::move(collections)) {}
 
 JetstreamClient::~JetstreamClient() {
     if (impl_ != nullptr) {
@@ -59,9 +59,13 @@ JetstreamClient::~JetstreamClient() {
 void *JetstreamClient::connect() {
     wf_jetstream_options options{};
     options.endpoint = endpoint_.c_str();
-    const char *collection_ptr = collections_.empty() ? nullptr : collections_.c_str();
-    options.wanted_collections = collection_ptr == nullptr ? nullptr : &collection_ptr;
-    options.wanted_collections_count = collection_ptr == nullptr ? 0u : 1u;
+    std::vector<const char *> collection_ptrs;
+    collection_ptrs.reserve(collections_.size());
+    for (const std::string &collection : collections_) {
+        collection_ptrs.push_back(collection.c_str());
+    }
+    options.wanted_collections = collection_ptrs.empty() ? nullptr : collection_ptrs.data();
+    options.wanted_collections_count = collection_ptrs.size();
     options.wanted_dids = nullptr;
     options.wanted_dids_count = 0u;
     /* Cursor 0 omits the query parameter entirely; Jetstream starts at the

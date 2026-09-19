@@ -67,6 +67,7 @@ void print_usage(std::ostream &out) {
         << "  ATPERSON_APP_PASSWORD  app password for sync/daemon\n"
         << "  ATPERSON_JETSTREAM_ENDPOINT  Jetstream ws(s) URL for the unauthenticated\n"
         << "                              backfill (default wss://jetstream.us-east.bsky.network/subscribe)\n\n"
+        << "  ATPERSON_JETSTREAM_COLLECTIONS_FILE  one wanted collection NSID per line\n"
         << "  ATPERSON_DAEMON_PAGES_PER_CYCLE  pages per daemon sync cycle (default 1)\n"
         << "  ATPERSON_DAEMON_POLL_MS          wait after an exhausted cycle "
            "(default 300000)\n"

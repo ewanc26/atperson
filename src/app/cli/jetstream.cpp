@@ -14,6 +14,9 @@
 
 #include <chrono>
 #include <iostream>
+#include <fstream>
+#include <algorithm>
+#include <cctype>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -28,6 +31,30 @@ JetstreamLimits parse_limits(int max_events, int max_ms) {
     limits.max_events = max_events > 0 ? static_cast<std::uint64_t>(max_events) : 0u;
     limits.max_ms = max_ms > 0 ? static_cast<std::int64_t>(max_ms) : 0;
     return limits;
+}
+
+std::vector<std::string> jetstream_collections() {
+    const std::string path = env_or("ATPERSON_JETSTREAM_COLLECTIONS_FILE");
+    if (path.empty()) return {"app.bsky.feed.post"};
+    std::ifstream input(path);
+    if (!input) throw std::runtime_error("could not open Jetstream collections file " + path);
+    std::vector<std::string> result;
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto comment = line.find('#');
+        if (comment != std::string::npos) line.resize(comment);
+        while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back()))) line.pop_back();
+        std::size_t first = 0;
+        while (first < line.size() && std::isspace(static_cast<unsigned char>(line[first]))) ++first;
+        line.erase(0, first);
+        if (line.empty()) continue;
+        if (std::any_of(line.begin(), line.end(), [](unsigned char c) { return std::isspace(c); }))
+            throw std::runtime_error("Jetstream collection contains embedded whitespace");
+        if (std::find(result.begin(), result.end(), line) == result.end()) result.push_back(line);
+        if (result.size() > 100u) throw std::runtime_error("Jetstream collection filter exceeds 100 entries");
+    }
+    if (result.empty()) throw std::runtime_error("Jetstream collection filter is empty");
+    return result;
 }
 
 } // namespace
@@ -62,7 +89,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     const std::string endpoint =
         env_or("ATPERSON_JETSTREAM_ENDPOINT",
                "wss://jetstream.us-east.bsky.network/subscribe");
-    atperson::JetstreamClient client(endpoint);
+    atperson::JetstreamClient client(endpoint, jetstream_collections());
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
 
