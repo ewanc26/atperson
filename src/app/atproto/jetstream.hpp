@@ -36,8 +36,9 @@ namespace atperson {
  * caller). The feed is unauthenticated, so the ingestion-state source DID is
  * empty on this path and the CLI/daemon owns that identity, never the
  * extractor. */
-[[nodiscard]] bool extract_jetstream_commit(const char *json, size_t json_len,
-                                            SyncObservation &out);
+[[nodiscard]] bool extract_jetstream_commit(
+    const char *json, size_t json_len, std::string_view account_did,
+    SyncObservation &out);
 
 } // namespace atperson
 
