@@ -7,7 +7,7 @@ Jetstream is derived from the AT Protocol repository firehose, but it is not the
 ## Current command
 
 ```sh
-atperson jetstream [max-events] [max-ms] [--collections <file>]
+atperson jetstream [max-events] [max-ms] [--collections <file>] [--dids <file>]
 ```
 
 The positional limits bound one invocation by event count and wall-clock milliseconds. A zero/unset limit remains unbounded in that dimension.
