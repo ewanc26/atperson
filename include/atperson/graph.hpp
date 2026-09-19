@@ -55,6 +55,10 @@ class LanguageGraph {
     [[nodiscard]] atp_neural_architecture_report neural_report() const;
     /** Ordered durable neural-expansion history for this generation. */
     [[nodiscard]] std::vector<atp_neural_migration> neural_migrations() const;
+
+    /** Apply one already-validated deterministic monotonic expansion. */
+    void expand_neural(const atp_neural_migration &migration);
+
     [[nodiscard]] std::vector<Association> associations(std::string_view token,
                                                         std::size_t limit = 10) const;
     [[nodiscard]] std::vector<ActionCandidate> action_candidates(std::string_view context,

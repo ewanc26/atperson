@@ -193,6 +193,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/config.cpp
     src/app/cli/usage.cpp
     src/app/cli/maintenance.cpp
+    src/app/cli/neural.cpp
     src/app/cli/inspection.cpp
     src/app/cli/ingest.cpp
     src/app/cli/control.cpp
@@ -443,6 +444,18 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-resource-test PRIVATE atperson-cpp)
   target_include_directories(atperson-resource-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-resource COMMAND atperson-resource-test)
+
+  # Explicit neural expansion (#66): offline writer-lock, ledger-boundary,
+  # deterministic-seed and atomic snapshot replacement coverage.
+  add_executable(
+    atperson-neural-expand-test
+    tests/resource/neural_expand.cpp
+    src/app/cli/neural.cpp
+    src/app/state/lock.cpp)
+  target_link_libraries(atperson-neural-expand-test PRIVATE atperson-cpp)
+  target_include_directories(
+    atperson-neural-expand-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-neural-expand COMMAND atperson-neural-expand-test)
 
   # Ingestion-state format and sync-engine restart semantics; offline
   # (fixture page fetchers, no live network).

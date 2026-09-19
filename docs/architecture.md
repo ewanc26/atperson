@@ -556,7 +556,13 @@ reinterpreted.
 
 The snapshot is a durable fast-start representation of learned state. The
 observation ledger and action journal remain the evidence streams from which a
-rebuild derives that state. For a migrated v7 generation, rebuild starts at the
+rebuild derives that state. Neural capacity expansion is therefore an explicit
+operator migration rather than a host-side effect: `atperson neural expand`
+holds the state writer lock, binds migration v1 to the current durable ledger
+boundary, mutates a separately loaded candidate and relies on the atomic
+snapshot writer before replacing the active generation.
+
+For a migrated v7 generation, rebuild starts at the
 first migration's source topology, replays ledger entries in id order, applies
 each persisted migration immediately after its recorded ledger boundary, and
 only then continues at the wider topology. Withdrawn, pending and failed entries

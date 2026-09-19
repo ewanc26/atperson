@@ -118,6 +118,18 @@ std::uint64_t Ledger::count() const noexcept {
     return atp_ledger_count(ledger_);
 }
 
+std::uint64_t Ledger::last_id() const {
+    const std::uint64_t entry_count = count();
+    if (entry_count == 0u) {
+        return 0u;
+    }
+    atp_ledger_entry entry{};
+    require(atp_ledger_entry_at(ledger_, static_cast<std::size_t>(entry_count - 1u),
+                                &entry),
+            "read final ledger entry");
+    return entry.id;
+}
+
 std::vector<atp_ledger_entry> Ledger::entries() const {
     std::vector<atp_ledger_entry> result(static_cast<std::size_t>(count()));
     for (std::size_t i = 0; i < result.size(); ++i) {
