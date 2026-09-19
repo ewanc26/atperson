@@ -10,6 +10,7 @@
 #include "cli/ingest.hpp"
 #include "cli/jetstream.hpp"
 #include "cli/ledger.hpp"
+#include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
 #include "cli/sync.hpp"
@@ -72,6 +73,19 @@ int main(int argc, char **argv) {
         const atp_graph_stats no_graph_stats{};
         auto resource_status = atperson::inspect_runtime_resources(
             no_graph_stats, resource_paths, resource_overrides);
+
+        /*
+         * Neural expansion is a state mutation, so it acquires the writer lock
+         * before loading the candidate generation. Status remains a read-only
+         * command below.
+         */
+        if (command == "neural" && argc >= 3 &&
+            std::string_view(argv[2]) == "expand") {
+            return atperson::cli::run_neural_expand(
+                std::cout, resource_status, atperson::cli::data_dir(),
+                atperson::cli::ledger_path(), path, resource_paths,
+                resource_overrides);
+        }
 
         /* These commands operate only on ledger/runtime metadata. Avoid loading
          * a potentially large model when it cannot contribute to the result. */
@@ -180,8 +194,8 @@ int main(int argc, char **argv) {
 
         if (command == "neural" && !std::filesystem::exists(path)) {
             throw std::runtime_error(
-                "neural expansion preflight requires an existing persisted model generation; "
-                "there is nothing to expand yet");
+                "neural inspection requires an existing persisted model generation; "
+                "there is nothing to inspect yet");
         }
 
         auto graph = atperson::load_or_create_graph(resource_status, path);

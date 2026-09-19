@@ -639,6 +639,31 @@ void test_neural_expansion_preflight() {
            expansion.proposed_footprint_bytes - expansion.active_footprint_bytes);
     assert(expansion.fits_current_headroom);
 
+    /* A monotonic proposal can be structurally valid while still being unsafe
+     * on the current host. The mutation path must refuse this before allocating
+     * or saving any expanded generation. */
+    auto tight_headroom = expansive;
+    assert(expansion.proposed_footprint_bytes > 0u);
+    tight_headroom.system.effective_memory_available_bytes =
+        tight_headroom.budget.memory_reserve_bytes +
+        expansion.proposed_footprint_bytes - 1u;
+    const auto memory_refused =
+        atperson::plan_neural_expansion(graph, tight_headroom);
+    assert(memory_refused.status == atperson::NeuralExpansionStatus::available);
+    assert(memory_refused.memory_headroom_known);
+    assert(!memory_refused.fits_current_headroom);
+    assert(memory_refused.reason.find("does not fit") != std::string::npos);
+    bool headroom_rejected = false;
+    try {
+        const auto stats = graph.stats();
+        atperson::require_runtime_neural_headroom(
+            tight_headroom, memory_refused.proposed, stats.node_count,
+            stats.edge_count);
+    } catch (const std::runtime_error &) {
+        headroom_rejected = true;
+    }
+    assert(headroom_rejected);
+
     const auto same = atperson::plan_neural_expansion(graph, capable);
     assert(same.status == atperson::NeuralExpansionStatus::at_recommendation);
     assert(same.additional_footprint_bytes == 0u);
