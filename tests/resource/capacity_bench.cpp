@@ -12,7 +12,7 @@
  * deterministic for the same profile/seed/fixture.
  */
 
-#include "budget.hpp"
+#include "resource/budget.hpp"
 #include "internal.h"
 
 #include <atperson/action.h>
@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <string_view>
