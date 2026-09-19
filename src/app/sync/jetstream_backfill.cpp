@@ -70,9 +70,7 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
             }
             const bool trainable = !observation.text.empty();
             const bool policy_skipped =
-                observation.policy_reason != PolicyReason::Eligible &&
-                observation.policy_reason != PolicyReason::Repost &&
-                observation.policy_reason != PolicyReason::Reply;
+                !policy_reason_is_eligible(observation.policy_reason);
             if (trainable && !policy_skipped) {
                 ++result.learned;
             } else {
