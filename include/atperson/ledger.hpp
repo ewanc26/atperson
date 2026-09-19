@@ -94,6 +94,8 @@ class Ledger {
                                       atp_ledger_entry *out_entry) const;
 
     [[nodiscard]] std::uint64_t count() const noexcept;
+    /** Greatest durable observation id, or 0 when the ledger is empty. */
+    [[nodiscard]] std::uint64_t last_id() const;
     [[nodiscard]] std::vector<atp_ledger_entry> entries() const;
 
     /**
