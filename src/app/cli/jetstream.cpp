@@ -40,7 +40,7 @@ int run_jetstream_status(
     const std::filesystem::path &dids_file) {
     const std::string endpoint = env_or(
         "ATPERSON_JETSTREAM_ENDPOINT",
-        "wss://jetstream1.us-east.bsky.network/subscribe");
+        "wss://jetstream.us-east.bsky.network/subscribe");
     const std::string configured_self = self_did();
     const std::vector<std::string> collections =
         collections_file.empty()
@@ -103,7 +103,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
 
     const std::string endpoint = env_or(
         "ATPERSON_JETSTREAM_ENDPOINT",
-        "wss://jetstream1.us-east.bsky.network/subscribe");
+        "wss://jetstream.us-east.bsky.network/subscribe");
 
     const std::string configured_self = required_self_did();
 
