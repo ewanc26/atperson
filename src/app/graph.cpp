@@ -284,7 +284,7 @@ std::vector<std::uint64_t> LanguageGraph::episode_group_members(std::uint32_t gr
 }
 
 atp_plasticity_report LanguageGraph::plasticity_report() const {
-    atp_plasticity_report report = {0};
+    atp_plasticity_report report{};
     require(atp_graph_plasticity_report(graph_, &report), "read plasticity report");
     return report;
 }

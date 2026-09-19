@@ -165,6 +165,15 @@ cmake --build build-core -j
 ctest --test-dir build-core --output-on-failure
 ```
 
+The scale benchmark is opt-in because its large profile is intentionally
+expensive:
+
+```sh
+cmake -S . -B build-bench -DATPERSON_BUILD_NETWORK=OFF -DATPERSON_BUILD_BENCH=ON
+cmake --build build-bench -j
+ctest --test-dir build-bench -L bench --output-on-failure
+```
+
 The project uses strict C23 and C++23. Unix builds explicitly request POSIX.1-2008 for the durability APIs rather than relying on GNU language extensions.
 
 GitHub Actions covers Linux GCC, Linux Clang, macOS Apple Clang, ASan/UBSan and the Wolfram-backed network build. See [`docs/ci-matrix.md`](docs/ci-matrix.md).

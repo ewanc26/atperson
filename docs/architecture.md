@@ -612,7 +612,7 @@ silent deletion.
 
 ### Benchmarks
 
-`tests/bench.c` (`ctest -L bench`) measures deterministic synthetic histories
+`tests/core/bench.c` (`ATPERSON_BUILD_BENCH=ON`, then `ctest -L bench`) measures deterministic synthetic histories
 with fixed seeds and skewed vocabulary. It covers observation throughput,
 association lookup, recall, snapshot save/load and a memory-footprint estimate.
 Timing is reported but never asserted, so CI variance cannot make the suite

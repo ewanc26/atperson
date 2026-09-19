@@ -76,7 +76,7 @@ const char *kSimpleRules = R"json({
 void test_parse_rejects_malformed_tables() {
     bool threw = false;
     try {
-        parse_rule_table("not json");
+        (void)parse_rule_table("not json");
     } catch (const JournalError &) {
         threw = true;
     }
@@ -84,7 +84,7 @@ void test_parse_rejects_malformed_tables() {
 
     threw = false;
     try {
-        parse_rule_table(R"({"format": "something-else", "version": 1, "rules": []})");
+        (void)parse_rule_table(R"({"format": "something-else", "version": 1, "rules": []})");
     } catch (const JournalError &) {
         threw = true;
     }
@@ -92,7 +92,7 @@ void test_parse_rejects_malformed_tables() {
 
     threw = false;
     try {
-        parse_rule_table(R"({"format": "atperson-valence-rules", "version": 2, "rules": []})");
+        (void)parse_rule_table(R"({"format": "atperson-valence-rules", "version": 2, "rules": []})");
     } catch (const JournalError &) {
         threw = true;
     }
@@ -100,7 +100,7 @@ void test_parse_rejects_malformed_tables() {
 
     threw = false;
     try {
-        parse_rule_table(R"({"format": "atperson-valence-rules", "version": 1, "rules": [
+        (void)parse_rule_table(R"({"format": "atperson-valence-rules", "version": 1, "rules": [
             {"id": "a", "when": {"outcome": "exploded"}, "kind": "action", "signal": 0.1}
         ]})");
     } catch (const JournalError &) {
@@ -110,7 +110,7 @@ void test_parse_rejects_malformed_tables() {
 
     threw = false;
     try {
-        parse_rule_table(R"({"format": "atperson-valence-rules", "version": 1, "rules": [
+        (void)parse_rule_table(R"({"format": "atperson-valence-rules", "version": 1, "rules": [
             {"id": "a", "when": {"outcome": "denied"}, "kind": "action", "signal": 2.0}
         ]})");
     } catch (const JournalError &) {
@@ -120,7 +120,7 @@ void test_parse_rejects_malformed_tables() {
 
     threw = false;
     try {
-        parse_rule_table(R"({"format": "atperson-valence-rules", "version": 1, "rules": [
+        (void)parse_rule_table(R"({"format": "atperson-valence-rules", "version": 1, "rules": [
             {"id": "a", "when": {"outcome": "denied"}, "kind": "action", "signal": 0.1},
             {"id": "a", "when": {"outcome": "failed"}, "kind": "action", "signal": -0.1}
         ]})");

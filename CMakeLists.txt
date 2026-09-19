@@ -16,6 +16,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ATPERSON_BUILD_NETWORK "Build the Wolfram-backed AT Protocol runtime" ON)
 option(ATPERSON_BUILD_TESTS "Build atperson tests" ON)
+option(ATPERSON_BUILD_BENCH "Build and register scale benchmarks" OFF)
 
 set(ATPERSON_APP_PRIVATE_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
@@ -174,16 +175,7 @@ if(ATPERSON_BUILD_NETWORK)
   FetchContent_Declare(
     wolfram
     GIT_REPOSITORY https://github.com/ewanc26/wolfram.git
-    GIT_TAG 9e63f76ab0b4f97f2cb5c62a5d0129b3d9023917
-    # wolfram-src/cpp/CMakeLists.txt uses ${CMAKE_SOURCE_DIR} (the top-level
-    # project) to locate Wolfram's public headers. Under FetchContent that is
-    # atperson, so the generated_owners.hpp codegen step would scan a
-    # non-existent include/wolfram. Rewrite those references to the actual
-    # Wolfram source dir.
-    PATCH_COMMAND
-      ${CMAKE_COMMAND} -DWOLFRAM_SRC_DIR=${FETCHCONTENT_BASE_DIR}/wolfram-src
-      -DWOLFRAM_CPP_CMAKE=${FETCHCONTENT_BASE_DIR}/wolfram-src/cpp/CMakeLists.txt
-      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/wolfram-cpp-source-dir.cmake)
+    GIT_TAG 88b72dad3cca6d1e558a0ed584091c2ff5a2addc)
   FetchContent_MakeAvailable(wolfram)
 
   add_executable(
@@ -379,14 +371,17 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson-growth_pathology
     COMMAND atperson-growth-test growth-pathology)
 
-  # Scale benchmarks (issue #9). Explicit suite, excluded from default
-  # runs via label; invoke with: ctest -L bench
-  add_executable(atperson-bench tests/core/bench.c)
-  target_link_libraries(atperson-bench PRIVATE atperson-core)
-  add_test(
-    NAME atperson-bench
-    COMMAND atperson-bench bench)
-  set_tests_properties(atperson-bench PROPERTIES LABELS "bench")
+  # Scale benchmarks (issue #9) are opt-in because the large profile is
+  # intentionally expensive. Configure with -DATPERSON_BUILD_BENCH=ON and
+  # invoke with: ctest -L bench.
+  if(ATPERSON_BUILD_BENCH)
+    add_executable(atperson-bench tests/core/bench.c)
+    target_link_libraries(atperson-bench PRIVATE atperson-core)
+    add_test(
+      NAME atperson-bench
+      COMMAND atperson-bench bench)
+    set_tests_properties(atperson-bench PROPERTIES LABELS "bench")
+  endif()
 
   add_executable(atperson-snapshot-test tests/snapshot/snapshot.c)
   target_link_libraries(atperson-snapshot-test PRIVATE atperson-core)
