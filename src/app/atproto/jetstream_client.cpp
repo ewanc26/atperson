@@ -48,10 +48,14 @@ std::int64_t seq_from_cursor(std::string_view cursor) {
 } // namespace
 
 JetstreamClient::JetstreamClient(
-    std::string endpoint, std::vector<std::string> collections,
-    std::vector<std::string> dids)
-    : endpoint_(std::move(endpoint)), collections_(std::move(collections)),
-      dids_(std::move(dids)) {
+    std::string endpoint, std::string self_did,
+    std::vector<std::string> collections, std::vector<std::string> dids)
+    : endpoint_(std::move(endpoint)), self_did_(std::move(self_did)),
+      collections_(std::move(collections)), dids_(std::move(dids)) {
+    if (self_did_.empty() || self_did_.rfind("did:", 0u) != 0u) {
+        throw std::runtime_error(
+            "JetstreamClient: a valid self DID is required for ingestion policy");
+    }
     if (collections_.empty()) {
         throw std::runtime_error(
             "JetstreamClient: at least one collection filter is required");
@@ -181,8 +185,8 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
         if (event.kind == WF_JETSTREAM_EVENT_COMMIT && event.did != nullptr &&
             event.json != nullptr) {
             SyncObservation observation;
-            if (atperson::extract_jetstream_commit(event.json, event.json_len,
-                                                   observation)) {
+            if (atperson::extract_jetstream_commit(
+                    event.json, event.json_len, self_did_, observation)) {
                 JetstreamEvent js;
                 js.source_uri = observation.source_uri;
                 js.author_did = observation.author_did;
