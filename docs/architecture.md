@@ -44,7 +44,9 @@ model generation selects a validated embedding width and hidden-layer topology
 from the current hardware capacity recommendation (or an explicit operator
 override) and persists that descriptor in snapshot v6. From then on the
 persisted topology is authoritative: moving to a different host never silently
-reshapes learned state. The feed-forward scorer consumes a source/target
+reshapes learned state. Once a generation is explicitly expanded, snapshot v7
+also persists the ordered migration history and exact ledger boundaries needed
+to reproduce those topology changes. The feed-forward scorer consumes a source/target
 embedding pair, uses one to three runtime-selected `tanh` hidden layers, and
 predicts whether the pair belongs together. Observed adjacent pairs are
 positive examples; another known token is sampled as a negative example when
@@ -535,17 +537,22 @@ Snapshots are versioned and contain the complete mutable graph/neural state,
 counters and deterministic PRNG state, together with mirrored ledger metadata,
 episodic memory, familiarity, valence and conversation context.
 
-Snapshot v6 is the current portable container format: little-endian integers,
-IEEE 754 float bit patterns, framed sections
-(`tag u32le | length u64le | payload`) with bounds-checked lengths and
-skippable unknown tags, followed by a trailing FNV-1a digest over the entire
-file. v6 also persists the neural architecture descriptor required to reproduce
-a model generation independently of the machine hosting it.
+The portable snapshot family uses little-endian integers, IEEE 754 float bit
+patterns, framed sections (`tag u32le | length u64le | payload`) with
+bounds-checked lengths and skippable unknown tags, followed by a trailing
+FNV-1a digest over the entire file. v6 persists the explicit neural
+architecture. v7 is reserved for generations that have actually expanded and
+adds an ordered migration-history section containing each migration's algorithm
+version, deterministic seed, ledger boundary and source/target architecture.
 
-Older optional state can be added as tagged sections without redefining the
-meaning of existing sections. v4/v5 snapshots load at the legacy neural
-topology and migrate to v6 on the next save; v1-v3 are refused rather than
-silently reinterpreted.
+Writers keep the oldest format that can represent the generation honestly:
+legacy graphs remain byte-compatible v5, variable-topology graphs without
+migration history remain v6, and only migrated generations become v7. This is
+also a compatibility guard: older software that does not understand migration
+boundaries rejects v7 instead of rebuilding the entire ledger at the final
+topology and silently producing different learned state. v4/v5 snapshots still
+load at the legacy neural topology; v1-v3 are refused rather than silently
+reinterpreted.
 
 The snapshot is a durable fast-start representation of learned state. The
 observation ledger and action journal remain the evidence streams from which a
