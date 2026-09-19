@@ -13,8 +13,6 @@
  */
 
 #include "resource/budget.hpp"
-#include "internal.h"
-
 #include <atperson/action.h>
 #include <atperson/core.h>
 
@@ -111,15 +109,12 @@ void observe(atp_graph *graph, std::string_view text, std::uint64_t id,
 }
 
 float score_pair(const atp_graph *graph, const char *source, const char *target) {
-    const int32_t source_index = atp_find_node(graph, source);
-    const int32_t target_index = atp_find_node(graph, target);
-    require(source_index >= 0 && target_index >= 0,
-            std::string("missing benchmark token: ") + source + " or " + target);
     float score = 0.0f;
     const atp_status status =
-        atp_network_score(graph, static_cast<std::uint32_t>(source_index),
-                          static_cast<std::uint32_t>(target_index), &score);
-    require(status == ATP_OK, "neural score failed");
+        atp_graph_neural_score(graph, source, target, &score);
+    require(status == ATP_OK,
+            std::string("neural score failed for ") + source + " -> " + target +
+                ": " + atp_status_string(status));
     require(std::isfinite(score), "non-finite neural score");
     return score;
 }
