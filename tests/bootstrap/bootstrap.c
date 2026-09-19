@@ -92,6 +92,7 @@ static void test_env_template_lists_credentials(void) {
     assert(strstr(contents, "ATPERSON_JETSTREAM_STATE=") != NULL);
     assert(strstr(contents, "ATPERSON_JETSTREAM_ENDPOINT=") != NULL);
     assert(strstr(contents, "ATPERSON_JETSTREAM_COLLECTIONS_FILE=") != NULL);
+    assert(strstr(contents, "ATPERSON_JETSTREAM_DIDS_FILE=") != NULL);
 }
 
 static void test_env_permissions_are_owner_only(void) {
