@@ -340,6 +340,44 @@ void test_jetstream_kind_round_trip_with_empty_did() {
     assert(loaded.checkpoint.observations_seen == 541u);
 }
 
+void test_jetstream_endpoint_mismatch_does_not_reuse_cursor() {
+    const auto dir = scratch_dir("jetstream-endpoint-mismatch");
+    const auto path = dir / "jetstream-state.json";
+
+    constexpr std::string_view first =
+        "wss://jetstream1.us-east.bsky.network/subscribe";
+    constexpr std::string_view second =
+        "wss://jetstream2.us-east.bsky.network/subscribe";
+
+    atperson::IngestionState state = atperson::initial_ingestion_state(
+        first, "", atperson::kSourceKindJetstream);
+    state.catchup.active = true;
+    state.catchup.cursor = std::string("1726200000123456");
+    state.checkpoint.generation = 4u;
+    atperson::save_ingestion_state(state, path);
+
+    /* Same endpoint: the opaque server cursor is reusable across restart. */
+    auto loaded = atperson::load_ingestion_state(
+        path, first, "", atperson::kSourceKindJetstream);
+    assert(loaded.catchup.active);
+    assert(loaded.catchup.cursor ==
+           std::optional<std::string>("1726200000123456"));
+
+    /*
+     * Different Jetstream server: never assume its cursor namespace is
+     * interchangeable. Start clean; the shared observation ledger remains
+     * responsible for duplicate suppression over any overlap.
+     */
+    loaded = atperson::load_ingestion_state(
+        path, second, "", atperson::kSourceKindJetstream);
+    assert(!loaded.catchup.active);
+    assert(!loaded.catchup.cursor);
+    assert(loaded.source.kind == "atproto-jetstream");
+    assert(loaded.source.service == second);
+    assert(loaded.source.account_did.empty());
+    assert(loaded.checkpoint.generation == 0u);
+}
+
 void test_jetstream_kind_timeline_cursor_not_reusable() {
     const auto dir = scratch_dir("jetstream-kind-mismatch");
     const auto path = dir / "state.json";
@@ -774,6 +812,7 @@ int main() {
 
     test_jetstream_kind_initial_state();
     test_jetstream_kind_round_trip_with_empty_did();
+    test_jetstream_endpoint_mismatch_does_not_reuse_cursor();
     test_jetstream_kind_timeline_cursor_not_reusable();
 
     test_successful_page_checkpoints_next_cursor();
