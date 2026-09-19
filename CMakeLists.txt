@@ -92,6 +92,7 @@ add_library(
   src/app/audit/evidence.cpp
   src/app/audit/questions.cpp
   src/app/audit/verdict.cpp
+  src/app/atproto/jetstream_filter.cpp
   src/app/resource/system.cpp
   src/app/resource/filesystems.cpp
   src/app/resource/budget.cpp
