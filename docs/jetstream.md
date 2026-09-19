@@ -55,6 +55,8 @@ The Jetstream cursor is operational metadata only. It is never written into the 
 
 The checkpoint is also bound to the exact Jetstream WebSocket endpoint. If `ATPERSON_JETSTREAM_ENDPOINT` changes, atperson deliberately starts that stream from a fresh cursor instead of assuming two servers share one cursor namespace. Any overlapping records are still suppressed by the shared observation ledger.
 
+The current live client stores Jetstream's envelope microsecond timestamp because that is the cursor exposed by the pinned Wolfram live API. Jetstream v2 deliberately accepts this legacy timestamp form on the live tail, so it remains restart-compatible on the v2 host. Native v2 replay is sequence-based; once Wolfram #36 lands, archive planning/cutover must persist and expose the v2 `seq` cursor rather than pretending the timestamp cursor is an archive position.
+
 ## Collection filter
 
 Without an explicit filter file, atperson subscribes only to:
