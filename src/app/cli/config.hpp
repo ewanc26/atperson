@@ -23,6 +23,7 @@ std::filesystem::path data_dir();
 std::filesystem::path state_path();
 std::filesystem::path ledger_path();
 std::filesystem::path ingestion_state_path();
+std::filesystem::path jetstream_state_path();
 std::filesystem::path control_state_path();
 std::filesystem::path outbound_policy_path();
 std::filesystem::path outbound_budget_path();

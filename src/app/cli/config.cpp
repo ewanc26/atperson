@@ -45,6 +45,11 @@ std::filesystem::path ingestion_state_path() {
                   (data_dir() / "ingestion-state.json").string());
 }
 
+std::filesystem::path jetstream_state_path() {
+    return env_or("ATPERSON_JETSTREAM_STATE",
+                  (data_dir() / "jetstream-state.json").string());
+}
+
 std::filesystem::path control_state_path() {
     return env_or("ATPERSON_CONTROL_STATE",
                   (data_dir() / "control-state.json").string());
@@ -72,6 +77,7 @@ std::filesystem::path action_journal_path() {
 
 std::vector<std::filesystem::path> durable_paths() {
     return {data_dir(), state_path(), ledger_path(), ingestion_state_path(),
+            jetstream_state_path(),
             control_state_path(), outbound_policy_path(), outbound_budget_path(),
             outbound_audit_path(), action_journal_path()};
 }

@@ -285,7 +285,7 @@ int main(int argc, char **argv) {
                 argc >= 4 ? atperson::cli::parse_limit(argv[3], 0) : 0;
             return atperson::cli::run_jetstream(
                 std::cout, resource_status, atperson::cli::data_dir(), graph, path,
-                atperson::cli::ledger_path(), atperson::cli::ingestion_state_path(),
+                atperson::cli::ledger_path(), atperson::cli::jetstream_state_path(),
                 max_events, max_ms, print_stats);
         }
 

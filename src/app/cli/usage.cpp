@@ -42,6 +42,8 @@ void print_usage(std::ostream &out) {
            "(default ~/.ewanc26/atperson/ledger.bin)\n"
         << "  ATPERSON_INGESTION_STATE  ingestion cursor path "
            "(default ~/.ewanc26/atperson/ingestion-state.json)\n"
+        << "  ATPERSON_JETSTREAM_STATE  Jetstream cursor path "
+           "(default ~/.ewanc26/atperson/jetstream-state.json)\n"
         << "  ATPERSON_CONTROL_STATE    operator control path "
            "(default ~/.ewanc26/atperson/control-state.json)\n"
         << "  ATPERSON_OUTBOUND_POLICY  outbound action policy path "
