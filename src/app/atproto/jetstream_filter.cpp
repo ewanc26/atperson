@@ -35,12 +35,16 @@ std::vector<std::string> default_jetstream_collections() {
     return {"app.bsky.feed.post"};
 }
 
-std::vector<std::string>
-load_jetstream_collections(const std::filesystem::path &path) {
+namespace {
+
+std::vector<std::string> load_filter_file(
+    const std::filesystem::path &path, std::size_t limit,
+    const char *label, bool require_did) {
     std::ifstream input(path);
     if (!input) {
         throw std::runtime_error(
-            "jetstream collections: could not open " + path.string());
+            std::string("jetstream ") + label + ": could not open " +
+            path.string());
     }
 
     std::vector<std::string> result;
@@ -55,29 +59,49 @@ load_jetstream_collections(const std::filesystem::path &path) {
         }
         if (has_ascii_whitespace(value)) {
             throw std::runtime_error(
-                "jetstream collections: line " + std::to_string(line_number) +
-                " contains whitespace inside a collection filter");
+                std::string("jetstream ") + label + ": line " +
+                std::to_string(line_number) +
+                " contains whitespace inside a filter");
+        }
+        if (require_did && value.rfind("did:", 0u) != 0u) {
+            throw std::runtime_error(
+                std::string("jetstream ") + label + ": line " +
+                std::to_string(line_number) + " is not a DID");
         }
         if (!seen.insert(value).second) {
             continue;
         }
-        if (result.size() == kJetstreamCollectionFilterLimit) {
+        if (result.size() == limit) {
             throw std::runtime_error(
-                "jetstream collections: more than " +
-                std::to_string(kJetstreamCollectionFilterLimit) +
-                " unique collection filters");
+                std::string("jetstream ") + label + ": more than " +
+                std::to_string(limit) + " unique filters");
         }
         result.push_back(std::move(value));
     }
     if (input.bad()) {
         throw std::runtime_error(
-            "jetstream collections: could not read " + path.string());
+            std::string("jetstream ") + label + ": could not read " +
+            path.string());
     }
     if (result.empty()) {
         throw std::runtime_error(
-            "jetstream collections: filter file contains no collections");
+            std::string("jetstream ") + label +
+            ": filter file contains no entries");
     }
     return result;
+}
+
+} // namespace
+
+std::vector<std::string>
+load_jetstream_collections(const std::filesystem::path &path) {
+    return load_filter_file(path, kJetstreamCollectionFilterLimit,
+                            "collections", false);
+}
+
+std::vector<std::string>
+load_jetstream_dids(const std::filesystem::path &path) {
+    return load_filter_file(path, kJetstreamDidFilterLimit, "DIDs", true);
 }
 
 } // namespace atperson
