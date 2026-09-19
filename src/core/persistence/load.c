@@ -70,9 +70,19 @@ atp_graph *atp_graph_load(const char *path, atp_status *status) {
     fclose(file);
 
     atp_graph *graph = NULL;
-    if (memcmp(data, ATP_SNAPSHOT_MAGIC_V6, 8u) == 0) {
+    if (memcmp(data, ATP_SNAPSHOT_MAGIC_V7, 8u) == 0) {
         const uint32_t version = atp_load_u32le(data + 8u);
         if (version != ATPERSON_SNAPSHOT_VERSION) {
+            free(data);
+            if (status) {
+                *status = ATP_ERR_FORMAT;
+            }
+            return NULL;
+        }
+        graph = atp_load_v7(data, file_size, status);
+    } else if (memcmp(data, ATP_SNAPSHOT_MAGIC_V6, 8u) == 0) {
+        const uint32_t version = atp_load_u32le(data + 8u);
+        if (version != ATPERSON_SNAPSHOT_VERSION_V6) {
             free(data);
             if (status) {
                 *status = ATP_ERR_FORMAT;

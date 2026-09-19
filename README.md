@@ -72,6 +72,7 @@ The project is already beyond the initial scaffold. The important pieces current
 | Outbound execution | Operator-led | Approved frozen post/reply actions can be published through Wolfram with audit logging and idempotent record keys |
 | Action/outcome journal | Implemented | Outbound attempts and outcomes are durable and replayable into valence |
 | Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup |
+| Agent loop | Contract documented | Perception → decision → policy → control → execution → journal boundaries are defined; no autonomous scheduler is enabled |
 | Autonomous social behaviour | Not enabled | Autonomous posting, replies, likes, follows, reposts, DMs and moderation remain fail-closed |
 
 The model begins with **zero words and zero relationships**. Neural parameters have small deterministic initial values so training can start, but there is no seeded vocabulary, biography, ideology, personality or preference set.
@@ -89,7 +90,7 @@ That gives `atperson` a few properties I care about:
 - episodic memories retain a route back to their source evidence;
 - skipped material remains distinguishable from material that was never seen.
 
-The current snapshot format is **v6**. It persists the neural architecture descriptor together with the mutable graph and neural state, mirrored ledger state, memory, familiarity, valence, counters and deterministic PRNG state. v4/v5 generations remain readable at the legacy topology. The standalone ledger remains the durable observation authority.
+Snapshots remain generation-aware rather than being upgraded gratuitously. Legacy graphs still write **v5**; variable-topology generations that have never expanded write **v6**; and a generation with deterministic neural expansion history writes **v7**. v7 adds the ordered migration records (algorithm version, seed, source/target architecture and ledger boundary) required to reproduce topology changes during rebuild. v4/v5 generations remain readable at the legacy topology, and existing v6 generations remain readable unchanged. The standalone ledger remains the durable observation authority.
 
 ## Learning and memory
 
@@ -170,6 +171,12 @@ The project uses strict C23 and C++23. Unix builds explicitly request POSIX.1-20
 
 GitHub Actions covers Linux GCC, Linux Clang, macOS Apple Clang, ASan/UBSan and the Wolfram-backed network build. See [`docs/ci-matrix.md`](docs/ci-matrix.md).
 
+## Runtime execution policy
+
+The persisted neural architecture is not the same thing as the resources used to execute it. `atperson resources` reports a separate runtime neural execution policy derived from the CPU and memory available to the current process.
+
+Policy v1 uses the portable deterministic CPU backend, keeps the C23 learner under one owner thread, and adapts surrounding worker allowance, staged observation work and transient workspace to current headroom. A weaker host can therefore reduce throughput without silently shrinking the learned model. Future SIMD or accelerator backends must define their replay/numeric compatibility before they can be selected.
+
 ## Runtime
 
 By default, state lives under:
@@ -226,7 +233,7 @@ Learned state can be reconstructed from the observation ledger without network a
 ./build/atperson rebuild
 ```
 
-Replay uses the same observation path as live ingestion. The replacement snapshot is written atomically, and incompatible or incomplete replay data fails instead of quietly producing a different model.
+Replay uses the same observation path as live ingestion. For an expanded v7 generation, rebuild also replays the persisted neural migrations at their exact ledger boundaries rather than training the whole history at the final topology. The replacement snapshot is written atomically, and incompatible, incomplete or discontinuous replay metadata fails instead of quietly producing a different model.
 
 ### Withdrawal
 

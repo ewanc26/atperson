@@ -120,6 +120,19 @@ void test_unsupported_record_type_is_skipped() {
     expect(PolicyReason::UnsupportedRecord, false, post, "unsupported record");
 }
 
+void test_private_message_payload_is_never_learnable() {
+    /*
+     * #61: even if a future transport accidentally presents a conversation
+     * payload to the public-post policy, it must remain unsupported. DMs are
+     * never promoted to app.bsky.feed.post merely because they contain text.
+     */
+    PolicyPost post = plain_post();
+    post.record_type = "chat.bsky.convo.defs#messageView";
+    post.text = "private conversation text";
+    expect(PolicyReason::UnsupportedRecord, false, post,
+           "private-message payload");
+}
+
 /* ---------------------------------------------------------------- */
 /* Precedence                                                        */
 /* ---------------------------------------------------------------- */
@@ -168,6 +181,7 @@ int main() {
     test_image_only_post_is_non_text();
     test_video_only_post_is_non_text();
     test_unsupported_record_type_is_skipped();
+    test_private_message_payload_is_never_learnable();
     test_self_authored_beats_viewer_state();
     test_record_type_beats_everything();
     test_empty_account_did_never_self_skips();

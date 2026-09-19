@@ -50,6 +50,7 @@ add_library(
   src/core/bootstrap.c
   src/core/neural_layout.c
   src/core/neural.c
+  src/core/neural_migration.c
   src/core/ledger/lifecycle.c
   src/core/ledger/commit.c
   src/core/ledger/append.c
@@ -96,6 +97,7 @@ add_library(
   src/app/resource/system.cpp
   src/app/resource/filesystems.cpp
   src/app/resource/budget.cpp
+  src/app/resource/neural_runtime.cpp
   src/app/resource/runtime.cpp
   src/app/worker/pool.cpp)
 target_include_directories(

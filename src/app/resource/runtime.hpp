@@ -3,6 +3,7 @@
 
 #include "atperson/graph.hpp"
 #include "budget.hpp"
+#include "neural_runtime.hpp"
 #include "system.hpp"
 
 #include <cstddef>
@@ -17,6 +18,7 @@ namespace atperson {
 struct RuntimeResourceStatus {
     SystemResources system;
     ResourceBudget budget;
+    NeuralRuntimePolicy neural_runtime;
 };
 
 /*
@@ -30,7 +32,8 @@ enum class NeuralExpansionStatus {
 };
 
 struct NeuralExpansionPlan {
-    static constexpr std::uint32_t migration_version = 1u;
+    static constexpr std::uint32_t migration_version =
+        ATPERSON_NEURAL_MIGRATION_VERSION;
 
     NeuralExpansionStatus status{NeuralExpansionStatus::at_recommendation};
     atp_neural_architecture active{};
@@ -52,7 +55,9 @@ const char *neural_expansion_status_name(NeuralExpansionStatus status) noexcept;
  * Compare the persisted active topology with the current recommendation.
  * A migration is eligible only when embedding width, hidden-layer count and
  * every pre-existing hidden-layer width are non-decreasing, with at least one
- * strict increase. This is inspection only; no graph state is modified.
+ * strict increase. If hidden layers are appended, the new final hidden width
+ * must also retain the complete old scalar-output weight vector. This is
+ * inspection only; no graph state is modified.
  */
 NeuralExpansionPlan plan_neural_expansion(const LanguageGraph &graph,
                                           const RuntimeResourceStatus &status);

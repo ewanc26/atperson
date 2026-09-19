@@ -77,6 +77,8 @@ RuntimeResourceStatus inspect_runtime_resources(
     RuntimeResourceStatus status;
     status.system = probe_system_resources(durable_paths);
     status.budget = derive_resource_budget(status.system, graph_stats, overrides);
+    status.neural_runtime =
+        derive_neural_runtime_policy(status.system, status.budget);
     return status;
 }
 
@@ -96,6 +98,8 @@ RuntimeResourceStatus inspect_runtime_resources(
     const atp_neural_architecture active = graph.neural_architecture();
     status.budget =
         derive_resource_budget(status.system, graph.stats(), overrides, &active);
+    status.neural_runtime =
+        derive_neural_runtime_policy(status.system, status.budget);
     return status;
 }
 
@@ -282,6 +286,17 @@ NeuralExpansionPlan plan_neural_expansion(const LanguageGraph &graph,
             return plan;
         }
     }
+    const std::uint32_t active_final_hidden =
+        plan.active.hidden_widths[plan.active.hidden_layer_count - 1u];
+    const std::uint32_t proposed_final_hidden =
+        plan.proposed.hidden_widths[plan.proposed.hidden_layer_count - 1u];
+    if (proposed_final_hidden < active_final_hidden) {
+        plan.status = NeuralExpansionStatus::incompatible;
+        plan.reason =
+            "recommended final hidden layer is too narrow to preserve all active "
+            "scalar-output weights";
+        return plan;
+    }
 
     bool strictly_larger = plan.proposed.embedding_dim > plan.active.embedding_dim ||
                            plan.proposed.hidden_layer_count >
@@ -423,7 +438,19 @@ void print_runtime_resources(std::ostream &out, const RuntimeResourceStatus &sta
     }
     out << "; shared params " << neural.shared_parameter_count << " / ";
     print_bytes(out, neural.shared_parameter_bytes);
-    out << "; runtime batch " << neural.runtime_batch_observations << " observations\n";
+    out << "\n";
+
+    const auto &execution = status.neural_runtime;
+    out << "neural execution: "
+        << neural_execution_backend_name(execution.backend)
+        << " (policy v" << execution.policy_version << "); core owner threads "
+        << execution.core_owner_threads << "; surrounding workers "
+        << execution.surrounding_worker_threads << "; work batch "
+        << execution.observation_work_batch << " observations; workspace ";
+    print_bytes(out, execution.workspace_bytes);
+    out << "; deterministic " << (execution.deterministic ? "yes" : "no")
+        << "; portable fallback "
+        << (execution.portable_fallback ? "yes" : "no") << '\n';
 
     out << "limiting disk";
     if (!status.budget.limiting_disk_path.empty()) {

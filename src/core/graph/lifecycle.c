@@ -92,6 +92,7 @@ void atp_graph_destroy(atp_graph *graph) {
     }
     free(graph->nodes);
     atp_network_destroy(&graph->network);
+    free(graph->neural_migrations);
     free(graph->edges);
     free(graph->node_index_slots);
     free(graph->edge_index_slots);
@@ -206,6 +207,8 @@ const char *atp_status_string(atp_status status) {
         return "learning schema not replayable by this build";
     case ATP_ERR_CAPACITY:
         return "configured resource ceiling reached";
+    case ATP_ERR_MIGRATION:
+        return "neural migration not permitted";
     }
     return "unknown error";
 }
