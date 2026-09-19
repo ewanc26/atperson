@@ -121,6 +121,8 @@ Migration-v1 eligibility is coordinate-wise and monotonic:
 - at least one dimension or layer count must increase for expansion to be available;
 - an otherwise larger recommendation that narrows any active coordinate is reported as incompatible rather than treated as an expansion.
 
-This command does **not** migrate a model yet. The C23 core now has a migration-v1 in-memory expansion primitive used by focused tests: it allocates replacement network/embedding storage transactionally, preserves every overlapping value and plasticity-importance coordinate bit-for-bit, initialises only new coordinates from a migration-specific persisted seed, and leaves the graph's ordinary RNG state unchanged. It is intentionally not wired to `neural expand` yet because durable migration history and ledger replay boundaries must land first.
+This command does **not** migrate a model yet. The C23 core has a migration-v1 in-memory expansion primitive that allocates replacement network/embedding storage transactionally, preserves every overlapping value and plasticity-importance coordinate bit-for-bit, initialises only new coordinates from a migration-specific persisted seed, and leaves the graph's ordinary RNG state unchanged. Migrated generations persist that ordered history in snapshot v7.
 
-Defining and testing the preflight contract separately means the later operator mutation can use exactly the same eligibility decision instead of inventing a second set of rules.
+Rebuild consumes the same durable history: it begins at the first migration's source architecture and applies each migration immediately after its recorded observation-ledger boundary. This keeps withdrawal/rebuild semantics chronological instead of replaying old observations directly at the final shape.
+
+The operator-facing `neural expand` command remains disabled until the mutation path can atomically bind the current ledger boundary, migration seed and snapshot replacement. Defining and testing the preflight/replay contracts separately means that command can reuse one eligibility and reconstruction model instead of inventing another.

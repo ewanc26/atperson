@@ -233,7 +233,7 @@ Learned state can be reconstructed from the observation ledger without network a
 ./build/atperson rebuild
 ```
 
-Replay uses the same observation path as live ingestion. The replacement snapshot is written atomically, and incompatible or incomplete replay data fails instead of quietly producing a different model.
+Replay uses the same observation path as live ingestion. For an expanded v7 generation, rebuild also replays the persisted neural migrations at their exact ledger boundaries rather than training the whole history at the final topology. The replacement snapshot is written atomically, and incompatible, incomplete or discontinuous replay metadata fails instead of quietly producing a different model.
 
 ### Withdrawal
 
