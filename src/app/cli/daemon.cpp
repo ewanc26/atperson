@@ -15,6 +15,7 @@
 #include "worker/pool.hpp"
 
 #include <chrono>
+#include <algorithm>
 #include <optional>
 #include <ostream>
 #include <stdexcept>
@@ -75,6 +76,9 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
     limits.page_size = mutable_status.budget.sync_page_size;
     limits.max_pages = config.pages_per_cycle;
     limits.max_observations = mutable_status.budget.sync_max_observations;
+    limits.max_observations = std::min<std::uint64_t>(
+        limits.max_observations,
+        static_cast<std::uint64_t>(mutable_status.budget.neural_runtime.observation_work_batch));
 
     const auto resource_paths = durable_paths();
     const auto resource_overrides = resource_overrides_from_environment();
@@ -84,6 +88,10 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         require_runtime_write_headroom(mutable_status);
         limits.page_size = mutable_status.budget.sync_page_size;
         limits.max_observations = mutable_status.budget.sync_max_observations;
+        limits.max_observations = std::min<std::uint64_t>(
+            limits.max_observations,
+            static_cast<std::uint64_t>(
+                mutable_status.budget.neural_runtime.observation_work_batch));
         try {
             return client.fetch_timeline_page(cursor, limits.page_size);
         } catch (const TimelineHttpError &error) {
@@ -108,9 +116,11 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
      * and the daemon backs off rather than touching the cursor or the
      * ledger. */
     atperson::WorkerPool *pool = nullptr;
-    if (parallel_sync_enabled()) {
+    if (parallel_sync_enabled() &&
+        mutable_status.budget.neural_runtime.surrounding_worker_allowance > 0u) {
         const auto pool_config = atperson::WorkerPool::config_from_system(
-            mutable_status.system);
+            mutable_status.system,
+            mutable_status.budget.neural_runtime.surrounding_worker_allowance);
         pool = new atperson::WorkerPool(pool_config);
     }
 

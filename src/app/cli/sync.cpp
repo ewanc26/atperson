@@ -72,6 +72,9 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
     limits.page_size = mutable_status.budget.sync_page_size;
     limits.max_pages = max_pages;
     limits.max_observations = mutable_status.budget.sync_max_observations;
+    limits.max_observations = std::min<std::uint64_t>(
+        limits.max_observations,
+        static_cast<std::uint64_t>(mutable_status.budget.neural_runtime.observation_work_batch));
 
     const auto resource_paths = atperson::cli::durable_paths();
     const auto resource_overrides = atperson::resource_overrides_from_environment();
@@ -83,6 +86,10 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
         atperson::require_runtime_write_headroom(mutable_status);
         limits.page_size = mutable_status.budget.sync_page_size;
         limits.max_observations = mutable_status.budget.sync_max_observations;
+        limits.max_observations = std::min<std::uint64_t>(
+            limits.max_observations,
+            static_cast<std::uint64_t>(
+                mutable_status.budget.neural_runtime.observation_work_batch));
         try {
             return client.fetch_timeline_page(cursor, limits.page_size);
         } catch (const atperson::TimelineHttpError &) {
@@ -98,13 +105,15 @@ int run_sync(std::ostream &out, std::ostream &err, const RuntimeResourceStatus &
     const auto linker = atperson::make_journal_linker(atperson::cli::action_journal_path());
 
     atperson::SyncResult result;
-    if (parallel_sync_enabled()) {
+    if (parallel_sync_enabled() &&
+        mutable_status.budget.neural_runtime.surrounding_worker_allowance > 0u) {
         /* The pool is sized from the effective CPU capacity, so a container
          * with a fractional quota gets fewer workers than the host has
          * logical CPUs. One worker reproduces the sequential path through
          * the queue, so the result is identical for fixed inputs. */
         const auto pool_config = atperson::WorkerPool::config_from_system(
-            mutable_status.system);
+            mutable_status.system,
+            mutable_status.budget.neural_runtime.surrounding_worker_allowance);
         atperson::WorkerPool pool(pool_config);
         result = atperson::run_sync_parallel(graph, ledger, ingestion, fetch_page, limits,
                                              pool, linker);
