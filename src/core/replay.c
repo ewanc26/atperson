@@ -85,13 +85,20 @@ static bool atp_replay_architecture_equal(
 
 static atp_status atp_validate_replay_migrations(
     const atp_ledger *ledger, const atp_graph *graph,
-    const atp_neural_migration *migrations, size_t migration_count) {
+    const atp_neural_migration *migrations, size_t migration_count,
+    uint64_t *failed_boundary) {
+    if (failed_boundary) {
+        *failed_boundary = 0u;
+    }
     if (migration_count == 0u) {
         return ATP_OK;
     }
     if (!migrations ||
         !atp_replay_architecture_equal(&graph->neural_architecture,
                                        &migrations[0].source)) {
+        if (failed_boundary && migrations) {
+            *failed_boundary = migrations[0].ledger_boundary_id;
+        }
         return ATP_ERR_MIGRATION;
     }
 
@@ -103,6 +110,9 @@ static atp_status atp_validate_replay_migrations(
             (i != 0u &&
              !atp_replay_architecture_equal(&migrations[i - 1u].target,
                                             &migrations[i].source))) {
+            if (failed_boundary) {
+                *failed_boundary = migrations[i].ledger_boundary_id;
+            }
             return ATP_ERR_MIGRATION;
         }
         previous_boundary = migrations[i].ledger_boundary_id;
@@ -110,11 +120,17 @@ static atp_status atp_validate_replay_migrations(
 
     const size_t ledger_count = atp_ledger_count(ledger);
     if (ledger_count == 0u) {
+        if (previous_boundary != 0u && failed_boundary) {
+            *failed_boundary = previous_boundary;
+        }
         return previous_boundary == 0u ? ATP_OK : ATP_ERR_MIGRATION;
     }
     atp_ledger_entry last;
     if (atp_ledger_entry_at(ledger, ledger_count - 1u, &last) != ATP_OK) {
         return ATP_ERR_FORMAT;
+    }
+    if (previous_boundary > last.id && failed_boundary) {
+        *failed_boundary = previous_boundary;
     }
     return previous_boundary <= last.id ? ATP_OK : ATP_ERR_MIGRATION;
 }
@@ -152,10 +168,14 @@ atp_status atp_replay_ledger_with_migrations(
         return ATP_ERR_INVALID_ARGUMENT;
     }
 
+    uint64_t failed_boundary = 0u;
     atp_status status =
         atp_validate_replay_migrations(ledger, graph, migrations,
-                                       migration_count);
+                                       migration_count, &failed_boundary);
     if (status != ATP_OK) {
+        if (report && status == ATP_ERR_MIGRATION) {
+            report->failed_at_id = failed_boundary;
+        }
         return status;
     }
 
