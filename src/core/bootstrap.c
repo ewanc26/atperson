@@ -78,6 +78,7 @@ static const char *const atp_env_template =
     "# Public Jetstream ingestion (optional). The live stream is unauthenticated.\n"
     "ATPERSON_JETSTREAM_ENDPOINT=\n"
     "ATPERSON_JETSTREAM_COLLECTIONS_FILE=\n"
+    "ATPERSON_JETSTREAM_DIDS_FILE=\n"
     "\n"
     "# Daemon tuning (optional).\n"
     "ATPERSON_DAEMON_PAGES_PER_CYCLE=\n"
