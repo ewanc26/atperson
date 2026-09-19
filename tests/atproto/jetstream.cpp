@@ -6,9 +6,15 @@
  * delete, other collections, malformed envelopes, empty text, replies and
  * quotes. */
 #include "atproto/jetstream.hpp"
+#include "atproto/jetstream_filter.hpp"
 
 #include <cJSON.h>
 
+#include <cassert>
+#include <filesystem>
+#include <fstream>
+#include <stdexcept>
+#include <vector>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
@@ -73,6 +79,98 @@ std::string post(const std::string &text) {
 
 bool extract(const std::string &json, SyncObservation &out) {
     return atperson::extract_jetstream_commit(json.data(), json.size(), out);
+}
+
+std::filesystem::path filter_path(const char *name) {
+    return std::filesystem::temp_directory_path() /
+           (std::string("atperson-jetstream-filter-") + name + ".txt");
+}
+
+void write_filter(const std::filesystem::path &path, const std::string &text) {
+    std::ofstream output(path, std::ios::trunc);
+    if (!output) {
+        fail("could not create filter fixture");
+    }
+    output << text;
+    output.close();
+}
+
+void test_collection_filter_file() {
+    const auto path = filter_path("valid");
+    write_filter(path,
+                 "# explicit operator filter\n"
+                 " app.bsky.feed.post \n"
+                 "\n"
+                 "app.bsky.graph.*\n"
+                 "app.bsky.feed.post\n");
+
+    const auto collections = atperson::load_jetstream_collections(path);
+    if (collections.size() != 2u ||
+        collections[0] != "app.bsky.feed.post" ||
+        collections[1] != "app.bsky.graph.*") {
+        fail("collection filter parse/order/dedup");
+    }
+    std::filesystem::remove(path);
+
+    const auto defaults = atperson::default_jetstream_collections();
+    if (defaults.size() != 1u || defaults[0] != "app.bsky.feed.post") {
+        fail("default collection filter");
+    }
+    std::printf("ok collection filter file\n");
+}
+
+void test_collection_filter_rejects_invalid_input() {
+    {
+        const auto path = filter_path("empty");
+        write_filter(path, "# only comments\n\n");
+        bool rejected = false;
+        try {
+            (void)atperson::load_jetstream_collections(path);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        std::filesystem::remove(path);
+        if (!rejected) {
+            fail("empty collection filter must reject");
+        }
+    }
+
+    {
+        const auto path = filter_path("whitespace");
+        write_filter(path, "app.bsky.feed.post extra\n");
+        bool rejected = false;
+        try {
+            (void)atperson::load_jetstream_collections(path);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        std::filesystem::remove(path);
+        if (!rejected) {
+            fail("collection filter internal whitespace must reject");
+        }
+    }
+
+    {
+        const auto path = filter_path("too-many");
+        std::ofstream output(path, std::ios::trunc);
+        for (std::size_t i = 0u;
+             i < atperson::kJetstreamCollectionFilterLimit + 1u; ++i) {
+            output << "example.collection." << i << '\n';
+        }
+        output.close();
+        bool rejected = false;
+        try {
+            (void)atperson::load_jetstream_collections(path);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        std::filesystem::remove(path);
+        if (!rejected) {
+            fail("collection filter limit must reject");
+        }
+    }
+
+    std::printf("ok invalid collection filters rejected\n");
 }
 
 void test_create_top_level_post() {
@@ -255,6 +353,8 @@ void test_record_not_an_object_is_rejected() {
 } // namespace
 
 int main() {
+    test_collection_filter_file();
+    test_collection_filter_rejects_invalid_input();
     test_create_top_level_post();
     test_update_post();
     test_delete_is_not_an_observation();
