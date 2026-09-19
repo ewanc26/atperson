@@ -62,13 +62,20 @@ atp_status atp_snapshot_neural_architecture(const char *path,
         return ATP_ERR_FORMAT;
     }
 
-    if (!v6) {
+    const uint32_t version = atp_load_u32le(version_bytes);
+    if (v4 || v5) {
+        const uint32_t expected =
+            v4 ? ATPERSON_SNAPSHOT_VERSION_V4 : ATPERSON_SNAPSHOT_VERSION_V5;
+        if (version != expected || size < 8u + 4u + 12u + 8u) {
+            fclose(file);
+            return ATP_ERR_FORMAT;
+        }
         /* v4/v5 carry no descriptor; they load at the legacy architecture. */
         fclose(file);
         *out_architecture = atp_neural_legacy_architecture();
         return ATP_OK;
     }
-    if (atp_load_u32le(version_bytes) != ATPERSON_SNAPSHOT_VERSION) {
+    if (version != ATPERSON_SNAPSHOT_VERSION || size < 8u + 4u + 12u + 8u) {
         fclose(file);
         return ATP_ERR_FORMAT;
     }
