@@ -764,6 +764,8 @@ typedef struct atp_replay_report {
     size_t excluded_failed;
     /** WITHDRAWN entries excluded. */
     size_t excluded_withdrawn;
+    /** Deterministic neural migrations applied at their ledger boundaries. */
+    size_t migrations_applied;
     /** Ledger id of the entry that failed (0 when none did). */
     uint64_t failed_at_id;
     /** Schema version of the entry that failed (0 when none did, or when
@@ -778,6 +780,25 @@ typedef struct atp_replay_report {
  */
 atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
                              atp_replay_report *report);
+
+/**
+ * Replay a ledger while reproducing an expanded generation's ordered topology
+ * transitions. The caller creates `graph` at the first migration's source
+ * architecture. Boundary 0 migrations apply before the first ledger entry;
+ * every other migration applies immediately after the entry whose id equals
+ * `ledger_boundary_id`. Multiple migrations may share a boundary and apply
+ * in their persisted order.
+ *
+ * The migration chain is validated before any observation is replayed. Missing
+ * boundaries, discontinuous source/target architectures, non-monotonic
+ * boundaries, or a graph that does not match the first source fail with
+ * ATP_ERR_MIGRATION. With migration_count == 0 this is equivalent to
+ * atp_replay_ledger.
+ */
+atp_status atp_replay_ledger_with_migrations(
+    const atp_ledger *ledger, atp_graph *graph,
+    const atp_neural_migration *migrations, size_t migration_count,
+    atp_replay_report *report);
 
 /*
  * Graph-side ledger mirror.

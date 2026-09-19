@@ -556,7 +556,12 @@ reinterpreted.
 
 The snapshot is a durable fast-start representation of learned state. The
 observation ledger and action journal remain the evidence streams from which a
-rebuild derives that state.
+rebuild derives that state. For a migrated v7 generation, rebuild starts at the
+first migration's source topology, replays ledger entries in id order, applies
+each persisted migration immediately after its recorded ledger boundary, and
+only then continues at the wider topology. Withdrawn, pending and failed entries
+still occupy their original ledger chronology even though they contribute no
+learning, so topology transitions happen at the same durable boundary.
 
 ## Implementation state
 
