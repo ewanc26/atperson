@@ -8,6 +8,7 @@
 namespace atperson {
 
 inline constexpr std::size_t kJetstreamCollectionFilterLimit = 100u;
+inline constexpr std::size_t kJetstreamDidFilterLimit = 10000u;
 
 /*
  * The default learning slice remains public Bluesky posts. Transport filters
@@ -27,6 +28,14 @@ inline constexpr std::size_t kJetstreamCollectionFilterLimit = 100u;
  */
 [[nodiscard]] std::vector<std::string>
 load_jetstream_collections(const std::filesystem::path &path);
+
+/*
+ * Load one wantedDids value per line with the same comment/blank/dedup rules.
+ * Every value must begin with "did:" and at most 10,000 unique DIDs are
+ * accepted, matching Wolfram/Jetstream's subscription bound.
+ */
+[[nodiscard]] std::vector<std::string>
+load_jetstream_dids(const std::filesystem::path &path);
 
 } // namespace atperson
 
