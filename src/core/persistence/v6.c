@@ -29,12 +29,8 @@ static bool atp_encode_header_v6(const atp_graph *graph, atp_buffer *buffer) {
     return ok;
 }
 
-static bool atp_encode_arch(const atp_graph *graph, atp_buffer *buffer) {
-    const atp_neural_architecture *architecture = &graph->neural_architecture;
-    atp_section_writer section;
-    if (!atp_section_begin(buffer, &section, ATP_SECTION_ARCH)) {
-        return false;
-    }
+static bool atp_encode_architecture_fields(
+    const atp_neural_architecture *architecture, atp_buffer *buffer) {
     bool ok = atp_buffer_u32(buffer, architecture->version) &&
               atp_buffer_u32(buffer, architecture->embedding_dim) &&
               atp_buffer_u32(buffer, architecture->input_dim) &&
@@ -42,6 +38,39 @@ static bool atp_encode_arch(const atp_graph *graph, atp_buffer *buffer) {
               atp_buffer_u32(buffer, architecture->hidden_layer_count);
     for (size_t i = 0u; ok && i < ATPERSON_NEURAL_MAX_HIDDEN_LAYERS; ++i) {
         ok = atp_buffer_u32(buffer, architecture->hidden_widths[i]);
+    }
+    return ok;
+}
+
+static bool atp_encode_arch(const atp_graph *graph, atp_buffer *buffer) {
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_ARCH)) {
+        return false;
+    }
+    const bool ok =
+        atp_encode_architecture_fields(&graph->neural_architecture, buffer);
+    atp_section_end(&section);
+    return ok;
+}
+
+static bool atp_encode_migrations(const atp_graph *graph, atp_buffer *buffer) {
+    if (graph->neural_migration_count == 0u) {
+        return false;
+    }
+    atp_section_writer section;
+    if (!atp_section_begin(buffer, &section, ATP_SECTION_MIGRATIONS)) {
+        return false;
+    }
+
+    bool ok = atp_buffer_u64(buffer, (uint64_t)graph->neural_migration_count);
+    for (size_t i = 0u; ok && i < graph->neural_migration_count; ++i) {
+        const atp_neural_migration *migration = &graph->neural_migrations[i];
+        ok = atp_neural_migration_validate(migration) == ATP_OK &&
+             atp_buffer_u32(buffer, migration->version) &&
+             atp_buffer_u64(buffer, migration->seed) &&
+             atp_buffer_u64(buffer, migration->ledger_boundary_id) &&
+             atp_encode_architecture_fields(&migration->source, buffer) &&
+             atp_encode_architecture_fields(&migration->target, buffer);
     }
     atp_section_end(&section);
     return ok;
@@ -91,8 +120,23 @@ static bool atp_encode_network_v6(const atp_graph *graph, atp_buffer *buffer) {
 
 bool atp_encode_snapshot_v6(const atp_graph *graph, atp_buffer *buffer) {
     return atp_buffer_put(buffer, ATP_SNAPSHOT_MAGIC_V6, sizeof(ATP_SNAPSHOT_MAGIC_V6) - 1u) &&
+           atp_buffer_u32(buffer, ATPERSON_SNAPSHOT_VERSION_V6) &&
+           atp_encode_header_v6(graph, buffer) && atp_encode_arch(graph, buffer) &&
+           atp_encode_network_v6(graph, buffer) &&
+           atp_encode_nodes(graph, buffer, true) && atp_encode_edges(graph, buffer) &&
+           atp_encode_ledger(graph, buffer) &&
+           atp_encode_context(graph, buffer) && atp_encode_episodes(graph, buffer) &&
+           atp_encode_valence(graph, buffer) && atp_encode_schema(buffer) &&
+           atp_buffer_u64(buffer, atp_fnv1a64(buffer->data, buffer->size));
+}
+
+bool atp_encode_snapshot_v7(const atp_graph *graph, atp_buffer *buffer) {
+    return graph->neural_migration_count != 0u &&
+           atp_buffer_put(buffer, ATP_SNAPSHOT_MAGIC_V7,
+                          sizeof(ATP_SNAPSHOT_MAGIC_V7) - 1u) &&
            atp_buffer_u32(buffer, ATPERSON_SNAPSHOT_VERSION) &&
            atp_encode_header_v6(graph, buffer) && atp_encode_arch(graph, buffer) &&
+           atp_encode_migrations(graph, buffer) &&
            atp_encode_network_v6(graph, buffer) &&
            atp_encode_nodes(graph, buffer, true) && atp_encode_edges(graph, buffer) &&
            atp_encode_ledger(graph, buffer) &&
@@ -126,7 +170,8 @@ static bool atp_decode_header_v6(atp_reader *reader, atp_graph_config *config,
  * atp_neural_layout_build through atp_graph_create_with_architecture, which
  * fails closed for any invalid descriptor; the version field must match the
  * descriptor shape this decoder understands. */
-static bool atp_decode_arch(atp_reader *reader, atp_neural_architecture *architecture) {
+static bool atp_decode_architecture_fields(
+    atp_reader *reader, atp_neural_architecture *architecture) {
     memset(architecture, 0, sizeof(*architecture));
     if (!atp_reader_u32(reader, &architecture->version) ||
         architecture->version != ATPERSON_NEURAL_ARCHITECTURE_VERSION ||
@@ -142,6 +187,73 @@ static bool atp_decode_arch(atp_reader *reader, atp_neural_architecture *archite
             return false;
         }
     }
+    atp_neural_layout layout = {0};
+    return atp_neural_layout_build(architecture, &layout);
+}
+
+static bool atp_decode_arch(atp_reader *reader, atp_neural_architecture *architecture) {
+    return atp_decode_architecture_fields(reader, architecture);
+}
+
+static bool atp_architecture_fields_equal(
+    const atp_neural_architecture *left,
+    const atp_neural_architecture *right) {
+    return left->version == right->version &&
+           left->embedding_dim == right->embedding_dim &&
+           left->input_dim == right->input_dim &&
+           left->hidden_layer_count == right->hidden_layer_count &&
+           left->output_dim == right->output_dim &&
+           memcmp(left->hidden_widths, right->hidden_widths,
+                  sizeof(left->hidden_widths)) == 0;
+}
+
+static bool atp_decode_migrations(atp_reader *reader, atp_graph *graph) {
+    if (!graph || graph->neural_migration_count != 0u ||
+        graph->neural_migrations != NULL) {
+        return false;
+    }
+
+    uint64_t count64 = 0u;
+    if (!atp_reader_u64(reader, &count64) || count64 == 0u ||
+        count64 > SIZE_MAX / sizeof(atp_neural_migration)) {
+        return false;
+    }
+    const size_t count = (size_t)count64;
+    atp_neural_migration *history = calloc(count, sizeof(*history));
+    if (!history) {
+        return false;
+    }
+
+    bool ok = true;
+    for (size_t i = 0u; ok && i < count; ++i) {
+        atp_neural_migration *migration = &history[i];
+        ok = atp_reader_u32(reader, &migration->version) &&
+             atp_reader_u64(reader, &migration->seed) &&
+             atp_reader_u64(reader, &migration->ledger_boundary_id) &&
+             atp_decode_architecture_fields(reader, &migration->source) &&
+             atp_decode_architecture_fields(reader, &migration->target) &&
+             atp_neural_migration_validate(migration) == ATP_OK;
+        if (!ok) {
+            break;
+        }
+        if (i != 0u) {
+            ok = history[i - 1u].ledger_boundary_id <=
+                     migration->ledger_boundary_id &&
+                 atp_architecture_fields_equal(&history[i - 1u].target,
+                                               &migration->source);
+        }
+    }
+    if (ok) {
+        ok = atp_architecture_fields_equal(&history[count - 1u].target,
+                                           &graph->neural_architecture);
+    }
+    if (!ok) {
+        free(history);
+        return false;
+    }
+
+    graph->neural_migrations = history;
+    graph->neural_migration_count = count;
     return true;
 }
 
