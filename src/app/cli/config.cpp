@@ -21,6 +21,25 @@ std::string required_env(const char *name) {
     return value;
 }
 
+std::string self_did() {
+    const std::string value = env_or("ATPERSON_SELF_DID");
+    if (!value.empty() && value.rfind("did:", 0u) != 0u) {
+        throw std::runtime_error(
+            "ATPERSON_SELF_DID must be a DID beginning with 'did:'");
+    }
+    return value;
+}
+
+std::string required_self_did() {
+    const std::string value = self_did();
+    if (value.empty()) {
+        throw std::runtime_error(
+            "missing required environment variable ATPERSON_SELF_DID "
+            "(Jetstream needs the entity DID to exclude self-authored records)");
+    }
+    return value;
+}
+
 std::filesystem::path data_dir() {
     if (const std::string home_data = env_or("ATPERSON_HOME"); !home_data.empty()) {
         return home_data;
@@ -43,6 +62,23 @@ std::filesystem::path ledger_path() {
 std::filesystem::path ingestion_state_path() {
     return env_or("ATPERSON_INGESTION_STATE",
                   (data_dir() / "ingestion-state.json").string());
+}
+
+std::filesystem::path jetstream_state_path() {
+    return env_or("ATPERSON_JETSTREAM_STATE",
+                  (data_dir() / "jetstream-state.json").string());
+}
+
+std::filesystem::path jetstream_collections_path() {
+    const std::string configured = env_or("ATPERSON_JETSTREAM_COLLECTIONS_FILE");
+    return configured.empty() ? std::filesystem::path{} :
+                                std::filesystem::path(configured);
+}
+
+std::filesystem::path jetstream_dids_path() {
+    const std::string configured = env_or("ATPERSON_JETSTREAM_DIDS_FILE");
+    return configured.empty() ? std::filesystem::path{} :
+                                std::filesystem::path(configured);
 }
 
 std::filesystem::path control_state_path() {
@@ -72,8 +108,8 @@ std::filesystem::path action_journal_path() {
 
 std::vector<std::filesystem::path> durable_paths() {
     return {data_dir(), state_path(), ledger_path(), ingestion_state_path(),
-            control_state_path(), outbound_policy_path(), outbound_budget_path(),
-            outbound_audit_path(), action_journal_path()};
+            jetstream_state_path(), control_state_path(), outbound_policy_path(),
+            outbound_budget_path(), outbound_audit_path(), action_journal_path()};
 }
 
 int parse_limit(const char *value, int fallback) {

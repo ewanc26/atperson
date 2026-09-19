@@ -340,6 +340,44 @@ void test_jetstream_kind_round_trip_with_empty_did() {
     assert(loaded.checkpoint.observations_seen == 541u);
 }
 
+void test_jetstream_endpoint_mismatch_does_not_reuse_cursor() {
+    const auto dir = scratch_dir("jetstream-endpoint-mismatch");
+    const auto path = dir / "jetstream-state.json";
+
+    constexpr std::string_view first =
+        "wss://jetstream.us-east.bsky.network/subscribe";
+    constexpr std::string_view second =
+        "wss://jetstream.us-west.bsky.network/subscribe";
+
+    atperson::IngestionState state = atperson::initial_ingestion_state(
+        first, "", atperson::kSourceKindJetstream);
+    state.catchup.active = true;
+    state.catchup.cursor = std::string("1726200000123456");
+    state.checkpoint.generation = 4u;
+    atperson::save_ingestion_state(state, path);
+
+    /* Same endpoint: the opaque server cursor is reusable across restart. */
+    auto loaded = atperson::load_ingestion_state(
+        path, first, "", atperson::kSourceKindJetstream);
+    assert(loaded.catchup.active);
+    assert(loaded.catchup.cursor ==
+           std::optional<std::string>("1726200000123456"));
+
+    /*
+     * Different Jetstream server: never assume its cursor namespace is
+     * interchangeable. Start clean; the shared observation ledger remains
+     * responsible for duplicate suppression over any overlap.
+     */
+    loaded = atperson::load_ingestion_state(
+        path, second, "", atperson::kSourceKindJetstream);
+    assert(!loaded.catchup.active);
+    assert(!loaded.catchup.cursor);
+    assert(loaded.source.kind == "atproto-jetstream");
+    assert(loaded.source.service == second);
+    assert(loaded.source.account_did.empty());
+    assert(loaded.checkpoint.generation == 0u);
+}
+
 void test_jetstream_kind_timeline_cursor_not_reusable() {
     const auto dir = scratch_dir("jetstream-kind-mismatch");
     const auto path = dir / "state.json";
@@ -727,6 +765,32 @@ void test_policy_skipped_items_deduplicate_across_runs() {
     assert(ledger.count() == 1u);
 }
 
+void test_quote_reason_is_learned() {
+    const auto dir = scratch_dir("policy-quote");
+    atperson::LanguageGraph graph;
+    atperson::Ledger ledger(dir / "ledger.bin");
+    auto state = atperson::initial_ingestion_state("https://bsky.social", "did:plc:abc");
+
+    atperson::SyncObservation quote = obs("at://fixture/quote", "my own quote words");
+    quote.policy_reason = atperson::PolicyReason::Quote;
+    quote.context.quote_uri = "at://did:plc:quoted/app.bsky.feed.post/1";
+
+    const auto feed = [&](const std::optional<std::string> &) -> atperson::SyncPage {
+        return atperson::SyncPage{
+            .items = {quote},
+            .next_cursor = std::nullopt,
+        };
+    };
+
+    atperson::SyncLimits limits;
+    limits.max_pages = 1;
+    const auto result = atperson::run_sync(graph, ledger, state, feed, limits);
+    assert(result.learned == 1u);
+    assert(result.skipped == 0u);
+    assert(ledger.count() == 1u);
+    assert(ledger.entries().front().outcome == ATP_LEDGER_OUTCOME_LEARNED);
+}
+
 void test_reposts_and_replies_are_learned_with_reason() {
     const auto dir = scratch_dir("policy-eligible-tags");
     atperson::LanguageGraph graph;
@@ -774,6 +838,7 @@ int main() {
 
     test_jetstream_kind_initial_state();
     test_jetstream_kind_round_trip_with_empty_did();
+    test_jetstream_endpoint_mismatch_does_not_reuse_cursor();
     test_jetstream_kind_timeline_cursor_not_reusable();
 
     test_successful_page_checkpoints_next_cursor();
@@ -787,6 +852,7 @@ int main() {
 
     test_policy_skipped_items_are_ledgered_not_trained();
     test_policy_skipped_items_deduplicate_across_runs();
+    test_quote_reason_is_learned();
     test_reposts_and_replies_are_learned_with_reason();
 
     std::printf("sync tests passed\n");

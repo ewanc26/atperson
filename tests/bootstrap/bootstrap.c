@@ -77,6 +77,7 @@ static void test_env_template_lists_credentials(void) {
 
     assert(strstr(contents, "ATPERSON_IDENTIFIER=") != NULL);
     assert(strstr(contents, "ATPERSON_APP_PASSWORD=") != NULL);
+    assert(strstr(contents, "ATPERSON_SELF_DID=") != NULL);
     assert(strstr(contents, "ATPERSON_SERVICE=") != NULL);
     assert(strstr(contents, "ATPERSON_HOME=") != NULL);
     assert(strstr(contents, "ATPERSON_MEMORY_BUDGET_BYTES=") != NULL);
@@ -89,6 +90,10 @@ static void test_env_template_lists_credentials(void) {
     assert(strstr(contents, "ATPERSON_NEURAL_HIDDEN_WIDTHS=") != NULL);
     assert(strstr(contents, "ATPERSON_SYNC_PAGE_SIZE=") != NULL);
     assert(strstr(contents, "ATPERSON_SYNC_MAX_OBSERVATIONS=") != NULL);
+    assert(strstr(contents, "ATPERSON_JETSTREAM_STATE=") != NULL);
+    assert(strstr(contents, "ATPERSON_JETSTREAM_ENDPOINT=") != NULL);
+    assert(strstr(contents, "ATPERSON_JETSTREAM_COLLECTIONS_FILE=") != NULL);
+    assert(strstr(contents, "ATPERSON_JETSTREAM_DIDS_FILE=") != NULL);
 }
 
 static void test_env_permissions_are_owner_only(void) {

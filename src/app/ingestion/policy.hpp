@@ -40,6 +40,11 @@ enum class PolicyReason {
 
 const char *policy_reason_name(PolicyReason reason);
 
+/* Single authority for whether a policy reason may train learned state.
+ * Keep all ingestion engines on this helper so newly-added eligible reasons
+ * cannot be accidentally ledgered as skipped. */
+[[nodiscard]] bool policy_reason_is_eligible(PolicyReason reason) noexcept;
+
 /* Fields the policy needs, extracted by the client. Mirrors the subset of
  * app.bsky.feed.defs#feedViewPost the policy decides on. */
 struct PolicyPost {
