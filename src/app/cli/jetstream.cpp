@@ -60,7 +60,8 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
 
     const JetstreamLimits limits = parse_limits(max_events, max_ms);
     const std::string endpoint =
-        env_or("ATPERSON_JETSTREAM_ENDPOINT", "wss://jetstream.atproto.xyz/subscribe");
+        env_or("ATPERSON_JETSTREAM_ENDPOINT",
+               "wss://jetstream.us-east.bsky.network/subscribe");
     atperson::JetstreamClient client(endpoint);
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
