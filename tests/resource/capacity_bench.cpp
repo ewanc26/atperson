@@ -188,18 +188,24 @@ Metrics run_fixture(const Profile &profile, std::size_t repetitions,
         atp_graph_create_with_architecture(&config, &architecture);
     require(graph != nullptr, "could not create capacity benchmark graph");
 
+    const std::filesystem::path ledger_path =
+        std::filesystem::temp_directory_path() /
+        ("atperson-capacity-bench-" + std::string(profile.name) + ".ledger");
+    cleanup_ledger_files(ledger_path);
+    auto ledger = std::make_unique<atperson::Ledger>(ledger_path);
+
     const auto started = std::chrono::steady_clock::now();
     std::uint64_t ledger_id = 1u;
     std::uint64_t at = 1000u;
 
     /* Keep the cross-domain negative target present before domain A training
      * without introducing an A<->B pair. */
-    observe(graph, "forest", ledger_id++, at++);
+    observe(graph, *ledger, "forest", ledger_id++, at++);
 
     static constexpr std::array<std::string_view, 3> DOMAIN_A = {
         "moon silver night", "moon silver glow", "night moon silver"};
     for (std::size_t r = 0; r < repetitions; ++r) {
-        observe(graph, DOMAIN_A[r % DOMAIN_A.size()], ledger_id++, at++);
+        observe(graph, *ledger, DOMAIN_A[r % DOMAIN_A.size()], ledger_id++, at++);
     }
 
     const float domain_a_before = score_pair(graph, "moon", "silver");
@@ -207,7 +213,7 @@ Metrics run_fixture(const Profile &profile, std::size_t repetitions,
     static constexpr std::array<std::string_view, 3> DOMAIN_B = {
         "forest green moss", "forest green fern", "moss forest green"};
     for (std::size_t r = 0; r < repetitions; ++r) {
-        observe(graph, DOMAIN_B[r % DOMAIN_B.size()], ledger_id++, at++);
+        observe(graph, *ledger, DOMAIN_B[r % DOMAIN_B.size()], ledger_id++, at++);
     }
 
     Metrics metrics;
@@ -223,6 +229,31 @@ Metrics run_fixture(const Profile &profile, std::size_t repetitions,
     metrics.domain_a_after = score_pair(graph, "moon", "silver");
     metrics.domain_b_after = score_pair(graph, "forest", "green");
     metrics.cross_domain_after = score_pair(graph, "moon", "forest");
+
+    /* Rebuild from the durable ledger at the persisted architecture, before
+     * recall mutates episodic usage counters. Learned state must reproduce
+     * exactly under the same seed/topology. */
+    const atp_graph_stats live_pre_recall = atp_graph_get_stats(graph);
+    atp_graph *rebuilt =
+        atp_graph_create_with_architecture(&config, &architecture);
+    require(rebuilt != nullptr, "could not create rebuild benchmark graph");
+    atp_replay_report rebuild_report{};
+    require(atp_replay_ledger(ledger->handle(), rebuilt, &rebuild_report) == ATP_OK,
+            "capacity benchmark ledger replay failed");
+    const atp_graph_stats rebuilt_stats = atp_graph_get_stats(rebuilt);
+    metrics.rebuild_exact =
+        rebuilt_stats.node_count == live_pre_recall.node_count &&
+        rebuilt_stats.edge_count == live_pre_recall.edge_count &&
+        rebuilt_stats.observations == live_pre_recall.observations &&
+        rebuilt_stats.training_steps == live_pre_recall.training_steps &&
+        rebuilt_stats.mean_loss == live_pre_recall.mean_loss &&
+        atp_graph_ledger_count(rebuilt) == atp_graph_ledger_count(graph) &&
+        score_pair(rebuilt, "moon", "silver") == metrics.domain_a_after &&
+        score_pair(rebuilt, "forest", "green") == metrics.domain_b_after &&
+        score_pair(rebuilt, "moon", "forest") == metrics.cross_domain_after &&
+        rebuild_report.replayed == live_pre_recall.observations &&
+        rebuild_report.excluded_withdrawn == 0u;
+    atp_graph_destroy(rebuilt);
 
     atp_recall_report recall_report{};
     atp_episode recalled[8]{};
@@ -288,7 +319,32 @@ Metrics run_fixture(const Profile &profile, std::size_t repetitions,
         score_pair(loaded, "forest", "green") == metrics.domain_b_after;
 
     atp_graph_destroy(loaded);
+
+    /* Withdrawal is durable ledger state, not an in-place unlearning trick.
+     * Withdraw one repeated domain-B observation, rebuild from scratch, and
+     * verify the replay report and observation count reflect the exclusion. */
+    const std::uint64_t withdrawn_id = ledger_id - 1u;
+    ledger->withdraw(withdrawn_id);
+    atp_graph *withdrawn =
+        atp_graph_create_with_architecture(&config, &architecture);
+    require(withdrawn != nullptr,
+            "could not create withdrawal rebuild benchmark graph");
+    atp_replay_report withdrawal_report{};
+    require(atp_replay_ledger(ledger->handle(), withdrawn,
+                              &withdrawal_report) == ATP_OK,
+            "capacity benchmark withdrawal replay failed");
+    const atp_graph_stats withdrawn_stats = atp_graph_get_stats(withdrawn);
+    metrics.withdrawal_excluded = withdrawal_report.excluded_withdrawn;
+    metrics.withdrawal_rebuild_ok =
+        withdrawal_report.excluded_withdrawn == 1u &&
+        withdrawn_stats.observations + 1u == stats.observations &&
+        withdrawal_report.replayed + 1u == stats.observations &&
+        std::isfinite(score_pair(withdrawn, "forest", "green"));
+    atp_graph_destroy(withdrawn);
+
     atp_graph_destroy(graph);
+    ledger.reset();
+    cleanup_ledger_files(ledger_path);
 
     if (measure_time) {
         const auto ended = std::chrono::steady_clock::now();
@@ -318,7 +374,10 @@ bool deterministic_equal(const Metrics &a, const Metrics &b) {
            a.candidate_count == b.candidate_count &&
            a.top_candidate == b.top_candidate &&
            a.top_candidate_score == b.top_candidate_score &&
-           a.snapshot_exact == b.snapshot_exact;
+           a.snapshot_exact == b.snapshot_exact &&
+           a.rebuild_exact == b.rebuild_exact &&
+           a.withdrawal_rebuild_ok == b.withdrawal_rebuild_ok &&
+           a.withdrawal_excluded == b.withdrawal_excluded;
 }
 
 void print_json(const Metrics &m, std::string_view mode) {
@@ -357,6 +416,11 @@ void print_json(const Metrics &m, std::string_view mode) {
               << ",\"top_candidate_score\":" << m.top_candidate_score
               << ",\"snapshot_exact\":"
               << (m.snapshot_exact ? "true" : "false")
+              << ",\"rebuild_exact\":"
+              << (m.rebuild_exact ? "true" : "false")
+              << ",\"withdrawal_rebuild_ok\":"
+              << (m.withdrawal_rebuild_ok ? "true" : "false")
+              << ",\"withdrawal_excluded\":" << m.withdrawal_excluded
               << ",\"elapsed_ms\":" << m.elapsed_ms << "}\n";
 }
 
@@ -389,6 +453,12 @@ int main(int argc, char **argv) {
                         all_profiles[i].name);
             require(first.snapshot_exact,
                     std::string("snapshot mismatch for ") +
+                        all_profiles[i].name);
+            require(first.rebuild_exact,
+                    std::string("ledger rebuild mismatch for ") +
+                        all_profiles[i].name);
+            require(first.withdrawal_rebuild_ok,
+                    std::string("withdrawal rebuild mismatch for ") +
                         all_profiles[i].name);
             require(first.recall_returned > 0u,
                     std::string("recall produced no evidence for ") +
