@@ -82,7 +82,7 @@ bool atp_reader_section(atp_reader *reader, atp_section *section) {
     return section->length <= reader->size - reader->position;
 }
 
-bool atp_reader_next_section(atp_reader *reader, bool seen[12], uint32_t max_tag,
+bool atp_reader_next_section(atp_reader *reader, bool seen[ATP_SECTION_TRACKED_MAX + 1u], uint32_t max_tag,
                              atp_section *section, size_t *payload_end) {
     if (!atp_reader_section(reader, section)) {
         return false;
@@ -99,9 +99,9 @@ bool atp_reader_next_section(atp_reader *reader, bool seen[12], uint32_t max_tag
 
 /* Bit N-1 set for every tag N the loader saw; compared against the loader's
  * required-section mask. */
-static uint32_t atp_seen_mask(const bool seen[12]) {
+static uint32_t atp_seen_mask(const bool seen[ATP_SECTION_TRACKED_MAX + 1u]) {
     uint32_t mask = 0u;
-    for (uint32_t tag = 1u; tag <= 11u; ++tag) {
+    for (uint32_t tag = 1u; tag <= ATP_SECTION_TRACKED_MAX; ++tag) {
         if (seen[tag]) {
             mask |= 1u << (tag - 1u);
         }
@@ -109,7 +109,7 @@ static uint32_t atp_seen_mask(const bool seen[12]) {
     return mask;
 }
 
-atp_graph *atp_load_finish(atp_graph *graph, const bool seen[12], uint32_t required_mask,
+atp_graph *atp_load_finish(atp_graph *graph, const bool seen[ATP_SECTION_TRACKED_MAX + 1u], uint32_t required_mask,
                            uint32_t learning_schema, atp_reader *reader, atp_status *status) {
     if (!graph || (required_mask & ~atp_seen_mask(seen)) != 0u) {
         return atp_load_failure(graph, status, ATP_ERR_FORMAT);
