@@ -71,20 +71,104 @@ bool atp_schema_can_replay(uint32_t version) {
     }
 }
 
-atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
-                             atp_replay_report *report) {
+static bool atp_replay_architecture_equal(
+    const atp_neural_architecture *left,
+    const atp_neural_architecture *right) {
+    return left->version == right->version &&
+           left->embedding_dim == right->embedding_dim &&
+           left->input_dim == right->input_dim &&
+           left->hidden_layer_count == right->hidden_layer_count &&
+           left->output_dim == right->output_dim &&
+           memcmp(left->hidden_widths, right->hidden_widths,
+                  sizeof(left->hidden_widths)) == 0;
+}
+
+static atp_status atp_validate_replay_migrations(
+    const atp_ledger *ledger, const atp_graph *graph,
+    const atp_neural_migration *migrations, size_t migration_count) {
+    if (migration_count == 0u) {
+        return ATP_OK;
+    }
+    if (!migrations ||
+        !atp_replay_architecture_equal(&graph->neural_architecture,
+                                       &migrations[0].source)) {
+        return ATP_ERR_MIGRATION;
+    }
+
+    uint64_t previous_boundary = 0u;
+    for (size_t i = 0u; i < migration_count; ++i) {
+        if (atp_neural_migration_validate(&migrations[i]) != ATP_OK ||
+            (i != 0u &&
+             migrations[i].ledger_boundary_id < previous_boundary) ||
+            (i != 0u &&
+             !atp_replay_architecture_equal(&migrations[i - 1u].target,
+                                            &migrations[i].source))) {
+            return ATP_ERR_MIGRATION;
+        }
+        previous_boundary = migrations[i].ledger_boundary_id;
+    }
+
+    const size_t ledger_count = atp_ledger_count(ledger);
+    if (ledger_count == 0u) {
+        return previous_boundary == 0u ? ATP_OK : ATP_ERR_MIGRATION;
+    }
+    atp_ledger_entry last;
+    if (atp_ledger_entry_at(ledger, ledger_count - 1u, &last) != ATP_OK) {
+        return ATP_ERR_FORMAT;
+    }
+    return previous_boundary <= last.id ? ATP_OK : ATP_ERR_MIGRATION;
+}
+
+static atp_status atp_apply_replay_migrations(
+    atp_graph *graph, const atp_neural_migration *migrations,
+    size_t migration_count, size_t *migration_index, uint64_t boundary,
+    atp_replay_report *report) {
+    while (*migration_index < migration_count &&
+           migrations[*migration_index].ledger_boundary_id == boundary) {
+        const atp_status expanded =
+            atp_graph_expand_neural(graph, &migrations[*migration_index]);
+        if (expanded != ATP_OK) {
+            if (report) {
+                report->failed_at_id = boundary;
+            }
+            return expanded;
+        }
+        (*migration_index)++;
+        if (report) {
+            report->migrations_applied++;
+        }
+    }
+    return ATP_OK;
+}
+
+atp_status atp_replay_ledger_with_migrations(
+    const atp_ledger *ledger, atp_graph *graph,
+    const atp_neural_migration *migrations, size_t migration_count,
+    atp_replay_report *report) {
     if (report) {
         memset(report, 0, sizeof(*report));
     }
-    if (!ledger || !graph) {
+    if (!ledger || !graph || (migration_count != 0u && !migrations)) {
         return ATP_ERR_INVALID_ARGUMENT;
+    }
+
+    atp_status status =
+        atp_validate_replay_migrations(ledger, graph, migrations,
+                                       migration_count);
+    if (status != ATP_OK) {
+        return status;
+    }
+
+    size_t migration_index = 0u;
+    status = atp_apply_replay_migrations(
+        graph, migrations, migration_count, &migration_index, 0u, report);
+    if (status != ATP_OK) {
+        return status;
     }
 
     const size_t count = atp_ledger_count(ledger);
     unsigned char *payload = NULL;
     size_t payload_capacity = 0u;
-    atp_status status = ATP_OK;
-
     for (size_t i = 0u; i < count; ++i) {
         atp_ledger_entry entry;
         if (atp_ledger_entry_at(ledger, i, &entry) != ATP_OK) {
@@ -92,6 +176,16 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
                 report->failed_at_id = (uint64_t)i + 1u;
             }
             status = ATP_ERR_FORMAT;
+            break;
+        }
+
+        if (migration_index < migration_count &&
+            migrations[migration_index].ledger_boundary_id < entry.id) {
+            if (report) {
+                report->failed_at_id =
+                    migrations[migration_index].ledger_boundary_id;
+            }
+            status = ATP_ERR_MIGRATION;
             break;
         }
 
@@ -229,8 +323,28 @@ atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
         if (status != ATP_OK) {
             break;
         }
+
+        status = atp_apply_replay_migrations(
+            graph, migrations, migration_count, &migration_index, entry.id,
+            report);
+        if (status != ATP_OK) {
+            break;
+        }
+    }
+
+    if (status == ATP_OK && migration_index != migration_count) {
+        if (report) {
+            report->failed_at_id =
+                migrations[migration_index].ledger_boundary_id;
+        }
+        status = ATP_ERR_MIGRATION;
     }
 
     free(payload);
     return status;
+}
+
+atp_status atp_replay_ledger(const atp_ledger *ledger, atp_graph *graph,
+                             atp_replay_report *report) {
+    return atp_replay_ledger_with_migrations(ledger, graph, NULL, 0u, report);
 }
