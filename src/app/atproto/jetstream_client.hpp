@@ -75,7 +75,8 @@ class JetstreamClient {
     explicit JetstreamClient(
         std::string endpoint, std::string self_did,
         std::vector<std::string> collections = {"app.bsky.feed.post"},
-        std::vector<std::string> dids = {});
+        std::vector<std::string> dids = {},
+        std::string initial_cursor = {});
     ~JetstreamClient();
     JetstreamClient(const JetstreamClient &) = delete;
     JetstreamClient &operator=(const JetstreamClient &) = delete;
