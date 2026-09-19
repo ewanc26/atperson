@@ -119,6 +119,61 @@ void test_collection_filter_file() {
     std::printf("ok collection filter file\n");
 }
 
+void test_did_filter_file() {
+    const auto path = filter_path("dids-valid");
+    write_filter(path,
+                 "# accounts to observe\n"
+                 " did:plc:alpha \n"
+                 "did:web:example.com\n"
+                 "did:plc:alpha\n");
+
+    const auto dids = atperson::load_jetstream_dids(path);
+    if (dids.size() != 2u || dids[0] != "did:plc:alpha" ||
+        dids[1] != "did:web:example.com") {
+        fail("DID filter parse/order/dedup");
+    }
+    std::filesystem::remove(path);
+    std::printf("ok DID filter file\n");
+}
+
+void test_did_filter_rejects_invalid_input() {
+    {
+        const auto path = filter_path("dids-invalid");
+        write_filter(path, "not-a-did\n");
+        bool rejected = false;
+        try {
+            (void)atperson::load_jetstream_dids(path);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        std::filesystem::remove(path);
+        if (!rejected) {
+            fail("non-DID wantedDids filter must reject");
+        }
+    }
+
+    {
+        const auto path = filter_path("dids-too-many");
+        std::ofstream output(path, std::ios::trunc);
+        for (std::size_t i = 0u; i < atperson::kJetstreamDidFilterLimit + 1u; ++i) {
+            output << "did:plc:test" << i << '\n';
+        }
+        output.close();
+        bool rejected = false;
+        try {
+            (void)atperson::load_jetstream_dids(path);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        std::filesystem::remove(path);
+        if (!rejected) {
+            fail("DID filter limit must reject");
+        }
+    }
+
+    std::printf("ok invalid DID filters rejected\n");
+}
+
 void test_collection_filter_rejects_invalid_input() {
     {
         const auto path = filter_path("empty");
@@ -355,6 +410,8 @@ void test_record_not_an_object_is_rejected() {
 int main() {
     test_collection_filter_file();
     test_collection_filter_rejects_invalid_input();
+    test_did_filter_file();
+    test_did_filter_rejects_invalid_input();
     test_create_top_level_post();
     test_update_post();
     test_delete_is_not_an_observation();
