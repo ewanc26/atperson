@@ -66,7 +66,8 @@ static void test_roundtrip(void) {
     graph = atp_graph_load(path, &status);
     assert(graph != NULL);
     assert(status == ATP_OK);
-    assert(ATPERSON_SNAPSHOT_VERSION == 6u);
+    assert(ATPERSON_SNAPSHOT_VERSION == 7u);
+    assert(ATPERSON_SNAPSHOT_VERSION_V6 == 6u);
     assert(fabsf(atp_graph_familiarity(graph, "alpha") - alpha) < 0.0001f);
     assert(fabsf(atp_graph_familiarity(graph, "beta") - beta) < 0.0001f);
 
