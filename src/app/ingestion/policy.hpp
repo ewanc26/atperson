@@ -17,6 +17,10 @@ namespace atperson {
  * Every skipped class is recorded in the ledger as SKIPPED rather than
  * silently disappearing, so "observed but not learned" stays distinguishable
  * from "never fetched".
+ *
+ * This is intentionally a public-post policy. Only app.bsky.feed.post is
+ * eligible; conversation/private-message payloads must remain unsupported and
+ * never become graph learning input (#61).
  */
 
 enum class PolicyReason {
