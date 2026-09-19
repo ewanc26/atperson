@@ -20,6 +20,16 @@ wss://jetstream1.us-east.bsky.network/subscribe
 
 Override it with `ATPERSON_JETSTREAM_ENDPOINT` for another public or self-hosted Jetstream service.
 
+## Status inspection
+
+```sh
+atperson jetstream status [--collections <file>] [--dids <file>]
+```
+
+This command is read-only and runs before the learned model is loaded. It reports the effective Jetstream endpoint, current runtime phase, dedicated state-file path, persisted cursor/checkpoint generation, and the collection/DID filters that would be used by a live run.
+
+The phase currently reports `live-only`. Once Wolfram #36 exposes Jetstream v2 archive replay, this surface is where the replay/backfill phase and archive-to-live cutover state should become visible rather than being hidden inside the transport.
+
 ## Independent checkpoint
 
 Timeline polling and Jetstream use different runtime state files:
