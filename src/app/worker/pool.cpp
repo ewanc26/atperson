@@ -2,6 +2,7 @@
 
 #include "system.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -206,17 +207,23 @@ bool WorkerPool::shutting_down() {
 WorkerPool::Config WorkerPool::config_from_system(const SystemResources &system,
                                                   std::size_t max_threads) {
     Config config;
-    /* Effective CPU capacity is a double in [0, 1] folded from host CPUs and
-     * container quotas. Round down so a fractional quota (e.g. 0.5) yields
-     * half the host's workers rather than rounding up to 1. */
+    /*
+     * effective_cpu_capacity is an absolute CPU count after quota/cpuset
+     * limits, not a [0,1] fraction. The old host*effective calculation could
+     * turn an 8-CPU host into a 64-thread pool. Use the whole effective count
+     * directly, clamp to host CPUs and then to the caller's operational cap.
+     */
     double capacity = system.effective_cpu_capacity;
     if (capacity <= 0.0) {
         capacity = 1.0;
     }
-    std::size_t workers = static_cast<std::size_t>(system.host_logical_cpus * capacity);
+    std::size_t workers = static_cast<std::size_t>(capacity);
     if (workers == 0u) {
         workers = 1u;
     }
+    const std::size_t host =
+        std::max<std::size_t>(1u, system.host_logical_cpus);
+    workers = std::min(workers, host);
     if (max_threads > 0u && workers > max_threads) {
         workers = max_threads;
     }
