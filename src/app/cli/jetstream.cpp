@@ -3,6 +3,7 @@
 #include "jetstream.hpp"
 
 #include "atproto/jetstream_client.hpp"
+#include "atproto/jetstream_filter.hpp"
 #include "cli/config.hpp"
 #include "ingestion/state.hpp"
 #include "journal/store.hpp"
@@ -17,6 +18,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace atperson {
 namespace cli {
@@ -36,8 +38,9 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
                   const std::filesystem::path &data_dir, LanguageGraph &graph,
                   const std::filesystem::path &model_path,
                   const std::filesystem::path &ledger_file,
-                  const std::filesystem::path &state_file, int max_events,
-                  int max_ms,
+                  const std::filesystem::path &state_file,
+                  const std::filesystem::path &collections_file,
+                  int max_events, int max_ms,
                   const std::function<void(const LanguageGraph &)> &print_stats) {
     /* Operator pause gate (#22): refuse new ingestion work while paused. */
     const auto control_file = cli::control_state_path();
@@ -59,9 +62,14 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
                                        kSourceKindJetstream);
 
     const JetstreamLimits limits = parse_limits(max_events, max_ms);
-    const std::string endpoint =
-        env_or("ATPERSON_JETSTREAM_ENDPOINT", "wss://jetstream.atproto.xyz/subscribe");
-    atperson::JetstreamClient client(endpoint);
+    const std::string endpoint = env_or(
+        "ATPERSON_JETSTREAM_ENDPOINT",
+        "wss://jetstream1.us-east.bsky.network/subscribe");
+    const std::vector<std::string> collections =
+        collections_file.empty()
+            ? atperson::default_jetstream_collections()
+            : atperson::load_jetstream_collections(collections_file);
+    atperson::JetstreamClient client(endpoint, collections);
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
 
@@ -89,7 +97,8 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         << result.observations_seen << " observation(s)"
         << (result.exhausted ? ", feed exhausted" : ", catch-up pending")
         << "; learned from " << result.learned << " (skipped " << result.skipped
-        << ", duplicate " << result.duplicates << ") public post records\n";
+        << ", duplicate " << result.duplicates << "); collections "
+        << collections.size() << "\n";
     print_stats(graph);
     return 0;
 }
