@@ -47,6 +47,7 @@ AT Protocol network
 ```
 
 See [`docs/architecture.md`](docs/architecture.md) for the deeper architectural invariants and persistence model.
+The complete fail-closed orchestration contract is in [`docs/agent-loop.md`](docs/agent-loop.md).
 
 ## Current state
 

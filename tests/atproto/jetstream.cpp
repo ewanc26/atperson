@@ -130,6 +130,18 @@ void test_other_collection_is_not_an_observation() {
     std::printf("ok non-post collection skipped\n");
 }
 
+void test_private_message_view_is_not_public_observation() {
+    SyncObservation out;
+    const std::string private_view =
+        R"({"$type":"chat.bsky.convo.defs#messageView","text":"private message"})";
+    if (extract(commit("create", "chat.bsky.convo.defs#messageView", "3kcz9",
+                       private_view),
+                out)) {
+        fail("private message view must not enter public-post ingestion");
+    }
+    std::printf("ok private message view excluded\n");
+}
+
 void test_malformed_json_is_rejected() {
     SyncObservation out;
     if (extract("{\"did\": \"did:plc:author\", \"commit\":", out)) {
@@ -259,6 +271,7 @@ int main() {
     test_update_post();
     test_delete_is_not_an_observation();
     test_other_collection_is_not_an_observation();
+    test_private_message_view_is_not_public_observation();
     test_malformed_json_is_rejected();
     test_envelope_without_did_is_rejected();
     test_empty_text_is_skipped_with_reason();

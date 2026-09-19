@@ -525,6 +525,10 @@ budgets and operator control. `atperson publish` currently executes frozen,
 operator-approved posts and replies through Wolfram only after those gates pass.
 Other autonomous social behaviour remains fail-closed.
 
+The full stage-by-stage authority and refusal contract is documented in
+[`agent-loop.md`](agent-loop.md). In particular, a C23 plan is evidence rather
+than permission, and credentials remain runtime-only.
+
 ## Persistence
 
 Snapshots are versioned and contain the complete mutable graph/neural state,
