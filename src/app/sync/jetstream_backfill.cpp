@@ -57,7 +57,7 @@ SyncObservation jetstream_to_observation(const JetstreamEvent &event) {
 JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                                           IngestionState &state, JetstreamClient &client,
                                           const JetstreamLimits &limits,
-                                          const SyncLinker &link) {
+                                          const SyncLinker &link, std::string_view self_did) {
     JetstreamRunResult result;
     const bool fresh_traversal = !state.catchup.active;
 
@@ -67,7 +67,10 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     }
 
     const auto on_event = [&](const JetstreamEvent &event) {
-        const SyncObservation observation = jetstream_to_observation(event);
+        SyncObservation observation = jetstream_to_observation(event);
+        if (!self_did.empty() && event.author_did == self_did) {
+            observation.policy_reason = PolicyReason::SelfAuthored;
+        }
         ++result.observations_seen;
         if (process_observation(graph, ledger, observation)) {
             if (link) {

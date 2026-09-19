@@ -74,6 +74,10 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     const std::string endpoint =
         env_or("ATPERSON_JETSTREAM_ENDPOINT",
                "wss://jetstream.us-east.bsky.network/subscribe");
+    const std::string self_did = required_env("ATPERSON_SELF_DID");
+    if (self_did.rfind("did:", 0u) != 0u) {
+        throw std::runtime_error("ATPERSON_SELF_DID must be a DID");
+    }
     atperson::JetstreamClient client(endpoint, jetstream_collections(), jetstream_dids());
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
@@ -81,7 +85,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     atperson::JetstreamRunResult result;
     for (;;) {
         result = atperson::run_jetstream_backfill(graph, ledger, ingestion, client, limits,
-                                                  linker);
+                                                  linker, self_did);
         if (result.exhausted) {
             break;
         }

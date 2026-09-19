@@ -69,6 +69,7 @@ void print_usage(std::ostream &out) {
         << "                              backfill (default wss://jetstream.us-east.bsky.network/subscribe)\n\n"
         << "  ATPERSON_JETSTREAM_COLLECTIONS_FILE  one wanted collection NSID per line\n"
         << "  ATPERSON_JETSTREAM_DIDS_FILE  one wanted DID per line\n"
+        << "  ATPERSON_SELF_DID             authenticated account DID for Jetstream policy\n"
         << "  ATPERSON_DAEMON_PAGES_PER_CYCLE  pages per daemon sync cycle (default 1)\n"
         << "  ATPERSON_DAEMON_POLL_MS          wait after an exhausted cycle "
            "(default 300000)\n"

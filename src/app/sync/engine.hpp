@@ -127,7 +127,8 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                                           IngestionState &state,
                                           JetstreamClient &client,
                                           const JetstreamLimits &limits,
-                                          const SyncLinker &link = nullptr);
+                                          const SyncLinker &link = nullptr,
+                                          std::string_view self_did = {});
 
 } // namespace atperson
 
