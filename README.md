@@ -72,6 +72,7 @@ The project is already beyond the initial scaffold. The important pieces current
 | Outbound execution | Operator-led | Approved frozen post/reply actions can be published through Wolfram with audit logging and idempotent record keys |
 | Action/outcome journal | Implemented | Outbound attempts and outcomes are durable and replayable into valence |
 | Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup |
+| Agent loop | Contract documented | Perception → decision → policy → control → execution → journal boundaries are defined; no autonomous scheduler is enabled |
 | Autonomous social behaviour | Not enabled | Autonomous posting, replies, likes, follows, reposts, DMs and moderation remain fail-closed |
 
 The model begins with **zero words and zero relationships**. Neural parameters have small deterministic initial values so training can start, but there is no seeded vocabulary, biography, ideology, personality or preference set.
@@ -114,6 +115,7 @@ More detail lives in:
 - [`docs/conversation-context.md`](docs/conversation-context.md)
 - [`docs/action-inspection.md`](docs/action-inspection.md)
 - [`docs/action-journal.md`](docs/action-journal.md)
+- [`docs/agent-loop.md`](docs/agent-loop.md)
 
 ## `atperson` vs `digital-person`
 

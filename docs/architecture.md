@@ -136,6 +136,14 @@ Read-only commands run without the writer lock and observe durable state as of
 their own read. A concurrent writer may commit afterwards; readers do not block
 writers and writers do not wait for readers.
 
+## Agent-loop boundary
+
+The future autonomous runtime is a composition of existing subsystems, not a new authority layer. Its contract is documented in [`agent-loop.md`](agent-loop.md).
+
+The ordering is explicit: public perception enters through policy and the observation ledger; the C23 core decides or abstains; C++ outbound policy and operator control decide whether a frozen action may proceed; Wolfram performs the write; the action/outcome journal records what happened; and only explicit provenance-linked outcome mapping may affect learned valence.
+
+No scheduler is currently allowed to bypass those boundaries. In particular, an accepted C23 plan is evidence rather than permission, credentials remain runtime-only, and private-message payloads are not learning input.
+
 ## Wolfram boundary
 
 AT Protocol networking belongs to
