@@ -37,8 +37,9 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
                   const std::filesystem::path &data_dir, LanguageGraph &graph,
                   const std::filesystem::path &model_path,
                   const std::filesystem::path &ledger_file,
-                  const std::filesystem::path &state_file, int max_events,
-                  int max_ms,
+                  const std::filesystem::path &state_file,
+                  const std::filesystem::path &collections_file,
+                  int max_events, int max_ms,
                   const std::function<void(const LanguageGraph &)> &print_stats);
 
 } // namespace cli
