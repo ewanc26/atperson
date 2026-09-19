@@ -311,9 +311,13 @@ static bool atp_decode_network_v6(atp_reader *reader, atp_graph *graph) {
     return true;
 }
 
-atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *status) {
+static atp_graph *atp_load_explicit(
+    const unsigned char *data, size_t size, atp_status *status,
+    bool require_migrations) {
     /* Integrity before interpretation, as in the v5 loader. */
-    if (size < 8u || atp_fnv1a64(data, size - 8u) != atp_load_u64le(data + size - 8u)) {
+    if (size < 8u ||
+        atp_fnv1a64(data, size - 8u) !=
+            atp_load_u64le(data + size - 8u)) {
         return atp_load_failure(NULL, status, ATP_ERR_FORMAT);
     }
 
@@ -335,29 +339,32 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
     while (reader.size - reader.position > 8u) {
         atp_section section;
         size_t payload_end = 0u;
-        if (!atp_reader_next_section(&reader, seen, 11u, &section, &payload_end)) {
+        if (!atp_reader_next_section(&reader, seen, ATP_SECTION_TRACKED_MAX,
+                                     &section, &payload_end)) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
 
         bool ok = false;
         switch (section.tag) {
-        case ATP_SECTION_HEADER: {
-            ok = atp_decode_header_v6(&reader, &pending_config, &pending_rng_state,
-                                     &pending_observations, &pending_token_observations,
-                                     &pending_training_steps, &pending_loss_total,
-                                     &pending_episode_evictions);
+        case ATP_SECTION_HEADER:
+            ok = atp_decode_header_v6(
+                &reader, &pending_config, &pending_rng_state,
+                &pending_observations, &pending_token_observations,
+                &pending_training_steps, &pending_loss_total,
+                &pending_episode_evictions);
             break;
-        }
+
         case ATP_SECTION_ARCH: {
             atp_neural_architecture architecture;
-            if (!seen[ATP_SECTION_HEADER]) {
+            if (!seen[ATP_SECTION_HEADER] || graph != NULL) {
                 break;
             }
             ok = atp_decode_arch(&reader, &architecture);
             if (ok) {
-                graph = atp_graph_create_with_architecture(&pending_config, &architecture);
+                graph =
+                    atp_graph_create_with_architecture(&pending_config,
+                                                       &architecture);
                 if (!graph) {
-                    /* Invalid descriptor: layout validation failed closed. */
                     return atp_load_failure(NULL, status, ATP_ERR_FORMAT);
                 }
                 graph->rng_state = pending_rng_state;
@@ -369,9 +376,17 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
             }
             break;
         }
+
+        case ATP_SECTION_MIGRATIONS:
+            /* v7 makes this section required and places it immediately after
+             * ARCH, before learned network/node bytes. A v6 image that tries
+             * to smuggle migration history is rejected rather than ignored. */
+            ok = require_migrations && graph && seen[ATP_SECTION_ARCH] &&
+                 !seen[ATP_SECTION_NETWORK] &&
+                 atp_decode_migrations(&reader, graph);
+            break;
+
         case ATP_SECTION_NETWORK:
-            /* NETWORK reads the layer stack the ARCH-created graph carries;
-             * ARCH must precede it. */
             ok = graph && atp_decode_network_v6(&reader, graph);
             break;
         case ATP_SECTION_NODES:
@@ -384,13 +399,15 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
             ok = graph && atp_decode_ledger(&reader, graph);
             break;
         case ATP_SECTION_CONTEXT:
-            ok = graph && seen[ATP_SECTION_LEDGER] && atp_decode_context(&reader, graph);
+            ok = graph && seen[ATP_SECTION_LEDGER] &&
+                 atp_decode_context(&reader, graph);
             break;
         case ATP_SECTION_EPISODES:
             ok = graph && atp_decode_episodes(&reader, graph);
             break;
         case ATP_SECTION_VALENCE:
-            ok = graph && seen[ATP_SECTION_NODES] && atp_decode_valence(&reader, graph);
+            ok = graph && seen[ATP_SECTION_NODES] &&
+                 atp_decode_valence(&reader, graph);
             break;
         case ATP_SECTION_SCHEMA: {
             uint32_t schema = 0u;
@@ -405,10 +422,24 @@ atp_graph *atp_load_v6(const unsigned char *data, size_t size, atp_status *statu
             ok = true;
             break;
         }
+
         if (!ok || reader.position != payload_end) {
             return atp_load_failure(graph, status, ATP_ERR_FORMAT);
         }
     }
 
-    return atp_load_finish(graph, seen, 0x43Fu, learning_schema, &reader, status);
+    const uint32_t required_mask =
+        require_migrations ? UINT32_C(0xC3F) : UINT32_C(0x43F);
+    return atp_load_finish(graph, seen, required_mask, learning_schema,
+                           &reader, status);
+}
+
+atp_graph *atp_load_v6(const unsigned char *data, size_t size,
+                       atp_status *status) {
+    return atp_load_explicit(data, size, status, false);
+}
+
+atp_graph *atp_load_v7(const unsigned char *data, size_t size,
+                       atp_status *status) {
+    return atp_load_explicit(data, size, status, true);
 }
