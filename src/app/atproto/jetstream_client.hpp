@@ -1,8 +1,9 @@
 /* Jetstream public backfill client (#60).
  *
- * Jetstream is an unauthenticated public firehose: the agent ingests
- * `com.atproto.sync.subscribeRepos` commit frames over a WebSocket without
- * ever logging in. This module owns the transport and the per-cycle budget;
+ * Jetstream is an unauthenticated JSON stream derived from the AT Protocol
+ * repository firehose. The agent consumes Jetstream commit envelopes over a
+ * WebSocket without ever logging in. This module owns the transport and the
+ * per-cycle budget;
  * it owns no learned state and never writes.
  *
  * The connection is created on the first `fetch_batch` (never in the
