@@ -32,7 +32,19 @@ A zero-growth condition is represented as a real finite ceiling. It is never tra
 
 Before loading an existing snapshot, the runtime also performs a conservative preflight based on the snapshot size and current memory headroom. If the load no longer fits safely, it is refused before the process drifts into an avoidable OOM failure.
 
-Commands that do not need the current learned graph — including `rebuild`, `compact`, `withdraw` and cursor management — avoid loading it unnecessarily. Rebuild starts from a fresh graph rather than holding the old model in memory beside its replacement.
+Commands that do not need the current learned graph — including `rebuild`, `compact`, `withdraw` and cursor management — avoid loading it unnecessarily. Rebuild reads only the persisted topology descriptor from the old snapshot (a seek-based metadata probe, not a graph load), builds a fresh graph at exactly that topology, and replays the ledger into it. It never holds the old model in memory beside its replacement.
+
+## Neural capacity and first-run topology
+
+Issue #73 binds the first run of a brand-new model generation to the machine's hardware capacity recommendation.
+
+- **First creation**: when no model snapshot exists, the runtime derives the current resource budget first, translates the `NeuralCapacityRecommendation` into a validated C23 `atp_neural_architecture`, and creates a fresh graph at exactly that topology. The first save persists the architecture as durable model-generation metadata.
+- **Every later run**: the persisted topology is authoritative. The current recommendation is only an execution/headroom check and an expansion suggestion. A smaller or changed host never silently reshapes the model; `atperson resources` keeps *active*, *recommended* and *expansion available* separate.
+- **Rebuild**: recovers the model-generation topology from the durable snapshot via the metadata probe, never from current host hardware.
+- **Refusal, not shrinkage**: if the current machine cannot safely host the persisted architecture's learned-state footprint within the memory safety reserve, load is refused with an explicit error. Lowering `ATPERSON_NEURAL_*` overrides or rebuilding on a larger machine are the documented recovery paths.
+- **Pre-v6 generations** carry no topology descriptor and keep their legacy architecture; `rebuild` and `load` report the legacy topology for them. Future migration to variable shapes is a separate decision, not a side effect of this change.
+
+The memory footprint check is deliberately an estimate: shared parameters use the exact C-core parameter count, and per-node/per-edge state uses the same conservative bytes as the growth budget.
 
 ## Disk and sync budgets
 
@@ -68,5 +80,11 @@ Automatic budgeting is the default. Empty values or `0` mean automatic where sup
 | `ATPERSON_EDGE_CAPACITY` | Explicit graph edge ceiling |
 | `ATPERSON_SYNC_PAGE_SIZE` | Explicit timeline page size (`1`–`100`) |
 | `ATPERSON_SYNC_MAX_OBSERVATIONS` | Explicit per-run observation budget |
+| `ATPERSON_NEURAL_CAPACITY` | Forced capacity class used at first creation: `constrained`, `baseline`, `capable`, `large`, `expansive` or `auto` |
+| `ATPERSON_NEURAL_EMBEDDING_DIM` | Explicit first-creation embedding width |
+| `ATPERSON_NEURAL_HIDDEN_LAYERS` | Explicit first-creation hidden layer count (`1`–`3`) |
+| `ATPERSON_NEURAL_HIDDEN_WIDTHS` | Explicit first-creation hidden widths, colon-separated (e.g. `256:128`) |
 
 An override that exceeds available safe headroom is rejected. Explicit node/edge ceilings below the graph's current counts are raised to the current counts instead of evicting learned state.
+
+The neural overrides only influence **first creation and rebuild-without-a-model**. Explicit shape overrides keep every field they leave unset from the automatic class's shape; the combined effective shape is validated as a whole (embedding within the C-core width limit, no zero-width active layer, no nonzero width beyond the declared layer count, parameter count within the C-core bound). A forced capacity class cannot be combined with the explicit shape variables, and both stay inside the runtime policy bounds: the recommendation's width vector expresses at most three hidden layers, so overrides above three are rejected even though the C core itself allows four. Overrides never reshape an existing model; an override that parks a fresh model beyond current memory headroom is refused at creation.

@@ -11,6 +11,7 @@
 #include "atperson/ledger.hpp"
 #include "journal/store.hpp"
 #include "lock.hpp"
+#include "resource/runtime.hpp"
 
 #include <cstdint>
 #include <cstdlib>
@@ -40,7 +41,28 @@ int run_rebuild(
                                  "; nothing to rebuild from");
     }
     atperson::Ledger ledger(ledger_file);
-    atperson::LanguageGraph rebuilt;
+
+    /* Recover the model-generation topology from durable metadata instead of
+     * replanning it from host hardware (issue #73): an existing snapshot's
+     * persisted architecture is probed without loading the graph, and a first
+     * rebuild (no model yet, ledger only) binds to the hardware recommendation
+     * exactly like first creation. Either way a fresh graph is built at that
+     * exact topology and replayed; the first save persists it durably. */
+    atp_neural_architecture architecture{};
+    if (std::filesystem::exists(model_path)) {
+        const atp_status probe = atp_snapshot_neural_architecture(
+            model_path.string().c_str(), &architecture);
+        if (probe != ATP_OK) {
+            throw std::runtime_error(
+                "rebuild: cannot read the persisted neural architecture from " +
+                model_path.string() + ": " + atp_status_string(probe));
+        }
+    } else {
+        architecture = atperson::neural_architecture_of(resource_status.budget.neural);
+    }
+    atperson::require_runtime_neural_headroom(resource_status, architecture, 0u, 0u);
+
+    atperson::LanguageGraph rebuilt(atp_graph_default_config(), architecture);
     auto rebuild_resources = atperson::refresh_runtime_resources(
         rebuilt, resource_paths, resource_overrides);
     atperson::require_runtime_write_headroom(rebuild_resources);
