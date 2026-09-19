@@ -379,6 +379,24 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson-growth_pathology
     COMMAND atperson-growth-test growth-pathology)
 
+  # Capacity/continual-learning benchmark foundation (#67). The smoke mode
+  # crosses runtime capacity selection into the C23 core and stays bounded for
+  # normal CI; the full five-profile run is in the explicit bench suite.
+  add_executable(atperson-capacity-benchmark tests/resource/capacity_bench.cpp)
+  target_link_libraries(atperson-capacity-benchmark PRIVATE atperson-cpp)
+  target_include_directories(
+    atperson-capacity-benchmark
+    PRIVATE
+      ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS}
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  add_test(
+    NAME atperson-capacity-smoke
+    COMMAND atperson-capacity-benchmark smoke)
+  add_test(
+    NAME atperson-capacity-bench
+    COMMAND atperson-capacity-benchmark bench)
+  set_tests_properties(atperson-capacity-bench PROPERTIES LABELS "bench")
+
   # Scale benchmarks (issue #9). Explicit suite, excluded from default
   # runs via label; invoke with: ctest -L bench
   add_executable(atperson-bench tests/core/bench.c)
