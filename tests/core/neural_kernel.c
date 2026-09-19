@@ -165,6 +165,25 @@ static void exercise_kernel(const atp_neural_architecture *architecture) {
     atp_network_destroy(&graph.network);
 }
 
+static void test_public_neural_score(void) {
+    const atp_neural_architecture architecture = architecture_2_hidden();
+    atp_graph_config config = atp_graph_default_config();
+    config.seed = UINT64_C(0x123456789);
+    atp_graph *graph = atp_graph_create_with_architecture(&config, &architecture);
+    assert(graph != NULL);
+    assert(atp_graph_observe_text(graph, "alpha beta", "at://test/neural-score") == ATP_OK);
+
+    float score = 0.0f;
+    assert(atp_graph_neural_score(graph, "alpha", "beta", &score) == ATP_OK);
+    assert(isfinite(score) && score > 0.0f && score < 1.0f);
+    assert(atp_graph_neural_score(graph, "alpha", "missing", &score) == ATP_ERR_NOT_FOUND);
+    assert(atp_graph_neural_score(NULL, "alpha", "beta", &score) == ATP_ERR_INVALID_ARGUMENT);
+    assert(atp_graph_neural_score(graph, NULL, "beta", &score) == ATP_ERR_INVALID_ARGUMENT);
+    assert(atp_graph_neural_score(graph, "alpha", "beta", NULL) == ATP_ERR_INVALID_ARGUMENT);
+
+    atp_graph_destroy(graph);
+}
+
 static void test_deterministic_repeat(const atp_neural_architecture *architecture) {
     atp_graph first = {0};
     atp_graph second = {0};
@@ -229,6 +248,7 @@ int main(void) {
     const atp_neural_architecture three = architecture_3_hidden();
     exercise_kernel(&two);
     exercise_kernel(&three);
+    test_public_neural_score();
     test_deterministic_repeat(&two);
     test_deterministic_repeat(&three);
 
