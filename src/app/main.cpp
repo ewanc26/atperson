@@ -10,6 +10,7 @@
 #include "cli/ingest.hpp"
 #include "cli/jetstream.hpp"
 #include "cli/ledger.hpp"
+#include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
 #include "cli/sync.hpp"
