@@ -87,6 +87,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
 
     out << "jetstream: " << result.events_consumed << " frame(s), "
         << result.observations_seen << " observation(s)"
+        << ", " << result.withdrawn << " withdrawal(s)"
         << (result.exhausted ? ", feed exhausted" : ", catch-up pending")
         << "; learned from " << result.learned << " (skipped " << result.skipped
         << ", duplicate " << result.duplicates << ") public post records\n";

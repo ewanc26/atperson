@@ -117,6 +117,7 @@ struct JetstreamRunResult {
     std::size_t learned{};
     std::size_t skipped{};
     std::size_t duplicates{};
+    std::size_t withdrawn{};
     bool exhausted{}; /* feed closed cleanly at the head */
 };
 

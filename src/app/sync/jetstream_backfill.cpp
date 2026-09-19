@@ -62,6 +62,10 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     }
 
     const auto on_event = [&](const JetstreamEvent &event) {
+        if (event.deleted) {
+            result.withdrawn += ledger.withdraw_source(event.source_uri);
+            return;
+        }
         const SyncObservation observation = jetstream_to_observation(event);
         ++result.observations_seen;
         if (process_observation(graph, ledger, observation)) {
@@ -86,6 +90,11 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     const auto batch = client.fetch_batch(limits, on_event);
     result.events_consumed = batch.first;
     result.exhausted = batch.second;
+
+    if (result.withdrawn > 0u) {
+        (void)graph.rebuild_from_ledger(ledger);
+        result.reconciled = true;
+    }
 
     if (result.exhausted) {
         state.catchup.active = false;
