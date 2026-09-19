@@ -89,6 +89,8 @@ cursor checkpoint
 
 The cursor is saved only after the events represented by it have been durably handled. On restart, ledger deduplication prevents already-committed observations from training twice.
 
+Malformed Jetstream frames are counted against the `max-events` work budget and skipped rather than terminating the stream. Because an unparseable envelope has no trustworthy cursor, atperson does not fabricate one; the next valid frame advances the cursor. The CLI reports the number of malformed frames skipped.
+
 ## Privacy and network effects
 
 Jetstream is public, read-only ingestion. It uses no account login or app password.
