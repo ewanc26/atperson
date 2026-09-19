@@ -169,7 +169,10 @@ typedef enum atp_status {
      * reached. The observation is rejected whole — never partially
      * learned. Distinct from ATP_ERR_OUT_OF_MEMORY: the allocator is
      * fine, the budget is the limit. */
-    ATP_ERR_CAPACITY = 7
+    ATP_ERR_CAPACITY = 7,
+    /** A requested learned-state migration is unsupported, non-monotonic, or
+     * does not match the graph generation it names. */
+    ATP_ERR_MIGRATION = 8
 } atp_status;
 
 typedef struct atp_graph atp_graph;
@@ -196,6 +199,23 @@ typedef struct atp_neural_architecture {
     uint32_t hidden_widths[ATPERSON_NEURAL_MAX_HIDDEN_LAYERS];
     uint32_t output_dim;
 } atp_neural_architecture;
+
+#define ATPERSON_NEURAL_MIGRATION_VERSION 1u
+
+/*
+ * Deterministic monotonic learned-state migration descriptor (issue #66).
+ *
+ * The source architecture is part of the contract rather than inferred
+ * silently: replay can verify that a migration is being applied to the
+ * generation it was recorded against. The seed initialises only newly-created
+ * coordinates and never advances the graph's ordinary learning RNG.
+ */
+typedef struct atp_neural_migration {
+    uint32_t version;
+    uint64_t seed;
+    atp_neural_architecture source;
+    atp_neural_architecture target;
+} atp_neural_migration;
 
 /*
  * Inspectable storage accounting for the active architecture. Parameter bytes
@@ -389,6 +409,33 @@ atp_status atp_graph_neural_architecture(const atp_graph *graph,
  * will allocate. Issue #73.
  */
 uint64_t atp_neural_parameter_count(const atp_neural_architecture *architecture);
+
+/**
+ * Validate a deterministic monotonic migration descriptor without mutating a
+ * graph. Migration v1 requires valid source/target architectures, a non-zero
+ * persisted seed, no shrinking embedding/hidden coordinates, no hidden-layer
+ * removal, and enough target output-input width to retain every existing
+ * scalar-output weight. At least one dimension must grow.
+ *
+ * Returns ATP_ERR_MIGRATION for a well-formed pointer whose migration contract
+ * is unsupported/non-monotonic, or ATP_ERR_INVALID_ARGUMENT for NULL.
+ */
+atp_status atp_neural_migration_validate(const atp_neural_migration *migration);
+
+/**
+ * Expand a live graph transactionally under an already-validated migration.
+ *
+ * Every overlapping embedding, weight, bias and plasticity-importance value is
+ * copied bit-for-bit. Newly-created coordinates use the migration-v1 PRNG
+ * stream derived only from seed and version. The graph's ordinary RNG state is
+ * not advanced. Allocation/validation failure leaves the graph unchanged.
+ *
+ * This primitive migrates in-memory learned state only. Durable migration
+ * history/boundaries are persisted by the snapshot/runtime layer before the
+ * operator-facing expansion command is enabled.
+ */
+atp_status atp_graph_expand_neural(atp_graph *graph,
+                                   const atp_neural_migration *migration);
 
 /** Read topology plus parameter/storage accounting for inspection. */
 atp_status atp_graph_neural_report(const atp_graph *graph,
