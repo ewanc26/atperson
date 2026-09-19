@@ -56,6 +56,12 @@ std::filesystem::path jetstream_collections_path() {
                                 std::filesystem::path(configured);
 }
 
+std::filesystem::path jetstream_dids_path() {
+    const std::string configured = env_or("ATPERSON_JETSTREAM_DIDS_FILE");
+    return configured.empty() ? std::filesystem::path{} :
+                                std::filesystem::path(configured);
+}
+
 std::filesystem::path control_state_path() {
     return env_or("ATPERSON_CONTROL_STATE",
                   (data_dir() / "control-state.json").string());
