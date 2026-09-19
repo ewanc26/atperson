@@ -653,6 +653,21 @@ void test_neural_expansion_preflight() {
     assert(incompatible.status == atperson::NeuralExpansionStatus::incompatible);
     assert(incompatible.reason.find("hidden layer 2") != std::string::npos);
 
+    /* Appending a hidden layer also moves the scalar output layer. The new
+     * final hidden layer must be wide enough to carry every old output
+     * weight, even when all pre-existing hidden coordinates are monotonic. */
+    auto narrow_final = expansive;
+    narrow_final.budget.neural.hidden_widths[2] = 64u;
+    narrow_final.budget.neural.shared_parameter_count =
+        atperson::neural_parameter_count(narrow_final.budget.neural);
+    narrow_final.budget.neural.shared_parameter_bytes =
+        narrow_final.budget.neural.shared_parameter_count * sizeof(float);
+    const auto output_incompatible =
+        atperson::plan_neural_expansion(graph, narrow_final);
+    assert(output_incompatible.status ==
+           atperson::NeuralExpansionStatus::incompatible);
+    assert(output_incompatible.reason.find("scalar-output") != std::string::npos);
+
     std::ostringstream output;
     atperson::print_neural_expansion_plan(output, expansion);
     const std::string text = output.str();
