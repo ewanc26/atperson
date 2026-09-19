@@ -76,6 +76,9 @@ JetstreamClient::JetstreamClient(
         throw std::runtime_error(
             "JetstreamClient: more than 10000 DID filters are not supported");
     }
+    if (!cursor_.empty()) {
+        static_cast<void>(seq_from_cursor(cursor_));
+    }
 }
 
 JetstreamClient::~JetstreamClient() {
