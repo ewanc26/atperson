@@ -206,14 +206,16 @@ bool WorkerPool::shutting_down() {
 WorkerPool::Config WorkerPool::config_from_system(const SystemResources &system,
                                                   std::size_t max_threads) {
     Config config;
-    /* Effective CPU capacity is a double in [0, 1] folded from host CPUs and
-     * container quotas. Round down so a fractional quota (e.g. 0.5) yields
-     * half the host's workers rather than rounding up to 1. */
+    /* Effective CPU capacity is already the absolute effective CPU count,
+     * folded from host CPUs and container quotas. Do not multiply it by the
+     * host count again: on an 8-CPU host, capacity 8.0 means 8 workers, not
+     * 64. Round down fractional capacity and retain one explicit worker for
+     * any positive sub-one quota. */
     double capacity = system.effective_cpu_capacity;
     if (capacity <= 0.0) {
         capacity = 1.0;
     }
-    std::size_t workers = static_cast<std::size_t>(system.host_logical_cpus * capacity);
+    std::size_t workers = static_cast<std::size_t>(capacity);
     if (workers == 0u) {
         workers = 1u;
     }
