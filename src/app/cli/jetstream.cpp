@@ -41,6 +41,7 @@ int run_jetstream_status(
     const std::string endpoint = env_or(
         "ATPERSON_JETSTREAM_ENDPOINT",
         "wss://jetstream1.us-east.bsky.network/subscribe");
+    const std::string configured_self = self_did();
     const std::vector<std::string> collections =
         collections_file.empty()
             ? atperson::default_jetstream_collections()
@@ -106,7 +107,6 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
 
     const std::string configured_self = required_self_did();
 
-    const std::string configured_self = self_did();
     /*
      * Bind the persisted cursor to the actual Jetstream endpoint, not the
      * authenticated PDS/service URL used by timeline sync. A cursor from one
