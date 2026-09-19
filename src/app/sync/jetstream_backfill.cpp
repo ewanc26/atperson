@@ -42,8 +42,7 @@ SyncObservation jetstream_to_observation(const JetstreamEvent &event) {
     observation.context.reply_root_uri = event.reply_root;
     observation.context.reply_parent_uri = event.reply_parent;
     observation.context.quote_uri = event.quote_uri;
-    observation.policy_reason = event.text.empty() ? PolicyReason::EmptyText
-                                                   : PolicyReason::Eligible;
+    observation.policy_reason = event.policy_reason;
     return observation;
 }
 
@@ -70,9 +69,7 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
             }
             const bool trainable = !observation.text.empty();
             const bool policy_skipped =
-                observation.policy_reason != PolicyReason::Eligible &&
-                observation.policy_reason != PolicyReason::Repost &&
-                observation.policy_reason != PolicyReason::Reply;
+                !policy_reason_is_eligible(observation.policy_reason);
             if (trainable && !policy_skipped) {
                 ++result.learned;
             } else {
@@ -84,8 +81,9 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     };
 
     const auto batch = client.fetch_batch(limits, on_event);
-    result.events_consumed = batch.first;
-    result.exhausted = batch.second;
+    result.events_consumed = batch.frames_consumed;
+    result.malformed_frames = batch.malformed_frames;
+    result.exhausted = batch.exhausted;
 
     if (result.exhausted) {
         state.catchup.active = false;

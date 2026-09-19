@@ -102,8 +102,8 @@ SyncResult run_sync(LanguageGraph &graph, Ledger &ledger, IngestionState &state,
  * bounded cycle the cursor is persisted and the next independent backfill
  * resumes from it, relying on the durable ledger for deduplication.
  *
- * Failure modes: throws on a fatal client error (connect failure, parse
- * failure of a frame the feed emitted). A WOULD_BLOCK return from
+ * Failure modes: throws on a fatal client/transport error. Malformed
+ * Jetstream frames are bounded, counted and skipped by the client. A WOULD_BLOCK return from
  * `JetstreamClient::fetch_batch` (reconnect backoff) is not a failure: the
  * caller sleeps for the advertised delay and retries the same batch. */
 struct JetstreamLimits {
@@ -113,6 +113,7 @@ struct JetstreamLimits {
 
 struct JetstreamRunResult {
     std::uint64_t events_consumed{};
+    std::uint64_t malformed_frames{};
     std::uint64_t observations_seen{};
     std::size_t learned{};
     std::size_t skipped{};

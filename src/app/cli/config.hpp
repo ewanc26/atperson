@@ -19,10 +19,26 @@ namespace cli {
 std::string env_or(const char *name, std::string fallback = {});
 std::string required_env(const char *name);
 
+/* Non-secret repository identity used by unauthenticated public ingestion to
+ * enforce the self-authored exclusion from #20. Empty means unconfigured. */
+std::string self_did();
+std::string required_self_did();
+
 std::filesystem::path data_dir();
 std::filesystem::path state_path();
 std::filesystem::path ledger_path();
 std::filesystem::path ingestion_state_path();
+
+/* Independent unauthenticated Jetstream cursor/checkpoint (#60). Keeping it
+ * separate from the authenticated timeline state lets both ingestion paths
+ * resume across restarts without invalidating each other's source identity. */
+std::filesystem::path jetstream_state_path();
+
+/* Optional operator-owned one-collection-filter-per-line file. Empty path
+ * means the default public-post collection. */
+std::filesystem::path jetstream_collections_path();
+std::filesystem::path jetstream_dids_path();
+
 std::filesystem::path control_state_path();
 std::filesystem::path outbound_policy_path();
 std::filesystem::path outbound_budget_path();

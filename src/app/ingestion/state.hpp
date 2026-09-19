@@ -31,6 +31,12 @@ inline constexpr std::string_view kSourceKindJetstream = "atproto-jetstream";
 /* The endpoint each kind drives. Kept alongside `kind` so a cursor can never
  * be reused against a different feed. */
 inline constexpr std::string_view kTimelineEndpoint = "app.bsky.feed.getTimeline";
+/*
+ * Historical v1 source-identity token. Jetstream is not literally the
+ * subscribeRepos wire format; this spelling is retained so existing persisted
+ * Jetstream checkpoints remain valid until a versioned ingestion-state
+ * migration changes it.
+ */
 inline constexpr std::string_view kJetstreamEndpoint = "com.atproto.sync.subscribeRepos";
 
 /* An interrupted catch-up checkpoint: an opaque AT Protocol feed cursor that

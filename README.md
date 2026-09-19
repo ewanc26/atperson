@@ -114,6 +114,7 @@ More detail lives in:
 - [`docs/conversation-context.md`](docs/conversation-context.md)
 - [`docs/action-inspection.md`](docs/action-inspection.md)
 - [`docs/action-journal.md`](docs/action-journal.md)
+- [`docs/jetstream.md`](docs/jetstream.md)
 
 ## `atperson` vs `digital-person`
 

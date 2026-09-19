@@ -32,6 +32,26 @@ const char *policy_reason_name(PolicyReason reason) {
     return "unknown";
 }
 
+bool policy_reason_is_eligible(PolicyReason reason) noexcept {
+    switch (reason) {
+    case PolicyReason::Eligible:
+    case PolicyReason::Repost:
+    case PolicyReason::Reply:
+    case PolicyReason::Quote:
+        return true;
+    case PolicyReason::SelfAuthored:
+    case PolicyReason::ViewerBlocked:
+    case PolicyReason::ViewerBlockedBy:
+    case PolicyReason::ViewerMuted:
+    case PolicyReason::EmptyText:
+    case PolicyReason::UnsupportedRecord:
+    case PolicyReason::NonTextOnly:
+    case PolicyReason::ModerationFiltered:
+        return false;
+    }
+    return false;
+}
+
 PolicyDecision evaluate_post(std::string_view account_did, const PolicyPost &post) {
     /*
      * Rule order is deliberate and documented:

@@ -92,6 +92,7 @@ add_library(
   src/app/audit/evidence.cpp
   src/app/audit/questions.cpp
   src/app/audit/verdict.cpp
+  src/app/atproto/jetstream_filter.cpp
   src/app/resource/system.cpp
   src/app/resource/filesystems.cpp
   src/app/resource/budget.cpp
@@ -648,11 +649,30 @@ if(ATPERSON_BUILD_TESTS)
     atperson-jetstream-extract-test
     tests/atproto/jetstream.cpp
     src/app/atproto/jetstream.cpp
-    src/app/ingestion/policy.cpp)
+    src/app/atproto/extract.cpp
+    src/app/ingestion/policy.cpp
+    src/app/sync/engine.cpp
+    src/app/state/time.cpp)
   target_compile_features(atperson-jetstream-extract-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-jetstream-extract-test PRIVATE atperson-cpp cjson)
   target_include_directories(atperson-jetstream-extract-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-jetstream-extract COMMAND atperson-jetstream-extract-test)
+
+  if(ATPERSON_BUILD_NETWORK)
+    # Jetstream client construction can be tested without opening a socket:
+    # persisted cursor/self/filter validation happens before lazy connect.
+    add_executable(
+      atperson-jetstream-client-test
+      tests/atproto/jetstream_client.cpp
+      src/app/atproto/jetstream_client.cpp
+      src/app/atproto/jetstream.cpp
+      src/app/ingestion/policy.cpp)
+    target_compile_features(atperson-jetstream-client-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-jetstream-client-test PRIVATE atperson-cpp wolfram-cpp cjson)
+    target_include_directories(
+      atperson-jetstream-client-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-jetstream-client COMMAND atperson-jetstream-client-test)
+  endif()
 
   add_executable(
     atperson-lock-test

@@ -25,6 +25,7 @@
 #include "jetstream.hpp"
 
 #include "engine.hpp"
+#include "policy.hpp"
 
 #include <cJSON.h>
 #include <cstring>
@@ -83,7 +84,9 @@ std::string parse_quote_context(const cJSON *record) {
 
 } // namespace
 
-bool extract_jetstream_commit(const char *json, size_t json_len, SyncObservation &out) {
+bool extract_jetstream_commit(
+    const char *json, size_t json_len, std::string_view account_did,
+    SyncObservation &out) {
     if (json == nullptr || json_len == 0u) {
         return false;
     }
@@ -124,7 +127,22 @@ bool extract_jetstream_commit(const char *json, size_t json_len, SyncObservation
     parse_reply_context(record, reply_root, reply_parent);
     const std::string quote_uri = parse_quote_context(record);
 
-    out.text = text_value;
+    PolicyPost policy_post;
+    policy_post.author_did = did->valuestring;
+    policy_post.record_type = string_field(record, "$type");
+    policy_post.text = text_value;
+    policy_post.is_reply = !reply_parent.empty();
+    policy_post.is_quote = !quote_uri.empty();
+    const cJSON *embed = cJSON_GetObjectItemCaseSensitive(record, "embed");
+    if (embed != nullptr && cJSON_IsObject(embed)) {
+        policy_post.embed_type = string_field(embed, "$type");
+    }
+    policy_post.embed_has_text_fallback = false;
+
+    const PolicyDecision decision = evaluate_post(account_did, policy_post);
+
+    out = SyncObservation{};
+    out.text = decision.eligible ? text_value : std::string{};
     out.source_uri = std::string("at://") + did->valuestring + "/app.bsky.feed.post/" +
                      rkey->valuestring;
     out.author_did = did->valuestring;
@@ -135,13 +153,11 @@ bool extract_jetstream_commit(const char *json, size_t json_len, SyncObservation
         out.created_at = record_created;
     } else if (cJSON_IsString(time) && time->valuestring != nullptr) {
         out.created_at = time->valuestring;
-    } else {
-        out.created_at.clear();
     }
     out.context.reply_root_uri = reply_root;
     out.context.reply_parent_uri = reply_parent;
     out.context.quote_uri = quote_uri;
-    out.policy_reason = text_value.empty() ? PolicyReason::EmptyText : PolicyReason::Eligible;
+    out.policy_reason = decision.reason;
 
     cJSON_Delete(root);
     return true;

@@ -1,15 +1,17 @@
 /* CLI Jetstream public backfill command (#60).
  *
  * `atperson jetstream [max-events] [max-ms]` runs one bounded backfill cycle
- * over the unauthenticated public Jetstream firehose — no login, no app
- * password, no credentials of any kind. It ingests `com.atproto.sync.subscribeRepos`
- * commit frames for `app.bsky.feed.post` records through the same durable
+ * over the unauthenticated public Jetstream JSON stream — no login, no app
+ * password, no credentials of any kind. Jetstream derives from the AT Protocol
+ * firehose but is not the binary `com.atproto.sync.subscribeRepos` wire format.
+ * It ingests filtered commit envelopes through the same durable
  * pipeline as `sync` (ledger reservation -> remember -> outcome commit ->
  * action-event linkage) and checkpoints the Jetstream cursor only after every
  * event in the cycle has been durably handled.
  *
  * The cursor is an opaque Jetstream sequence number stored as a decimal
- * string in the ingestion state; it is never parsed here. After catch-up
+ * string in the dedicated Jetstream ingestion state; it is never parsed here.
+ * After catch-up
  * exhaustion the cursor is cleared and the next independent backfill begins
  * at the feed head, relying on the durable ledger for deduplication.
  *
@@ -33,12 +35,19 @@
 namespace atperson {
 namespace cli {
 
+int run_jetstream_status(
+    std::ostream &out, const std::filesystem::path &state_file,
+    const std::filesystem::path &collections_file,
+    const std::filesystem::path &dids_file);
+
 int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_status,
                   const std::filesystem::path &data_dir, LanguageGraph &graph,
                   const std::filesystem::path &model_path,
                   const std::filesystem::path &ledger_file,
-                  const std::filesystem::path &state_file, int max_events,
-                  int max_ms,
+                  const std::filesystem::path &state_file,
+                  const std::filesystem::path &collections_file,
+                  const std::filesystem::path &dids_file,
+                  int max_events, int max_ms,
                   const std::function<void(const LanguageGraph &)> &print_stats);
 
 } // namespace cli
