@@ -42,8 +42,13 @@ SyncObservation jetstream_to_observation(const JetstreamEvent &event) {
     observation.context.reply_root_uri = event.reply_root;
     observation.context.reply_parent_uri = event.reply_parent;
     observation.context.quote_uri = event.quote_uri;
-    observation.policy_reason = event.text.empty() ? PolicyReason::EmptyText
-                                                   : PolicyReason::Eligible;
+    if (event.text.empty()) {
+        observation.policy_reason = PolicyReason::EmptyText;
+    } else if (!event.quote_uri.empty()) {
+        observation.policy_reason = PolicyReason::Quote;
+    } else {
+        observation.policy_reason = PolicyReason::Eligible;
+    }
     return observation;
 }
 
@@ -72,7 +77,8 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
             const bool policy_skipped =
                 observation.policy_reason != PolicyReason::Eligible &&
                 observation.policy_reason != PolicyReason::Repost &&
-                observation.policy_reason != PolicyReason::Reply;
+                observation.policy_reason != PolicyReason::Reply &&
+                observation.policy_reason != PolicyReason::Quote;
             if (trainable && !policy_skipped) {
                 ++result.learned;
             } else {
