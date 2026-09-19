@@ -35,6 +35,11 @@
 namespace atperson {
 namespace cli {
 
+int run_jetstream_status(
+    std::ostream &out, const std::filesystem::path &state_file,
+    const std::filesystem::path &collections_file,
+    const std::filesystem::path &dids_file);
+
 int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_status,
                   const std::filesystem::path &data_dir, LanguageGraph &graph,
                   const std::filesystem::path &model_path,
