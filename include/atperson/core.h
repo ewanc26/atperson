@@ -31,13 +31,17 @@ extern "C" {
  * Version 6 persists the explicit neural architecture descriptor
  * (ATP_SECTION_ARCH) and variable-length network/node payloads, so a graph
  * trained at any supported topology round-trips exactly, including its
- * plasticity-importance values. v6 files are identified by the "ATPERSN6"
- * magic; v5 files keep the "ATPERSN5" magic and load through the legacy
- * compatibility path at the named legacy architecture. v5 snapshots stay
- * byte-for-byte compatible and are still written by legacy graphs until an
- * explicit migration changes their topology.
+ * plasticity-importance values.
+ *
+ * Version 7 adds the ordered neural-migration history required to rebuild an
+ * expanded generation at the exact ledger boundaries where its topology
+ * changed. A graph with no migration history continues to write v5/v6 exactly
+ * as before; only migrated generations require v7. This makes older builds
+ * fail closed on expanded generations instead of silently replaying the whole
+ * ledger at the final topology.
  */
-#define ATPERSON_SNAPSHOT_VERSION 6u
+#define ATPERSON_SNAPSHOT_VERSION 7u
+#define ATPERSON_SNAPSHOT_VERSION_V6 6u
 /* Previous portable fragment format, still loadable as the legacy graph. */
 #define ATPERSON_SNAPSHOT_VERSION_V5 5u
 
@@ -440,6 +444,16 @@ atp_status atp_neural_migration_validate(const atp_neural_migration *migration);
  */
 atp_status atp_graph_expand_neural(atp_graph *graph,
                                    const atp_neural_migration *migration);
+
+/** Number of durable neural migrations recorded on this model generation. */
+size_t atp_graph_neural_migration_count(const atp_graph *graph);
+
+/**
+ * Copy the i-th durable neural migration (0-based, chronological order).
+ * Returns ATP_ERR_NOT_FOUND when index is outside the recorded history.
+ */
+atp_status atp_graph_neural_migration_at(const atp_graph *graph, size_t index,
+                                         atp_neural_migration *out_migration);
 
 /** Read topology plus parameter/storage accounting for inspection. */
 atp_status atp_graph_neural_report(const atp_graph *graph,
