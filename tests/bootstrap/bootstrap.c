@@ -77,6 +77,7 @@ static void test_env_template_lists_credentials(void) {
 
     assert(strstr(contents, "ATPERSON_IDENTIFIER=") != NULL);
     assert(strstr(contents, "ATPERSON_APP_PASSWORD=") != NULL);
+    assert(strstr(contents, "ATPERSON_SELF_DID=") != NULL);
     assert(strstr(contents, "ATPERSON_SERVICE=") != NULL);
     assert(strstr(contents, "ATPERSON_HOME=") != NULL);
     assert(strstr(contents, "ATPERSON_MEMORY_BUDGET_BYTES=") != NULL);
