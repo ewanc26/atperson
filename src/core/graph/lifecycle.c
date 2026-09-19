@@ -92,6 +92,7 @@ void atp_graph_destroy(atp_graph *graph) {
     }
     free(graph->nodes);
     atp_network_destroy(&graph->network);
+    free(graph->neural_migrations);
     free(graph->edges);
     free(graph->node_index_slots);
     free(graph->edge_index_slots);
