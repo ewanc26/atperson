@@ -14,9 +14,12 @@ atp_status atp_graph_save(const atp_graph *graph, const char *path) {
     }
 
     atp_buffer buffer = {0};
-    const bool encoded = atp_neural_architecture_is_legacy(&graph->neural_architecture)
-                             ? atp_encode_snapshot_v5(graph, &buffer)
-                             : atp_encode_snapshot_v6(graph, &buffer);
+    const bool encoded =
+        graph->neural_migration_count != 0u
+            ? atp_encode_snapshot_v7(graph, &buffer)
+            : atp_neural_architecture_is_legacy(&graph->neural_architecture)
+                  ? atp_encode_snapshot_v5(graph, &buffer)
+                  : atp_encode_snapshot_v6(graph, &buffer);
     if (!encoded) {
         free(buffer.data);
         return ATP_ERR_OUT_OF_MEMORY;
