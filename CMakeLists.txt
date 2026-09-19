@@ -69,6 +69,7 @@ add_library(
   src/core/persistence/sections.c
   src/core/persistence/v5.c
   src/core/persistence/v6.c
+  src/core/persistence/arch.c
   src/core/persistence/migration.c
   src/core/persistence/load.c
   src/core/persistence/save.c)

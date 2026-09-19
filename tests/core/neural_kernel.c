@@ -33,6 +33,9 @@ static void assert_layout_sane(const atp_neural_architecture *architecture,
     assert(layout->weight_count <= ATPERSON_NEURAL_PARAMETER_LIMIT);
     assert(layout->bias_count <= ATPERSON_NEURAL_PARAMETER_LIMIT);
     assert(layout->activation_count >= architecture->input_dim);
+    /* The public parameter count (issue #73) equals weights + biases. */
+    assert(atp_neural_parameter_count(architecture) ==
+           (uint64_t)layout->weight_count + (uint64_t)layout->bias_count);
 
     /* Dense layers are contiguous: the raw input block occupies [0, input_dim)
      * and each layer's output block starts immediately after the previous
@@ -228,6 +231,12 @@ int main(void) {
     exercise_kernel(&three);
     test_deterministic_repeat(&two);
     test_deterministic_repeat(&three);
+
+    /* Issue #73: invalid and NULL descriptors report a zero parameter count. */
+    assert(atp_neural_parameter_count(NULL) == 0u);
+    atp_neural_architecture invalid = three;
+    invalid.hidden_layer_count = 0u;
+    assert(atp_neural_parameter_count(&invalid) == 0u);
 
     puts("neural-kernel: ok");
     return 0;

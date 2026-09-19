@@ -89,3 +89,14 @@ bool atp_neural_layout_build(const atp_neural_architecture *architecture,
     *out_layout = layout;
     return true;
 }
+
+uint64_t atp_neural_parameter_count(const atp_neural_architecture *architecture) {
+    if (!architecture) {
+        return 0u;
+    }
+    atp_neural_layout layout = {0};
+    if (!atp_neural_layout_build(architecture, &layout)) {
+        return 0u;
+    }
+    return (uint64_t)layout.weight_count + (uint64_t)layout.bias_count;
+}

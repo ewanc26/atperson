@@ -12,6 +12,8 @@ extern "C" {
 #define ATPERSON_EMBEDDING_DIM 16u
 #define ATPERSON_NEURAL_MAX_HIDDEN_LAYERS 4u
 #define ATPERSON_NEURAL_ARCHITECTURE_VERSION 1u
+#define ATPERSON_NEURAL_WIDTH_LIMIT 16384u
+#define ATPERSON_NEURAL_PARAMETER_LIMIT ((size_t)268435456u)
 #define ATPERSON_TOKEN_BYTES 96u
 
 /*
@@ -379,12 +381,41 @@ atp_neural_architecture atp_neural_legacy_architecture(void);
 atp_status atp_graph_neural_architecture(const atp_graph *graph,
                                          atp_neural_architecture *out_architecture);
 
+/**
+ * Exact count of shared learned parameters (weights + biases, including the
+ * scalar-output layer) for a neural topology descriptor. Pure and never
+ * allocates; returns 0 when the descriptor fails layout validation, which
+ * lets the runtime size its memory-footprint estimates exactly as the C core
+ * will allocate. Issue #73.
+ */
+uint64_t atp_neural_parameter_count(const atp_neural_architecture *architecture);
+
 /** Read topology plus parameter/storage accounting for inspection. */
 atp_status atp_graph_neural_report(const atp_graph *graph,
                                    atp_neural_architecture_report *out_report);
 
 /** Read plasticity control statistics (issue #59). */
 atp_status atp_graph_plasticity_report(const atp_graph *graph, atp_plasticity_report *out_report);
+
+/**
+ * Read only the persisted neural architecture descriptor from a snapshot file
+ * without materializing the graph (issue #73).
+ *
+ * Rebuild uses this to recover a model generation's topology from durable
+ * metadata rather than replanning it from host hardware, and the runtime uses
+ * it to preflight an architecture against current headroom. The probe walks
+ * the section framing with bounded seek-based skips and never buffers a whole
+ * snapshot; it does not verify the trailing digest, so corrupt payloads are
+ * only rejected when they touch the descriptor. v4/v5 snapshots carry no
+ * descriptor and report the legacy architecture, matching how they load.
+ *
+ * Fails with ATP_ERR_IO for an unreadable file and ATP_ERR_FORMAT when the
+ * file is not a valid v4/v5/v6 snapshot or its descriptor is structurally
+ * invalid. The returned descriptor always satisfies atp_graph_create_with_
+ * architecture validation.
+ */
+atp_status atp_snapshot_neural_architecture(const char *path,
+                                            atp_neural_architecture *out_architecture);
 
 /**
  * Return the strongest outgoing associations for `token`.
