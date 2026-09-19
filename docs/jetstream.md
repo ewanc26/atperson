@@ -30,6 +30,14 @@ This command is read-only and runs before the learned model is loaded. It report
 
 The phase currently reports `live-only`. Once Wolfram #36 exposes Jetstream v2 archive replay, this surface is where the replay/backfill phase and archive-to-live cutover state should become visible rather than being hidden inside the transport.
 
+## Entity identity and policy parity
+
+Live Jetstream ingestion requires `ATPERSON_SELF_DID`, a non-secret DID such as `did:plc:...`. Jetstream itself remains unauthenticated; the DID is used only to apply the same self-authored exclusion as authenticated timeline polling.
+
+If the DID is missing, `atperson jetstream` refuses before connecting or mutating learned state. `atperson jetstream status` remains available and reports that the self DID is missing.
+
+The record-level policy is shared with polling: self-authored posts are skipped, replies and quotes retain their eligible reason, empty/media-only records are classified consistently, and unsupported/private record classes remain non-learnable. Viewer-specific mute/block/moderation fields are only available on AppView timeline responses; public Jetstream events do not fabricate those viewer-state signals.
+
 ## Independent checkpoint
 
 Timeline polling and Jetstream use different runtime state files:
