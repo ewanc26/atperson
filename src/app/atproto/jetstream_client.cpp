@@ -27,9 +27,10 @@ namespace atperson {
 
 namespace {
 
-/* The Jetstream sequence number is the envelope microsecond timestamp, an
- * opaque int64_t. We store it as a decimal string in the ingestion state and
- * pass it back to Wolfram verbatim; it is never parsed here. */
+/* The pinned Wolfram live API exposes Jetstream's envelope time_us as its
+ * cursor. Jetstream v2 accepts this legacy unix-microsecond cursor form on the
+ * live tail for v1 compatibility. Native v2 replay/cutover uses event seq and
+ * belongs to the separate Wolfram #36 integration. */
 std::string cursor_from_seq(std::int64_t seq) {
     return seq <= 0 ? std::string() : std::to_string(seq);
 }
