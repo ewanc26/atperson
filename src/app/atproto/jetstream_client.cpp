@@ -89,6 +89,13 @@ JetstreamClient::~JetstreamClient() {
     }
 }
 
+void JetstreamClient::resume_from(std::string cursor) {
+    if (impl_ != nullptr) {
+        throw std::logic_error("JetstreamClient: resume cursor set after connect");
+    }
+    cursor_ = std::move(cursor);
+}
+
 void *JetstreamClient::connect() {
     wf_jetstream_options options{};
     options.endpoint = endpoint_.c_str();

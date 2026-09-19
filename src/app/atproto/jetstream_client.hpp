@@ -102,6 +102,11 @@ class JetstreamClient {
         const JetstreamLimits &limits,
         std::function<void(const JetstreamEvent &)> on_event);
 
+    /* Resume from a previously checkpointed opaque Jetstream cursor. This
+     * must be called before the first fetch_batch; changing it after the
+     * connection is established is rejected by the implementation. */
+    void resume_from(std::string cursor);
+
     /* Milliseconds to wait before the next reconnect attempt, or zero when
      * connected and due. Call this after a WOULD_BLOCK fetch_batch to sleep. */
     std::uint32_t reconnect_after_ms() const;
