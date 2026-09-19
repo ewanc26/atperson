@@ -456,40 +456,42 @@ void test_polling_and_jetstream_converge() {
                       "atperson-jetstream-parity";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root);
-    atperson::LanguageGraph graph_a;
-    atperson::LanguageGraph graph_b;
-    atperson::Ledger ledger_a(root / "polling.bin");
-    atperson::Ledger ledger_b(root / "jetstream.bin");
+    {
+        atperson::LanguageGraph graph_a;
+        atperson::LanguageGraph graph_b;
+        atperson::Ledger ledger_a(root / "polling.bin");
+        atperson::Ledger ledger_b(root / "jetstream.bin");
 
-    if (!atperson::process_observation(graph_a, ledger_a, polling) ||
-        !atperson::process_observation(graph_b, ledger_b, js)) {
-        fail("parity fixture unexpectedly deduplicated");
-    }
+        if (!atperson::process_observation(graph_a, ledger_a, polling) ||
+            !atperson::process_observation(graph_b, ledger_b, js)) {
+            fail("parity fixture unexpectedly deduplicated");
+        }
 
-    const auto entries_a = ledger_a.entries();
-    const auto entries_b = ledger_b.entries();
-    if (entries_a.size() != 1u || entries_b.size() != 1u) {
-        fail("parity ledger count");
-    }
-    const auto &a = entries_a.front();
-    const auto &b = entries_b.front();
-    if (a.observed_at != b.observed_at ||
-        a.content_digest != b.content_digest ||
-        a.schema_version != b.schema_version ||
-        a.outcome != b.outcome ||
-        std::string(a.source_id) != std::string(b.source_id) ||
-        std::string(a.author_did) != std::string(b.author_did) ||
-        ledger_a.payload(a.id) != ledger_b.payload(b.id)) {
-        fail("polling/Jetstream ledger mismatch");
-    }
+        const auto entries_a = ledger_a.entries();
+        const auto entries_b = ledger_b.entries();
+        if (entries_a.size() != 1u || entries_b.size() != 1u) {
+            fail("parity ledger count");
+        }
+        const auto &a = entries_a.front();
+        const auto &b = entries_b.front();
+        if (a.observed_at != b.observed_at ||
+            a.content_digest != b.content_digest ||
+            a.schema_version != b.schema_version ||
+            a.outcome != b.outcome ||
+            std::string(a.source_id) != std::string(b.source_id) ||
+            std::string(a.author_did) != std::string(b.author_did) ||
+            ledger_a.payload(a.id) != ledger_b.payload(b.id)) {
+            fail("polling/Jetstream ledger mismatch");
+        }
 
-    const auto stats_a = graph_a.stats();
-    const auto stats_b = graph_b.stats();
-    if (stats_a.node_count != stats_b.node_count ||
-        stats_a.edge_count != stats_b.edge_count ||
-        stats_a.training_steps != stats_b.training_steps ||
-        stats_a.observations != stats_b.observations) {
-        fail("polling/Jetstream graph mismatch");
+        const auto stats_a = graph_a.stats();
+        const auto stats_b = graph_b.stats();
+        if (stats_a.node_count != stats_b.node_count ||
+            stats_a.edge_count != stats_b.edge_count ||
+            stats_a.training_steps != stats_b.training_steps ||
+            stats_a.observations != stats_b.observations) {
+            fail("polling/Jetstream graph mismatch");
+        }
     }
 
     std::filesystem::remove_all(root);
