@@ -195,6 +195,7 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                 js.reply_root = observation.context.reply_root_uri;
                 js.reply_parent = observation.context.reply_parent_uri;
                 js.quote_uri = observation.context.quote_uri;
+                js.policy_reason = observation.policy_reason;
                 js.seq = event.time_us;
                 on_event(js);
             }
