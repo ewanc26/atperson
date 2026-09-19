@@ -252,6 +252,7 @@ static void test_migration_validation(void) {
     atp_neural_migration migration = {
         .version = ATPERSON_NEURAL_MIGRATION_VERSION,
         .seed = UINT64_C(0x1234abcd5678ef00),
+        .ledger_boundary_id = 12u,
         .source = source,
         .target = target,
     };
@@ -411,6 +412,7 @@ static void test_deterministic_atomic_expansion(void) {
     atp_neural_migration migration = {
         .version = ATPERSON_NEURAL_MIGRATION_VERSION,
         .seed = UINT64_C(0x1122334455667788),
+        .ledger_boundary_id = 3u,
         .source = source,
         .target = target,
     };
@@ -442,6 +444,7 @@ static void test_deterministic_atomic_expansion(void) {
     atp_neural_migration second_migration = {
         .version = ATPERSON_NEURAL_MIGRATION_VERSION,
         .seed = UINT64_C(0x8877665544332211),
+        .ledger_boundary_id = 3u,
         .source = target,
         .target = next,
     };
