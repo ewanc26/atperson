@@ -60,6 +60,7 @@ struct JetstreamEvent {
     std::string quote_uri;
     PolicyReason policy_reason{PolicyReason::Eligible};
     std::int64_t seq{0};
+    bool deleted{false};
 };
 
 /* A Jetstream feed: connect, fetch a bounded batch, checkpoint the cursor.

@@ -196,9 +196,27 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
         ++result.frames_consumed;
         if (event.kind == WF_JETSTREAM_EVENT_COMMIT && event.did != nullptr &&
             event.json != nullptr) {
+            wf_jetstream_event_typed typed{};
+            const wf_status typed_status = wf_jetstream_event_parse_typed(
+                event.json, event.json_len, &typed);
+            const bool typed_delete =
+                typed_status == WF_OK &&
+                typed.commit.operation == WF_JETSTREAM_COMMIT_DELETE &&
+                typed.commit.collection != nullptr && typed.commit.rkey != nullptr;
+            if (typed_delete) {
+                JetstreamEvent js;
+                js.source_uri = "at://" + std::string(event.did) + "/" +
+                                typed.commit.collection + "/" + typed.commit.rkey;
+                js.author_did = event.did;
+                js.seq = event.time_us;
+                js.deleted = true;
+                on_event(js);
+            }
+            wf_jetstream_event_typed_free(&typed);
             SyncObservation observation;
-            if (atperson::extract_jetstream_commit(
-                    event.json, event.json_len, self_did_, observation)) {
+            if (typed_status == WF_OK && !typed_delete &&
+                atperson::extract_jetstream_commit(event.json, event.json_len,
+                                                   self_did_, observation)) {
                 JetstreamEvent js;
                 js.source_uri = observation.source_uri;
                 js.author_did = observation.author_did;

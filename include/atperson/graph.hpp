@@ -183,6 +183,9 @@ class LanguageGraph {
         const Ledger &ledger,
         const std::vector<atp_neural_migration> &migrations);
 
+    /** Replace this graph with a deterministic replay at its current shape. */
+    atp_replay_report rebuild_from_ledger(const Ledger &ledger);
+
   private:
     explicit LanguageGraph(atp_graph *graph) noexcept;
     atp_graph *graph_{};
