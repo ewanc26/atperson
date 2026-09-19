@@ -282,6 +282,17 @@ NeuralExpansionPlan plan_neural_expansion(const LanguageGraph &graph,
             return plan;
         }
     }
+    const std::uint32_t active_final_hidden =
+        plan.active.hidden_widths[plan.active.hidden_layer_count - 1u];
+    const std::uint32_t proposed_final_hidden =
+        plan.proposed.hidden_widths[plan.proposed.hidden_layer_count - 1u];
+    if (proposed_final_hidden < active_final_hidden) {
+        plan.status = NeuralExpansionStatus::incompatible;
+        plan.reason =
+            "recommended final hidden layer is too narrow to preserve all active "
+            "scalar-output weights";
+        return plan;
+    }
 
     bool strictly_larger = plan.proposed.embedding_dim > plan.active.embedding_dim ||
                            plan.proposed.hidden_layer_count >

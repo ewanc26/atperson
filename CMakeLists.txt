@@ -50,6 +50,7 @@ add_library(
   src/core/bootstrap.c
   src/core/neural_layout.c
   src/core/neural.c
+  src/core/neural_migration.c
   src/core/ledger/lifecycle.c
   src/core/ledger/commit.c
   src/core/ledger/append.c
