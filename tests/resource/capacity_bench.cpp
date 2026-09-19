@@ -15,6 +15,7 @@
 #include "resource/budget.hpp"
 #include <atperson/action.h>
 #include <atperson/core.h>
+#include <atperson/ledger.hpp>
 
 #include <array>
 #include <chrono>
@@ -26,6 +27,7 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -64,6 +66,9 @@ struct Metrics {
     std::string top_candidate;
     float top_candidate_score{};
     bool snapshot_exact{};
+    bool rebuild_exact{};
+    bool withdrawal_rebuild_ok{};
+    std::size_t withdrawal_excluded{};
     double elapsed_ms{};
 };
 
@@ -96,16 +101,41 @@ void require(bool condition, const std::string &message) {
     }
 }
 
-void observe(atp_graph *graph, std::string_view text, std::uint64_t id,
-             std::uint64_t observed_at) {
-    const std::string source = "at://capacity-bench/" + std::to_string(id);
+void cleanup_ledger_files(const std::filesystem::path &path) {
+    std::filesystem::remove(path);
+    std::filesystem::remove(path.string() + ".off");
+    std::filesystem::remove(path.string() + ".tmp");
+    std::filesystem::remove(path.string() + ".compact.tmp");
+}
+
+void observe(atp_graph *graph, atperson::Ledger &ledger, std::string_view text,
+             std::uint64_t expected_id, std::uint64_t observed_at) {
+    const std::string source =
+        "at://capacity-bench/" + std::to_string(expected_id);
+    const std::uint64_t digest = atperson::Ledger::digest(text);
+    std::uint64_t ledger_id = 0u;
+    const auto result = ledger.append(
+        source, "did:plc:capacity-bench", observed_at, digest,
+        ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_LEARNED, text, &ledger_id);
+    require(result == atperson::LedgerResult::New,
+            "benchmark ledger unexpectedly deduplicated an observation");
+    require(ledger_id == expected_id,
+            "benchmark ledger id sequence changed");
+
     bool remembered = false;
     const atp_status status = atp_graph_observe_with_memory(
-        graph, std::string(text).c_str(), source.c_str(), "did:plc:capacity-bench",
-        observed_at, atp_ledger_digest(text.data(), text.size()),
-        ATPERSON_SCHEMA_VERSION, id, &remembered);
+        graph, std::string(text).c_str(), source.c_str(),
+        "did:plc:capacity-bench", observed_at, digest,
+        ATPERSON_SCHEMA_VERSION, ledger_id, &remembered);
     require(status == ATP_OK,
             "observation failed: " + std::string(atp_status_string(status)));
+
+    atp_ledger_entry entry{};
+    require(ledger.lookup(source, digest, &entry) ==
+                atperson::LedgerResult::ExistsCommitted,
+            "benchmark ledger lookup did not return committed entry");
+    require(atp_graph_add_ledger_entry(graph, &entry) == ATP_OK,
+            "benchmark graph ledger mirror failed");
 }
 
 float score_pair(const atp_graph *graph, const char *source, const char *target) {
