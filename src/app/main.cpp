@@ -42,17 +42,6 @@ void print_stats(const atperson::LanguageGraph &graph) {
               << ", evictions " << stats.episode_evictions << ")\n";
 }
 
-atperson::LanguageGraph load_or_create(const std::filesystem::path &path) {
-    if (std::filesystem::exists(path)) {
-        return atperson::LanguageGraph::load(path);
-    }
-    if (const auto parent = path.parent_path(); !parent.empty()) {
-        std::error_code ec;
-        std::filesystem::create_directories(parent, ec);
-    }
-    return atperson::LanguageGraph();
-}
-
 /* Usage as a callback for command atoms that report argument errors. */
 void usage(std::ostream &out) {
     atperson::cli::print_usage(out);
@@ -155,20 +144,13 @@ int main(int argc, char **argv) {
                 argv[2], static_cast<std::int64_t>(std::time(nullptr)));
         }
 
-        if (std::filesystem::exists(path)) {
-            std::error_code size_error;
-            const auto snapshot_bytes = std::filesystem::file_size(path, size_error);
-            if (!size_error) {
-                atperson::require_runtime_snapshot_headroom(resource_status, snapshot_bytes);
-            }
-        }
-
-        auto graph = load_or_create(path);
+        auto graph = atperson::load_or_create_graph(resource_status, path);
         resource_status =
             atperson::refresh_runtime_resources(graph, resource_paths, resource_overrides);
 
         if (command == "resources") {
-            atperson::print_runtime_resources(std::cout, resource_status);
+            atperson::print_runtime_resources(std::cout, resource_status, graph,
+                                               resource_overrides);
             return 0;
         }
 

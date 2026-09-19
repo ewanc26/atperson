@@ -30,6 +30,15 @@ class LanguageGraph {
   public:
     LanguageGraph();
     explicit LanguageGraph(atp_graph_config config);
+    /**
+     * Create a fresh graph at a caller-validated neural architecture
+     * (issue #73). The runtime derives `architecture` from its capacity
+     * recommendation via neural_architecture_of, which guarantees the C-core
+     * layout validation passes; passing an invalid descriptor from elsewhere
+     * throws std::bad_alloc with a NULL core graph, matching the behaviour of
+     * the legacy constructor.
+     */
+    LanguageGraph(atp_graph_config config, const atp_neural_architecture &architecture);
     ~LanguageGraph();
 
     LanguageGraph(const LanguageGraph &) = delete;

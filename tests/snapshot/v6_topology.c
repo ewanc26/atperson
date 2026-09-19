@@ -283,6 +283,118 @@ static void test_deterministic_save(void) {
     remove(V6_PATH);
 }
 
+/* The architecture metadata probe (issue #73) reads the persisted topology
+ * without materializing the graph. */
+static void test_arch_probe(void) {
+    const atp_neural_architecture architecture = three_hidden();
+    atp_graph *graph = graph_at(&architecture);
+    assert(atp_graph_save(graph, V6_PATH) == ATP_OK);
+    atp_graph_destroy(graph);
+
+    atp_neural_architecture probed = {0};
+    assert(atp_snapshot_neural_architecture(V6_PATH, &probed) == ATP_OK);
+    assert(probed.version == architecture.version);
+    assert(probed.embedding_dim == architecture.embedding_dim);
+    assert(probed.input_dim == architecture.input_dim);
+    assert(probed.output_dim == architecture.output_dim);
+    assert(probed.hidden_layer_count == architecture.hidden_layer_count);
+    for (uint32_t i = 0u; i < ATPERSON_NEURAL_MAX_HIDDEN_LAYERS; ++i) {
+        assert(probed.hidden_widths[i] == architecture.hidden_widths[i]);
+    }
+
+    /* The probe never allocates the graph: a snapshot with no learned state
+     * still reports its topology. */
+    assert(atp_snapshot_neural_architecture(V6_PATH, NULL) == ATP_ERR_INVALID_ARGUMENT);
+    assert(atp_snapshot_neural_architecture(NULL, &probed) == ATP_ERR_INVALID_ARGUMENT);
+    assert(atp_snapshot_neural_architecture("", &probed) == ATP_ERR_INVALID_ARGUMENT);
+    assert(atp_snapshot_neural_architecture(
+               "atperson-snapshot-test-does-not-exist.bin", &probed) == ATP_ERR_IO);
+
+    remove(V6_PATH);
+}
+
+/* v5 snapshots carry no descriptor; the probe reports the legacy topology,
+ * matching how they load. */
+static void test_arch_probe_legacy(void) {
+    atp_graph_config config = atp_graph_default_config();
+    atp_graph *graph = atp_graph_create(&config);
+    assert(graph != NULL);
+    assert(atp_graph_save(graph, V5_PATH) == ATP_OK);
+    atp_graph_destroy(graph);
+
+    atp_neural_architecture probed = {0};
+    assert(atp_snapshot_neural_architecture(V5_PATH, &probed) == ATP_OK);
+    const atp_neural_architecture legacy = atp_neural_legacy_architecture();
+    assert(probed.version == legacy.version);
+    assert(probed.embedding_dim == legacy.embedding_dim);
+    assert(probed.input_dim == legacy.input_dim);
+    assert(probed.output_dim == legacy.output_dim);
+    assert(probed.hidden_layer_count == legacy.hidden_layer_count);
+    for (uint32_t i = 0u; i < ATPERSON_NEURAL_MAX_HIDDEN_LAYERS; ++i) {
+        assert(probed.hidden_widths[i] == legacy.hidden_widths[i]);
+    }
+    remove(V5_PATH);
+}
+
+/* Legacy probes must validate the legacy snapshot version and minimum framing,
+ * not accept a magic/version stub as a generation. */
+static void test_arch_probe_rejects_invalid_legacy_framing(void) {
+    unsigned char image[32] = {0};
+    memcpy(image, "ATPERSN5", 8u);
+    atp_store_u32le(image + 8u, UINT32_C(0xFFFFFFFF));
+    write_file(V5_PATH, image, sizeof(image));
+
+    atp_neural_architecture probed = {0};
+    assert(atp_snapshot_neural_architecture(V5_PATH, &probed) == ATP_ERR_FORMAT);
+
+    atp_store_u32le(image + 8u, 5u);
+    write_file(V5_PATH, image, 12u);
+    assert(atp_snapshot_neural_architecture(V5_PATH, &probed) == ATP_ERR_FORMAT);
+    remove(V5_PATH);
+}
+
+/* A structurally invalid ARCH payload in an otherwise intact v6 snapshot is
+ * FORMAT from the probe as well as from the whole-file loader. */
+static void test_arch_probe_rejects_corrupt(void) {
+    const atp_neural_architecture architecture = three_hidden();
+    atp_graph *graph = graph_at(&architecture);
+    assert(atp_graph_save(graph, CORRUPT_V6_PATH) == ATP_OK);
+    atp_graph_destroy(graph);
+
+    size_t size = 0u;
+    unsigned char *data = read_file(CORRUPT_V6_PATH, &size);
+    size_t position = 12u;
+    int found = 0;
+    while (position + 12u <= size - 8u) {
+        const uint32_t tag = (uint32_t)data[position] | ((uint32_t)data[position + 1u] << 8u) |
+                              ((uint32_t)data[position + 2u] << 16u) |
+                              ((uint32_t)data[position + 3u] << 24u);
+        uint64_t length = 0u;
+        for (unsigned i = 0u; i < 8u; ++i) {
+            length |= (uint64_t)data[position + 4u + i] << (8u * i);
+        }
+        if (tag == 11u) {
+            /* hidden_layer_count is at payload offset 16. Force it out of
+             * range so layout validation fails. */
+            data[position + 12u + 16u] = 0xFFu;
+            found = 1;
+            break;
+        }
+        position += 12u + (size_t)length;
+    }
+    assert(found == 1);
+    const uint64_t digest = atp_fnv1a64(data, size - 8u);
+    for (unsigned i = 0u; i < 8u; ++i) {
+        data[size - 8u + i] = (unsigned char)(digest >> (8u * i));
+    }
+    write_file(CORRUPT_V6_PATH, data, size);
+    free(data);
+
+    atp_neural_architecture probed = {0};
+    assert(atp_snapshot_neural_architecture(CORRUPT_V6_PATH, &probed) == ATP_ERR_FORMAT);
+    remove(CORRUPT_V6_PATH);
+}
+
 int main(void) {
     test_roundtrip_one_hidden();
     test_roundtrip_two_hidden();
@@ -292,6 +404,10 @@ int main(void) {
     test_bitrot_rejected();
     test_invalid_architectures_rejected();
     test_deterministic_save();
+    test_arch_probe();
+    test_arch_probe_legacy();
+    test_arch_probe_rejects_invalid_legacy_framing();
+    test_arch_probe_rejects_corrupt();
     printf("v6_topology_test: all tests passed\n");
     return 0;
 }

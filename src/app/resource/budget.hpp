@@ -13,22 +13,15 @@
 
 namespace atperson {
 
-/* Optional operator choices. Empty means automatic. */
-struct ResourceOverrides {
-    std::optional<std::uint64_t> memory_growth_budget_bytes;
-    std::optional<std::uint64_t> disk_reserve_bytes;
-    std::optional<std::size_t> node_capacity_max;
-    std::optional<std::size_t> edge_capacity_max;
-    std::optional<int> sync_page_size;
-    std::optional<std::uint64_t> sync_max_observations;
-};
-
 /*
- * Versioned runtime recommendation for the future variable-shape neural core
- * tracked by issue #63. This is deliberately operational metadata: it does not
- * mutate the current fixed learned architecture. Once variable dimensions land,
- * the selected durable architecture must be persisted separately and must not
- * be silently reshaped merely because this recommendation changes.
+ * Versioned runtime capacity recommendation for the variable-shape neural
+ * core (issue #63, #64). It is operational metadata, not learned state. It is
+ * authoritative only at first model creation (issue #73), where
+ * neural_architecture_of translates it into a validated, durable C23
+ * architecture. On every later run the persisted architecture is
+ * authoritative and this recommendation is only a headroom/expansion signal:
+ * a loaded model is never silently reshaped merely because this
+ * recommendation changes.
  */
 enum class NeuralCapacityClass {
     constrained,
@@ -50,7 +43,56 @@ struct NeuralCapacityRecommendation {
     std::size_t runtime_batch_observations{1u};
 };
 
+/* Optional operator choices. Empty means automatic. */
+struct ResourceOverrides {
+    std::optional<std::uint64_t> memory_growth_budget_bytes;
+    std::optional<std::uint64_t> disk_reserve_bytes;
+    std::optional<std::size_t> node_capacity_max;
+    std::optional<std::size_t> edge_capacity_max;
+    std::optional<int> sync_page_size;
+    std::optional<std::uint64_t> sync_max_observations;
+    /* Forced neural capacity class (ATPERSON_NEURAL_CAPACITY). */
+    std::optional<NeuralCapacityClass> neural_capacity_class;
+    /* Explicit first-creation neural shape overrides. All three are optional
+     * independently: unset fields keep the automatic class's shape, but the
+     * combined effective shape must always pass the runtime's policy-bounds
+     * validation (see apply_neural_overrides). A forced capacity class cannot
+     * be combined with any explicit shape override. */
+    std::optional<std::size_t> neural_embedding_dim;
+    std::optional<std::size_t> neural_hidden_layer_count;
+    std::optional<std::array<std::size_t, 3u>> neural_hidden_widths;
+};
+
 const char *neural_capacity_class_name(NeuralCapacityClass capacity_class) noexcept;
+
+/*
+ * Total shared learned parameters for a recommendation (input/layer/output
+ * weights and biases), counted exactly as the C core layout allocates them.
+ * Pure and deterministic; never mutates state.
+ */
+std::uint64_t neural_parameter_count(const NeuralCapacityRecommendation &profile) noexcept;
+
+/*
+ * Apply parsed operator neural overrides to a recommendation (issue #73).
+ * A forced capacity class replaces the automatic class's shape; explicit
+ * shape overrides replace only the fields they name and keep the rest from
+ * the automatic shape. Class and shape overrides are mutually exclusive, and
+ * the combined effective shape must always pass the runtime policy-bounds
+ * validation shared with neural_architecture_of. Throws std::runtime_error
+ * on conflicts or an out-of-bounds shape.
+ */
+void apply_neural_overrides(NeuralCapacityRecommendation &profile,
+                            const ResourceOverrides &overrides);
+
+/*
+ * Translate a capacity recommendation into the validated C23 architecture
+ * descriptor used at first model creation (issue #73). The descriptor always
+ * passes atp_graph_create_with_architecture: version 1, output scalar-1,
+ * input = 2 * embedding, active hidden widths within the C-core limit and
+ * inactive widths zero. Throws std::runtime_error if the recommendation
+ * cannot be expressed within the runtime policy bounds.
+ */
+atp_neural_architecture neural_architecture_of(const NeuralCapacityRecommendation &profile);
 
 /*
  * Runtime-only resource policy derived from a system snapshot. None of these
@@ -88,9 +130,10 @@ ResourceOverrides resource_overrides_from_environment();
  * produce the same result. Graph ceilings never fall below current counts;
  * no eviction is implied by a lower machine budget.
  */
-ResourceBudget derive_resource_budget(const SystemResources &system,
-                                      const atp_graph_stats &graph,
-                                      const ResourceOverrides &overrides = {});
+ResourceBudget derive_resource_budget(
+    const SystemResources &system, const atp_graph_stats &graph,
+    const ResourceOverrides &overrides = {},
+    const atp_neural_architecture *active_architecture = nullptr);
 
 } // namespace atperson
 

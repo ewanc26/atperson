@@ -12,20 +12,6 @@ atp_neural_architecture atp_neural_legacy_architecture(void) {
     };
 }
 
-static uint64_t atp_neural_parameter_count(const atp_neural_architecture *architecture) {
-    uint64_t previous = architecture->input_dim;
-    uint64_t count = 0u;
-    for (uint32_t layer = 0u; layer < architecture->hidden_layer_count; ++layer) {
-        const uint64_t width = architecture->hidden_widths[layer];
-        count += previous * width;
-        count += width;
-        previous = width;
-    }
-    count += previous * architecture->output_dim;
-    count += architecture->output_dim;
-    return count;
-}
-
 atp_graph_config atp_graph_default_config(void) {
     atp_graph_config config = {
         .seed = UINT64_C(0x4154504552534F4E),

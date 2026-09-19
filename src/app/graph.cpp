@@ -30,6 +30,13 @@ LanguageGraph::LanguageGraph(atp_graph_config config) : graph_(atp_graph_create(
     }
 }
 
+LanguageGraph::LanguageGraph(atp_graph_config config, const atp_neural_architecture &architecture)
+    : graph_(atp_graph_create_with_architecture(&config, &architecture)) {
+    if (!graph_) {
+        throw std::bad_alloc();
+    }
+}
+
 LanguageGraph::LanguageGraph(atp_graph *graph) noexcept : graph_(graph) {}
 
 LanguageGraph::~LanguageGraph() {
