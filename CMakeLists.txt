@@ -667,6 +667,11 @@ if(ATPERSON_BUILD_FUZZ)
   add_executable(snapshot-load-fuzzer fuzz/snapshot/load.c)
   target_link_libraries(snapshot-load-fuzzer PRIVATE atperson-core)
   target_include_directories(snapshot-load-fuzzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+
+  # Regenerate committed v6 corpus seeds after a format change:
+  #   cmake --build build-fuzz && ./build-fuzz/snapshot-v6-seeds fuzz/corpus/snapshot
+  add_executable(snapshot-v6-seeds EXCLUDE_FROM_ALL fuzz/corpus/gen/snapshot_v6_seeds.c)
+  target_link_libraries(snapshot-v6-seeds PRIVATE atperson-core)
   if(UNIX)
     target_compile_definitions(snapshot-load-fuzzer PRIVATE _POSIX_C_SOURCE=200809L)
   endif()
