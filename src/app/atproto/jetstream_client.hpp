@@ -78,11 +78,11 @@ class JetstreamClient {
     JetstreamClient(const JetstreamClient &) = delete;
     JetstreamClient &operator=(const JetstreamClient &) = delete;
 
-    /* Fetch at most `limits.max_events` commit frames, calling `on_event`
-     * for each one that translates to an observation. Returns the number of
-     * events consumed and whether the feed was exhausted (never true in this
-     * API — the socket simply goes idle and WOULD_BLOCKs). Throws
-     * std::runtime_error on a fatal connect or parse failure. */
+    /* Fetch at most `limits.max_events` received frames, calling
+     * `on_event` for each commit that translates to an observation. The
+     * result separates total bounded work from malformed frames. The live
+     * socket never reports clean exhaustion; it goes idle/WOULD_BLOCK instead.
+     * Throws only on fatal connect/non-parse stream failures. */
     struct BatchResult {
         std::uint64_t frames_consumed{};
         std::uint64_t malformed_frames{};
