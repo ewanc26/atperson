@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstring>
+#include <filesystem>
 
 int main() {
     wf_subscribe_commit commit{};
@@ -18,5 +19,15 @@ int main() {
     commit.blocks_len = sizeof(malformed);
     const auto no_transport = atperson::verify_repository_commit(commit, nullptr);
     assert(no_transport.verification == atperson::protocol::Verification::Unverified);
+    const auto path = std::filesystem::temp_directory_path() / "atperson-verifier-evidence.bin";
+    std::error_code error;
+    std::filesystem::remove(path, error);
+    atperson::protocol::EvidenceLedger ledger(path);
+    assert(atperson::record_repository_commit(ledger, commit, nullptr,
+                                               "wss://relay.example", 42u));
+    const auto entries = ledger.entries();
+    assert(entries.size() == 1u && entries[0].event_type == "#commit" &&
+           entries[0].verification == atperson::protocol::Verification::Unverified);
+    std::filesystem::remove(path, error);
     return 0;
 }

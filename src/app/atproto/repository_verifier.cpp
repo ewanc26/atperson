@@ -35,4 +35,27 @@ RepositoryVerification verify_repository_commit(const wf_subscribe_commit &commi
     return result;
 }
 
+bool record_repository_commit(protocol::EvidenceLedger &ledger,
+                              const wf_subscribe_commit &commit,
+                              wf_xrpc_client *client,
+                              std::string_view source,
+                              std::uint64_t observed_at) {
+    const auto verification = verify_repository_commit(commit, client);
+    if (!verification.signed_root_cid.empty()) {
+        const auto fact = protocol::accept_repository_fact(
+            verification.repo_did, verification.revision,
+            verification.signed_root_cid, source, verification.verification);
+        if (fact) {
+            return protocol::append_repository_fact(
+                ledger, *fact, commit.seq > 0 ? static_cast<std::uint64_t>(commit.seq) : 0u,
+                observed_at);
+        }
+    }
+    return protocol::append_firehose_event(
+        ledger, source, "#commit", verification.repo_did,
+        verification.revision + "|unverified-or-invalid", commit.seq > 0
+            ? static_cast<std::uint64_t>(commit.seq) : 0u, observed_at,
+        verification.verification);
+}
+
 } // namespace atperson

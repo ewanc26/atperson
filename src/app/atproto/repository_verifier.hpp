@@ -5,6 +5,7 @@
 #include "wolfram/sync_subscribe.h"
 
 #include <string>
+#include <cstdint>
 
 namespace atperson {
 
@@ -19,6 +20,12 @@ struct RepositoryVerification {
  * This adapter only translates its result into protocol evidence metadata. */
 RepositoryVerification verify_repository_commit(const wf_subscribe_commit &commit,
                                                 wf_xrpc_client *client);
+
+bool record_repository_commit(protocol::EvidenceLedger &ledger,
+                              const wf_subscribe_commit &commit,
+                              wf_xrpc_client *client,
+                              std::string_view source,
+                              std::uint64_t observed_at);
 
 } // namespace atperson
 
