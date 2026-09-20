@@ -27,6 +27,8 @@ class ScriptedReplay final : public atperson::JetstreamReplaySource {
                 .author_did = "did:plc:author",
                 .created_at = "2026-09-20T00:00:00Z",
                 .text = "first archive event",
+                .seq = 42,
+                .repo_revision = "3jui3s7xq2m2a",
             });
             return {.planned_through_seq = 50u, .sealed_tip_seq = 100u};
         }
@@ -122,6 +124,7 @@ int main() {
     assert(protocol_entries.size() == 1u);
     assert(protocol_entries.front().event_type == "#commit");
     assert(protocol_entries.front().source == "jetstream-archive");
+    assert(protocol_entries.front().payload.find("|42|3jui3s7xq2m2a") != std::string::npos);
 
     const auto withdrawal_root =
         std::filesystem::temp_directory_path() / "atperson-archive-withdrawal-test";
