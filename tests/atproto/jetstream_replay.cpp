@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 using namespace atperson;
 
@@ -35,6 +36,30 @@ int main() {
             assert(translated.seq == 42);
         });
     assert(delivered == 1);
+
+    const char *kinds[] = {"commit"};
+    const char *collections[] = {"app.bsky.feed.post", "app.bsky.feed.like"};
+    const char *dids[] = {"did:plc:archive"};
+    wf_jetstream_replay_filter filter{};
+    filter.kinds = kinds;
+    filter.kinds_count = 1u;
+    filter.collections = collections;
+    filter.collections_count = 2u;
+    filter.dids = dids;
+    filter.dids_count = 1u;
+    filter.after_seq = 41u;
+    filter.before_seq = 99u;
+    filter.has_before_seq = 1;
+    char *json = nullptr;
+    size_t json_len = 0u;
+    assert(wf_jetstream_replay_plan_json(&filter, &json, &json_len) == WF_OK);
+    assert(json != nullptr && json_len != 0u);
+    const std::string request(json, json_len);
+    assert(request.find("app.bsky.feed.like") != std::string::npos);
+    assert(request.find("did:plc:archive") != std::string::npos);
+    assert(request.find("41") != std::string::npos);
+    assert(request.find("99") != std::string::npos);
+    free(json);
 
     free(event.collection);
     free(event.did);
