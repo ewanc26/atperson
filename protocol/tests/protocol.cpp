@@ -182,6 +182,7 @@ int main() {
     assert(append_firehose_event(ledger, "wss://relay.example", "#identity",
                                  "did:plc:abc", "alice.example", 3, 12));
     assert(append_identity_fact(ledger, *identity, "https://bsky.social", 3, 12));
+    assert(append_service_fact(ledger, *service, "https://bsky.social", 3, 12));
     assert(append_firehose_event(ledger, "wss://relay.example", "#account",
                                  "did:plc:abc", "active", 4, 13));
     assert(append_firehose_event(ledger, "wss://relay.example", "#unknown",
@@ -194,12 +195,13 @@ int main() {
                                  "did:plc:unknown", "transport-failure", 8, 17,
                                  Verification::Unverified));
     const auto restored = ledger.entries();
-    assert(restored.size() == 9);
+    assert(restored.size() == 10);
     assert(restored[1].event_type == "#sync" &&
            restored[2].event_type == "#identity" &&
            restored[3].payload.find("rotation=did:key:z6Mkrotation") != std::string::npos &&
-           restored[5].event_type == "#unknown" && restored[6].event_type == "#repository" &&
-           restored[7].verification == Verification::Rejected &&
-           restored[8].verification == Verification::Unverified);
+           restored[4].payload == "role=app-view|endpoint=https://appview.example" &&
+           restored[6].event_type == "#unknown" && restored[7].event_type == "#repository" &&
+           restored[8].verification == Verification::Rejected &&
+           restored[9].verification == Verification::Unverified);
     std::filesystem::remove(path, error);
 }

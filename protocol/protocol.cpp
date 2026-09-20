@@ -32,6 +32,18 @@ std::string read_field(std::istream &in) {
 namespace atperson::protocol {
 
 namespace {
+const char *service_role_name(ServiceRole role) noexcept {
+    switch (role) {
+    case ServiceRole::Pds: return "pds";
+    case ServiceRole::Relay: return "relay";
+    case ServiceRole::AppView: return "app-view";
+    case ServiceRole::FeedGenerator: return "feed-generator";
+    case ServiceRole::Labeler: return "labeler";
+    case ServiceRole::Unknown: return "unknown";
+    }
+    return "unknown";
+}
+
 void remember_revision(CursorState &state, std::string_view repo,
                        std::string_view revision) {
     if (repo.empty() || revision.empty()) return;
@@ -411,8 +423,8 @@ bool append_service_fact(EvidenceLedger &ledger, const ServiceFact &fact,
         !is_did(fact.subject_did) || fact.endpoint.find("https://") != 0) {
         return false;
     }
-    const std::string payload = std::to_string(static_cast<int>(fact.role)) +
-                                "|" + fact.endpoint;
+    const std::string payload = "role=" + std::string(service_role_name(fact.role)) +
+                                "|endpoint=" + fact.endpoint;
     return ledger.append({EvidenceKind::Identity, std::string(source), "#service",
                           fact.subject_did, payload, sequence, observed_at,
                           fact.verification, fact.verification == Verification::Verified ? 1.0 : 0.5});
