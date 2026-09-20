@@ -267,6 +267,8 @@ int main(int argc, char **argv) {
             for (const auto &entry : entries) {
                 std::cout << "source=" << entry.source << " event=" << entry.event_type
                           << " subject=" << entry.subject << " sequence=" << entry.sequence
+                          << " observed_at=" << entry.observed_at
+                          << " payload=" << entry.payload
                           << " verification=" << static_cast<int>(entry.verification)
                           << " confidence=" << entry.confidence << '\n';
             }
