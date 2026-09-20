@@ -51,6 +51,12 @@ int main() {
                                              "https://appview.example",
                                              "did:plc:abc", Verification::Verified);
     assert(service && service->role == ServiceRole::AppView);
+    for (const auto role : {ServiceRole::Pds, ServiceRole::Relay,
+                            ServiceRole::FeedGenerator, ServiceRole::Labeler}) {
+        const auto role_fact = accept_service_fact(role, "https://service.example",
+                                                   "did:plc:abc", Verification::Unverified);
+        assert(role_fact && role_fact->role == role);
+    }
     assert(!accept_service_fact(ServiceRole::Unknown, "https://example", "did:plc:abc",
                                 Verification::Verified));
     assert(authority_for_service(ServiceRole::Relay) == RecordAuthority::Unknown);
