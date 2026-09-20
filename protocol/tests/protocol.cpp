@@ -59,6 +59,11 @@ int main() {
     assert(session && session->dpop_bound && session->scope == "repo:* dpop");
     assert(!accept_oauth_session("https://issuer.example", "did:plc:abc", "repo:*",
                                 false, Verification::Verified));
+    const auto oauth_plan = make_loopback_oauth_plan(
+        "http://127.0.0.1:43127/callback", "account:repo?action=manage");
+    assert(oauth_plan && oauth_plan->loopback_only &&
+           oauth_plan->permission == PermissionKind::RepositoryMigration);
+    assert(!make_loopback_oauth_plan("https://evil.example/callback", "repo:*"));
     const AtUri record_uri{"did:plc:abc", "app.bsky.feed.post", "3k1"};
     assert(reduce_record_observation(record_uri, "bafyreiabcdef", false, false, true).state ==
            RecordState::Present);

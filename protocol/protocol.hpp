@@ -84,6 +84,16 @@ struct OAuthSessionFact {
     Verification verification{Verification::Unverified};
 };
 
+struct OAuthAuthorizationPlan {
+    std::string redirect_uri;
+    std::string scope;
+    PermissionKind permission{PermissionKind::Record};
+    bool loopback_only{};
+};
+
+std::optional<OAuthAuthorizationPlan> make_loopback_oauth_plan(
+    std::string_view redirect_uri, std::string_view scope);
+
 std::optional<OAuthSessionFact> accept_oauth_session(
     std::string_view issuer, std::string_view subject_did,
     std::string_view scope, bool dpop_bound, Verification verification);
