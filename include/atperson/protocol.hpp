@@ -24,6 +24,11 @@ struct AtUri {
     std::string rkey;
 };
 
+struct StrongRef {
+    AtUri uri;
+    std::string cid;
+};
+
 struct IdentityFact {
     std::string did;
     std::string handle;
@@ -59,6 +64,9 @@ struct AuthorizationFact {
 /* Parse only the authority/collection/rkey form; query and fragment suffixes
  * are rejected so callers cannot accidentally learn from an ambiguous URI. */
 std::optional<AtUri> parse_at_uri(std::string_view value);
+bool is_nsid(std::string_view value) noexcept;
+bool is_cid(std::string_view value) noexcept;
+bool is_tid(std::string_view value) noexcept;
 bool is_did(std::string_view value) noexcept;
 bool is_handle(std::string_view value) noexcept;
 SyncEvent classify_sync_event(std::string_view type) noexcept;

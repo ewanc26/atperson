@@ -15,6 +15,12 @@ int main() {
     assert(!is_did("alice.example"));
     assert(is_handle("alice.example"));
     assert(!is_handle("did:plc:abc"));
+    assert(is_nsid("app.bsky.feed.post"));
+    assert(!is_nsid("App.Bsky.feed.post"));
+    assert(is_cid("bafyreib valid-ish" ) == false);
+    assert(is_cid("bafyreiabcdef"));
+    assert(is_tid("3jui3s7xq2m2a"));
+    assert(!is_tid("not-a-tid"));
     assert(classify_sync_event("#commit") == SyncEvent::Commit);
     assert(classify_sync_event("#identity") == SyncEvent::Identity);
     assert(classify_sync_event("#unknown") == SyncEvent::Unknown);

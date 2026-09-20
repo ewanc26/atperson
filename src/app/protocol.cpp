@@ -52,6 +52,32 @@ bool is_did(std::string_view value) noexcept {
            value.find_first_of(" /?#") == std::string_view::npos;
 }
 
+bool is_nsid(std::string_view value) noexcept {
+    if (value.empty() || value.front() == '.' || value.back() == '.') return false;
+    bool component = false;
+    for (const char c : value) {
+        if (c == '.') {
+            if (!component) return false;
+            component = false;
+        } else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+            component = true;
+        } else {
+            return false;
+        }
+    }
+    return component;
+}
+
+bool is_cid(std::string_view value) noexcept {
+    return value.starts_with("b") && value.size() >= 10 &&
+           value.find_first_of(" /?#") == std::string_view::npos;
+}
+
+bool is_tid(std::string_view value) noexcept {
+    if (value.size() != 13) return false;
+    return value.find_first_not_of("234567abcdefghijklmnopqrstuvwxyz") == std::string_view::npos;
+}
+
 bool is_handle(std::string_view value) noexcept {
     if (value.empty() || value.starts_with("did:") || value.find('.') == std::string_view::npos) {
         return false;
