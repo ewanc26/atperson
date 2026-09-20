@@ -1,6 +1,8 @@
 #include "daemon.hpp"
 
 #include "client.hpp"
+#include "atproto/jetstream_replay_client.hpp"
+#include "atproto/session.hpp"
 #include "config.hpp"
 #include "control/state.hpp"
 #include "daemon/config.hpp"
@@ -36,6 +38,57 @@ bool parallel_sync_enabled() {
     return value != nullptr && value[0] != '\0' && value[0] != '0';
 }
 
+std::uint64_t daemon_archive_sequence(const char *name) {
+    const std::string value = env_or(name);
+    if (value.empty()) {
+        throw std::runtime_error(std::string("missing ") + name);
+    }
+    try {
+        std::size_t consumed = 0;
+        const auto parsed = std::stoull(value, &consumed, 10);
+        if (consumed != value.size()) throw std::invalid_argument("trailing");
+        return parsed;
+    } catch (const std::exception &) {
+        throw std::runtime_error(std::string(name) + " must be a decimal sequence");
+    }
+}
+
+void run_startup_archive_if_configured(
+    std::ostream &out, const RuntimeResourceStatus &resource_status,
+    LanguageGraph &graph,
+    const std::filesystem::path &model_path, Ledger &ledger,
+    const SyncLinker &linker) {
+    const std::string after_value = env_or("ATPERSON_DAEMON_ARCHIVE_AFTER");
+    if (after_value.empty()) return;
+    const std::uint64_t after = daemon_archive_sequence("ATPERSON_DAEMON_ARCHIVE_AFTER");
+    const std::string before_value = env_or("ATPERSON_DAEMON_ARCHIVE_BEFORE");
+    std::optional<std::uint64_t> before;
+    if (!before_value.empty()) before = daemon_archive_sequence("ATPERSON_DAEMON_ARCHIVE_BEFORE");
+    if (before && *before <= after) {
+        throw std::runtime_error(
+            "ATPERSON_DAEMON_ARCHIVE_BEFORE must be greater than AFTER");
+    }
+    require_runtime_write_headroom(resource_status);
+    const std::string endpoint = env_or(
+        "ATPERSON_JETSTREAM_ENDPOINT",
+        "wss://jetstream.us-east.bsky.network/subscribe");
+    auto archive_state = load_ingestion_state(
+        jetstream_state_path(), endpoint, "", kSourceKindJetstream);
+    const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
+    WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
+                           required_env("ATPERSON_APP_PASSWORD"));
+    JetstreamReplayClient replay(*session.agent());
+    const auto result = atperson::run_jetstream_archive(
+        graph, ledger, archive_state, replay, after, before, required_self_did(), linker);
+    graph.save(model_path);
+    archive_state.checkpoint.generation++;
+    save_ingestion_state(archive_state, jetstream_state_path());
+    out << "daemon: archive startup phase consumed " << result.events_consumed
+        << " event(s), learned " << result.learned << " (skipped " << result.skipped
+        << ", duplicate " << result.duplicates << ")"
+        << (result.exhausted ? ", sealed archive exhausted" : ", window incomplete") << '\n';
+}
+
 } // namespace
 
 int run_daemon_command(std::ostream &out, std::ostream &err,
@@ -69,6 +122,9 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
     AtprotoClient client(service, required_env("ATPERSON_IDENTIFIER"),
                          required_env("ATPERSON_APP_PASSWORD"));
     Ledger ledger(ledger_file);
+    const auto linker = make_journal_linker(action_journal_path());
+    run_startup_archive_if_configured(
+        out, resource_status, graph, model_path, ledger, linker);
     auto ingestion = load_ingestion_state(state_file, service, client.account_did());
 
     auto mutable_status = resource_status;
@@ -121,8 +177,6 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
             mutable_status.neural_runtime.surrounding_worker_threads);
         pool = new atperson::WorkerPool(pool_config);
     }
-
-    const auto linker = make_journal_linker(action_journal_path());
 
     /* The loop is sync-runner-agnostic: it does not know whether a cycle
      * fetches sequentially or in parallel. The runner captures the fetcher,

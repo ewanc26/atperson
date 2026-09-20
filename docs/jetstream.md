@@ -148,3 +148,9 @@ Jetstream v2 now provides archive replay that can backfill a historical slice an
 - tests for replay-window truncation and restart across the archive/live boundary.
 
 The live command remains a bounded cursor consumer with independent restart state and explicit collection filtering. Archive replay requires `ATPERSON_SERVICE`, `ATPERSON_IDENTIFIER`, `ATPERSON_APP_PASSWORD`, and `ATPERSON_SELF_DID`; credentials are used only for the session and are never persisted.
+
+The daemon can run the same archive phase while it already holds its single-writer
+lock by setting `ATPERSON_DAEMON_ARCHIVE_AFTER` and optionally
+`ATPERSON_DAEMON_ARCHIVE_BEFORE`. This phase runs once at startup, persists the
+archive checkpoint and model before timeline cycles begin, and is opt-in; leaving
+the variables unset preserves the normal timeline-only daemon behaviour.
