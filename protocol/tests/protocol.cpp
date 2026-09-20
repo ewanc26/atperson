@@ -47,6 +47,8 @@ int main() {
                             Verification::Verified, {"did:plc:not-a-key"}));
     assert(is_nsid("app.bsky.feed.post"));
     assert(!is_nsid("App.Bsky.feed.post"));
+    assert(!is_nsid("feed.post"));
+    assert(!is_nsid("app.bsky.-post"));
     assert(is_cid("bafyreib valid-ish" ) == false);
     assert(is_cid("bafyreiabcdef"));
     assert(is_cid("QmYwAPJzv5CZsnAzt8auVZRnGi4J9f9Yk8fP6vV6q9r6fQ"));

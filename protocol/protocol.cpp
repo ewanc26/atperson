@@ -187,18 +187,23 @@ bool is_did(std::string_view value) noexcept {
 
 bool is_nsid(std::string_view value) noexcept {
     if (value.empty() || value.front() == '.' || value.back() == '.') return false;
-    bool component = false;
-    for (const char c : value) {
+    std::size_t components = 0;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        const char c = value[i];
         if (c == '.') {
-            if (!component) return false;
-            component = false;
+            const auto end = i;
+            if (end == start || value[start] == '-' || value[end - 1] == '-') return false;
+            ++components;
+            start = end + 1;
         } else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
-            component = true;
+            continue;
         } else {
             return false;
         }
     }
-    return component;
+    if (start >= value.size() || value[start] == '-' || value.back() == '-') return false;
+    return components + 1 >= 3;
 }
 
 bool is_cid(std::string_view value) noexcept {
