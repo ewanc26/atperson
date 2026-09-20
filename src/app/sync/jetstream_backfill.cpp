@@ -71,7 +71,8 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                     ? event.protocol_payload
                     : event.source_uri + "|" + std::to_string(event.seq) +
                           "|" + event.repo_revision,
-                event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u, 0u);
+                event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u, 0u,
+                event.verification);
         }
         if (event.protocol_only) return;
         if (event.deleted) {

@@ -213,7 +213,11 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                                 typed.commit.collection + "/" + typed.commit.rkey;
                 js.author_did = event.did;
                 js.seq = protocol_v2_ ? event.seq : event.time_us;
-                if (typed.commit.rev != nullptr) js.repo_revision = typed.commit.rev;
+                if (typed.commit.rev != nullptr) {
+                    js.repo_revision = typed.commit.rev;
+                    if (!protocol::is_tid(js.repo_revision))
+                        js.verification = protocol::Verification::Rejected;
+                }
                 js.deleted = true;
                 on_event(js);
             }
@@ -232,7 +236,11 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                 js.quote_uri = observation.context.quote_uri;
                 js.policy_reason = observation.policy_reason;
                 js.seq = protocol_v2_ ? event.seq : event.time_us;
-                if (typed.commit.rev != nullptr) js.repo_revision = typed.commit.rev;
+                if (typed.commit.rev != nullptr) {
+                    js.repo_revision = typed.commit.rev;
+                    if (!protocol::is_tid(js.repo_revision))
+                        js.verification = protocol::Verification::Rejected;
+                }
                 on_event(js);
             }
         } else if (event.did != nullptr && event.json != nullptr) {

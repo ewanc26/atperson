@@ -20,7 +20,7 @@ JetstreamRunResult run_jetstream_archive(
                 event.deleted ? "#commit/delete" : event.event_type,
                 event.author_did, event.source_uri + "|" + std::to_string(event.seq) +
                     "|" + event.repo_revision,
-                event.seq, 0u);
+                event.seq, 0u, event.verification);
         }
         if (event.deleted) {
             result.withdrawn += ledger.withdraw_source(event.source_uri);
