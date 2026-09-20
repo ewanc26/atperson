@@ -346,6 +346,33 @@ int main(int argc, char **argv) {
 
         if (command == "jetstream") {
             /* "status" is handled above before the model is loaded. */
+            if (argc >= 3 && std::string_view(argv[2]) == "archive") {
+                if (argc > 5) {
+                    std::cerr << "jetstream archive: expected [after-seq] [before-seq]\n";
+                    return 2;
+                }
+                const auto parse_sequence = [](const char *value,
+                                               const char *name) -> std::uint64_t {
+                    try {
+                        std::size_t consumed = 0;
+                        const std::string text(value);
+                        const auto parsed = std::stoull(text, &consumed, 10);
+                        if (consumed != text.size()) throw std::invalid_argument("trailing");
+                        return parsed;
+                    } catch (const std::exception &) {
+                        throw std::runtime_error(std::string("jetstream archive: ") +
+                                                 name + " must be a decimal sequence");
+                    }
+                };
+                std::optional<std::uint64_t> after;
+                std::optional<std::uint64_t> before;
+                if (argc >= 4) after = parse_sequence(argv[3], "after-seq");
+                if (argc >= 5) before = parse_sequence(argv[4], "before-seq");
+                return atperson::cli::run_jetstream_archive(
+                    std::cout, resource_status, atperson::cli::data_dir(), graph, path,
+                    atperson::cli::ledger_path(), atperson::cli::jetstream_state_path(),
+                    after, before, print_stats);
+            }
             int max_events = 0;
             int max_ms = 0;
             int positional = 0;

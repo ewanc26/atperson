@@ -4,6 +4,8 @@
 
 #include "atproto/jetstream_client.hpp"
 #include "atproto/jetstream_filter.hpp"
+#include "atproto/jetstream_replay_client.hpp"
+#include "atproto/session.hpp"
 #include "cli/config.hpp"
 #include "ingestion/state.hpp"
 #include "journal/store.hpp"
@@ -19,6 +21,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <optional>
 
 namespace atperson {
 namespace cli {
@@ -77,6 +80,65 @@ int run_jetstream_status(
         }
     }
     out << '\n';
+    return 0;
+}
+
+int run_jetstream_archive(
+    std::ostream &out, const RuntimeResourceStatus &resource_status,
+    const std::filesystem::path &data_dir, LanguageGraph &graph,
+    const std::filesystem::path &model_path,
+    const std::filesystem::path &ledger_file,
+    const std::filesystem::path &state_file,
+    std::optional<std::uint64_t> after_seq,
+    std::optional<std::uint64_t> before_seq,
+    const std::function<void(const LanguageGraph &)> &print_stats) {
+    const auto control_file = cli::control_state_path();
+    if (load_control_state(control_file).paused) {
+        throw std::runtime_error(
+            "jetstream archive refused: runtime is paused (atperson control resume)");
+    }
+    require_runtime_write_headroom(resource_status);
+    const StateLock writer_lock(data_dir);
+    Ledger ledger(ledger_file);
+    const std::string endpoint = env_or(
+        "ATPERSON_JETSTREAM_ENDPOINT",
+        "wss://jetstream.us-east.bsky.network/subscribe");
+    auto state = load_ingestion_state(state_file, endpoint, "", kSourceKindJetstream);
+    if (!after_seq) {
+        if (state.catchup.active && state.catchup.cursor) {
+            try {
+                after_seq = std::stoull(*state.catchup.cursor);
+            } catch (const std::exception &) {
+                throw std::runtime_error(
+                    "jetstream archive: persisted cursor is not a decimal sequence; reset it before replay");
+            }
+        } else {
+            after_seq = 0u;
+        }
+    }
+    if (before_seq && *before_seq <= *after_seq) {
+        throw std::runtime_error(
+            "jetstream archive: before sequence must be greater than after sequence");
+    }
+    const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
+    WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
+                           required_env("ATPERSON_APP_PASSWORD"));
+    JetstreamReplayClient client(*session.agent());
+    const auto linker = make_journal_linker(cli::action_journal_path());
+    const auto result = atperson::run_jetstream_archive(
+        graph, ledger, state, client, *after_seq, before_seq, required_self_did(), linker);
+    graph.save(model_path);
+    state.checkpoint.generation++;
+    save_ingestion_state(state, state_file);
+    auto control = load_control_state(control_file);
+    control.last_sync_at = control_now_rfc3339();
+    save_control_state(control, control_file);
+    out << "jetstream archive: " << result.events_consumed << " event(s), "
+        << result.observations_seen << " observation(s), learned " << result.learned
+        << " (skipped " << result.skipped << ", duplicate " << result.duplicates
+        << "); " << (result.exhausted ? "sealed archive exhausted" : "window incomplete")
+        << '\n';
+    print_stats(graph);
     return 0;
 }
 

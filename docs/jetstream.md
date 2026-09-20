@@ -28,7 +28,19 @@ atperson jetstream status [--collections <file>] [--dids <file>]
 
 This command is read-only and runs before the learned model is loaded. It reports the effective Jetstream endpoint, current runtime phase, dedicated state-file path, persisted cursor/checkpoint generation, and the collection/DID filters that would be used by a live run.
 
-The phase currently reports `live-only (archive replay core available; operator replay not configured)`. The replay planner, sealed-segment decoder, bounded-window fetcher, and archive-to-live checkpoint integration are now implemented in the sync layer. The remaining operator work is to expose a bounded replay command and daemon scheduling, then report the active window and phase here.
+The phase currently reports `live-only (archive replay core available; operator replay not configured)`. The replay planner, sealed-segment decoder, bounded-window fetcher, archive command, and archive-to-live checkpoint integration are now implemented. The remaining operator work is daemon scheduling and richer active-window reporting.
+
+The bounded operator command is now available:
+
+```sh
+atperson jetstream archive [after-seq] [before-seq]
+```
+
+It authenticates through the configured Wolfram session, defaults `after-seq` to the
+persisted Jetstream checkpoint (or zero), and optionally caps the window at an
+inclusive `before-seq`. Successful completion checkpoints the sealed replay tip
+through the same durable ingestion path. The daemon does not invoke archive replay
+automatically yet; operators should run this command before starting live catch-up.
 
 ## Entity identity and policy parity
 
@@ -135,4 +147,4 @@ Jetstream v2 now provides archive replay that can backfill a historical slice an
 - inspection/status for the active collection filter, replay window and phase;
 - tests for replay-window truncation and restart across the archive/live boundary.
 
-Until then, `atperson jetstream` is a bounded live/cursor consumer with independent restart state and explicit collection filtering.
+The live command remains a bounded cursor consumer with independent restart state and explicit collection filtering. Archive replay requires `ATPERSON_SERVICE`, `ATPERSON_IDENTIFIER`, `ATPERSON_APP_PASSWORD`, and `ATPERSON_SELF_DID`; credentials are used only for the session and are never persisted.
