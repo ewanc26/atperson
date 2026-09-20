@@ -114,6 +114,10 @@ The C23 core currently provides:
 
 The C++23 layer wraps that core and provides the CLI/runtime, configuration and Wolfram-backed AT Protocol ingestion and publishing paths.
 
+AT Protocol literacy is a hard requirement, not an incidental side effect of
+reading posts. The required protocol concepts, evidence provenance, replay
+rules and capability gates are defined in [`docs/protocol-learning.md`](docs/protocol-learning.md).
+
 More detail lives in:
 
 - [`docs/valence.md`](docs/valence.md)
