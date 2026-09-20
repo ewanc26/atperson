@@ -21,6 +21,9 @@ int main() {
     assert(blob && blob->mime_type == "image/png" && blob->size == 42u);
     assert(!parse_blob_ref("bad", "image/png", 42));
     assert(is_did("did:plc:abc"));
+    assert(is_did("did:web:example.com"));
+    assert(!is_did("did:"));
+    assert(!is_did("did:PLC:abc"));
     assert(!is_did("alice.example"));
     assert(is_handle("alice.example"));
     assert(!is_handle("did:plc:abc"));

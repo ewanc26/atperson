@@ -181,8 +181,20 @@ std::optional<LexiconFact> accept_lexicon_fact(std::string_view nsid, XrpcKind o
 }
 
 bool is_did(std::string_view value) noexcept {
-    return value.starts_with("did:") && value.size() > 4 &&
-           value.find_first_of(" /?#") == std::string_view::npos;
+    if (!value.starts_with("did:") || value.size() <= 8 ||
+        value.find_first_of(" /?#") != std::string_view::npos) {
+        return false;
+    }
+    const auto method_end = value.find(':', 4);
+    if (method_end == std::string_view::npos || method_end == 4 ||
+        method_end + 1 >= value.size()) return false;
+    for (std::size_t i = 4; i < method_end; ++i) {
+        const char c = value[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool is_nsid(std::string_view value) noexcept {
