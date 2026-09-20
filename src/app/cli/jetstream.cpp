@@ -153,9 +153,10 @@ int run_jetstream_archive(
         dids_file.empty() ? std::vector<std::string>{}
                           : load_jetstream_dids(dids_file);
     const auto linker = make_journal_linker(cli::action_journal_path());
+    atperson::protocol::EvidenceLedger protocol_ledger(cli::protocol_ledger_path());
     const auto result = atperson::run_jetstream_archive(
         graph, ledger, state, client, *after_seq, before_seq, required_self_did(),
-        collections, dids, linker);
+        collections, dids, linker, &protocol_ledger);
     graph.save(model_path);
     state.checkpoint.generation++;
     save_ingestion_state(state, state_file);

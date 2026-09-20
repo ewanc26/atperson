@@ -10,10 +10,17 @@ JetstreamRunResult run_jetstream_archive(
     std::optional<std::uint64_t> before_seq, std::string_view self_did,
     const std::vector<std::string> &collections,
     const std::vector<std::string> &dids,
-    const SyncLinker &link) {
+    const SyncLinker &link, protocol::EvidenceLedger *protocol_ledger) {
     JetstreamRunResult result;
     const auto on_event = [&](const JetstreamEvent &event) {
         ++result.events_consumed;
+        if (protocol_ledger != nullptr) {
+            (void)protocol::append_firehose_event(
+                *protocol_ledger, "jetstream-archive",
+                event.deleted ? "#commit/delete" : event.event_type,
+                event.author_did, event.source_uri + "|" + std::to_string(event.seq),
+                event.seq, 0u);
+        }
         if (event.deleted) {
             result.withdrawn += ledger.withdraw_source(event.source_uri);
             return;

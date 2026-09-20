@@ -60,7 +60,7 @@ void run_startup_archive_if_configured(
     std::ostream &out, const RuntimeResourceStatus &resource_status,
     LanguageGraph &graph,
     const std::filesystem::path &model_path, Ledger &ledger,
-    const SyncLinker &linker) {
+    const SyncLinker &linker, protocol::EvidenceLedger *protocol_ledger) {
     const std::string after_value = env_or("ATPERSON_DAEMON_ARCHIVE_AFTER");
     if (after_value.empty()) return;
     const std::uint64_t after = daemon_archive_sequence("ATPERSON_DAEMON_ARCHIVE_AFTER");
@@ -102,7 +102,7 @@ void run_startup_archive_if_configured(
         jetstream_dids_path().empty()
             ? std::vector<std::string>{}
             : load_jetstream_dids(jetstream_dids_path()),
-        linker);
+        linker, protocol_ledger);
     graph.save(model_path);
     archive_state.checkpoint.generation++;
     save_ingestion_state(archive_state, jetstream_state_path());
@@ -154,8 +154,9 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                          required_env("ATPERSON_APP_PASSWORD"));
     Ledger ledger(ledger_file);
     const auto linker = make_journal_linker(action_journal_path());
+    protocol::EvidenceLedger protocol_ledger_file(protocol_ledger_path());
     run_startup_archive_if_configured(
-        out, resource_status, graph, model_path, ledger, linker);
+        out, resource_status, graph, model_path, ledger, linker, &protocol_ledger_file);
     run_state.phase = AutonomyPhase::Learning;
     run_state.checkpoint++;
     run_state.last_at = control_now_rfc3339();
