@@ -22,9 +22,11 @@ int main() {
     const auto identity = accept_identity("did:plc:abc", "alice.example",
                                          "https://plc.directory/did:plc:abc",
                                          "did:key:z6Mkkey", "https://pds.example",
-                                         Verification::Verified);
+                                         Verification::Verified,
+                                         {"did:key:z6Mkrotation"});
     assert(identity && identity->did == "did:plc:abc" && identity->pds_endpoint ==
            "https://pds.example");
+    assert(identity->rotation_keys.size() == 1);
     assert(!accept_identity("alice.example", "alice.example", "source", "key",
                             "https://pds.example", Verification::Verified));
     assert(is_nsid("app.bsky.feed.post"));

@@ -48,7 +48,8 @@ std::optional<IdentityFact> accept_identity(std::string_view did,
                                             std::string_view source,
                                             std::string_view signing_key,
                                             std::string_view pds_endpoint,
-                                            Verification verification);
+                                            Verification verification,
+                                            std::vector<std::string> rotation_keys = {});
 
 struct ServiceFact {
     ServiceRole role{ServiceRole::Pds};

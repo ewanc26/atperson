@@ -122,7 +122,8 @@ std::optional<IdentityFact> accept_identity(std::string_view did,
                                             std::string_view source,
                                             std::string_view signing_key,
                                             std::string_view pds_endpoint,
-                                            Verification verification) {
+                                            Verification verification,
+                                            std::vector<std::string> rotation_keys) {
     if (!is_did(did) || !is_handle(handle) || source.empty() || signing_key.empty() ||
         pds_endpoint.empty() || pds_endpoint.find("https://") != 0) {
         return std::nullopt;
@@ -132,6 +133,7 @@ std::optional<IdentityFact> accept_identity(std::string_view did,
     fact.handle = handle;
     fact.did_document_source = source;
     fact.signing_key = signing_key;
+    fact.rotation_keys = std::move(rotation_keys);
     fact.pds_endpoint = pds_endpoint;
     fact.verification = verification;
     return fact;
