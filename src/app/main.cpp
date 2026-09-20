@@ -171,6 +171,32 @@ int main(int argc, char **argv) {
                     std::cout, std::cerr, argv[3],
                     atperson::cli::env_or("ATPERSON_SERVICE", "https://bsky.social").c_str());
             }
+            if (subcommand == "explain") {
+                if (argc < 4) {
+                    usage(std::cerr);
+                    return 2;
+                }
+                const atperson::protocol::EvidenceLedger ledger(
+                    atperson::cli::protocol_ledger_path());
+                const auto entries = ledger.entries();
+                std::size_t matches = 0;
+                for (const auto &entry : entries) {
+                    if (entry.subject != argv[3]) continue;
+                    ++matches;
+                    std::cout << "subject=" << entry.subject << " source=" << entry.source
+                              << " event=" << entry.event_type
+                              << " payload=" << entry.payload
+                              << " sequence=" << entry.sequence
+                              << " observed_at=" << entry.observed_at
+                              << " verification=" << static_cast<int>(entry.verification)
+                              << " confidence=" << entry.confidence << '\n';
+                }
+                if (matches == 0) {
+                    std::cout << "no protocol evidence for " << argv[3] << '\n';
+                    return 1;
+                }
+                return 0;
+            }
             if (subcommand != "status") {
                 usage(std::cerr);
                 return 2;
