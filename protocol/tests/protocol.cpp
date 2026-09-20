@@ -108,10 +108,14 @@ int main() {
     EvidenceStore store;
     ProtocolEvidence fact{EvidenceKind::Identity, "https://pds.example/.well-known",
                           "identity", "did:plc:abc", "did-document-v1", 1, 10,
-                          Verification::Verified, 1.0};
+                          Verification::Unverified, 0.0};
     assert(store.append(fact));
     assert(!store.append(fact));
     assert(store.entries().size() == 1);
+    auto upgraded = fact;
+    upgraded.verification = Verification::Verified;
+    assert(store.append(upgraded));
+    assert(store.entries().size() == 2);
     const auto replayed = EvidenceStore::replay(
         std::vector<ProtocolEvidence>{fact, fact, fact});
     assert(replayed.entries().size() == 1);

@@ -184,7 +184,8 @@ class EvidenceStore {
     [[nodiscard]] const std::vector<ProtocolEvidence> &entries() const noexcept {
         return entries_;
     }
-    [[nodiscard]] bool contains(std::string_view source, std::string_view payload) const;
+    [[nodiscard]] bool contains(std::string_view source, std::string_view payload,
+                                Verification verification) const;
     static EvidenceStore replay(const std::vector<ProtocolEvidence> &evidence);
 
   private:

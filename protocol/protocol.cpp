@@ -264,14 +264,16 @@ XrpcKind classify_xrpc(bool query, bool procedure, bool subscription) {
     return XrpcKind::Subscription;
 }
 
-bool EvidenceStore::contains(std::string_view source, std::string_view payload) const {
+bool EvidenceStore::contains(std::string_view source, std::string_view payload,
+                             Verification verification) const {
     return std::any_of(entries_.begin(), entries_.end(), [&](const auto &entry) {
-        return entry.source == source && entry.payload == payload;
+        return entry.source == source && entry.payload == payload &&
+               entry.verification == verification;
     });
 }
 
 bool EvidenceStore::append(ProtocolEvidence evidence) {
-    if (contains(evidence.source, evidence.payload)) return false;
+    if (contains(evidence.source, evidence.payload, evidence.verification)) return false;
     entries_.push_back(std::move(evidence));
     return true;
 }
