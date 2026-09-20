@@ -54,11 +54,19 @@ int run_jetstream_status(
                           : atperson::load_jetstream_dids(dids_file);
     const IngestionState state = load_ingestion_state(
         state_file, endpoint, "", kSourceKindJetstream);
+    const std::string archive_after = env_or("ATPERSON_DAEMON_ARCHIVE_AFTER");
+    const std::string archive_before = env_or("ATPERSON_DAEMON_ARCHIVE_BEFORE");
 
     out << "jetstream endpoint: " << endpoint << '\n'
         << "self DID: " << (configured_self.empty() ? "missing (live ingestion will refuse)" : configured_self) << '\n'
-        << "phase: live-only (archive replay core available; operator replay not configured)\n"
+        << "phase: "
+        << (archive_after.empty()
+                ? "live-only (archive replay available; daemon startup window not configured)"
+                : "archive-startup (daemon will replay before timeline cycles)")
+        << '\n'
         << "state: " << state_file.string() << '\n'
+        << "archive after: " << (archive_after.empty() ? "none" : archive_after) << '\n'
+        << "archive before: " << (archive_before.empty() ? "none" : archive_before) << '\n'
         << "cursor: ";
     if (state.catchup.active && state.catchup.cursor) {
         out << *state.catchup.cursor;
