@@ -210,6 +210,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/sync.cpp
     src/app/atproto/client.cpp
     src/app/atproto/extract.cpp
+    src/app/atproto/repository_verifier.cpp
   src/app/atproto/jetstream.cpp
   src/app/atproto/jetstream_client.cpp
   src/app/atproto/jetstream_replay.cpp
