@@ -3,6 +3,7 @@
 
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
+#include "protocol.hpp"
 #include "policy.hpp"
 #include "ingestion/state.hpp"
 #include "linkage.hpp"
@@ -132,7 +133,8 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                                           IngestionState &state,
                                           JetstreamClient &client,
                                           const JetstreamLimits &limits,
-                                          const SyncLinker &link = nullptr);
+                                          const SyncLinker &link = nullptr,
+                                          protocol::EvidenceLedger *protocol_ledger = nullptr);
 
 /* Process one bounded sealed-archive window through the same durable pipeline
  * as live Jetstream. On success, the persisted Jetstream cursor is set to the
