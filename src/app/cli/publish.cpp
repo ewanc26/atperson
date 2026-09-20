@@ -1,6 +1,8 @@
 #include "publish.hpp"
 
 #include "config.hpp"
+#include "attestation/proof.hpp"
+#include "attestation/signer.hpp"
 #include "control/state.hpp"
 #include "journal/mac.hpp"
 #include "journal/store.hpp"
@@ -19,6 +21,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <stdexcept>
 
 namespace atperson {
 namespace cli {
@@ -120,8 +123,24 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
         return *writer;
     };
 
+    const OutboundAttestationFactory attest = [&session](const std::string &record_json,
+                                                         const OutboundAction &outbound_action)
+        -> std::optional<OutboundAttestation> {
+        const auto signer = attestation_signer_from_environment();
+        if (!signer) {
+            return std::nullopt;
+        }
+        const std::string metadata =
+            "{\"$type\":\"atperson.attestation.v1\",\"action_digest\":\"" +
+            outbound_action.digest + "\",\"rkey\":\"" + outbound_action.rkey +
+            "\",\"created_at\":\"" + outbound_action.created_at + "\"}";
+        const auto proof = create_attestation_proof(*signer, record_json, metadata, session->did());
+        return OutboundAttestation{proof.payload_cid, proof.signature_hex, proof.public_key_did,
+                                   proof.key_id, proof.algorithm};
+    };
+
     const OutboundExecutionResult result =
-        execute_outbound_action(control, policy, budget, action, writer_for, now);
+        execute_outbound_action(control, policy, budget, action, writer_for, now, attest);
 
     if (result.budget_recorded) {
         budget.saved_at = now;
@@ -138,6 +157,13 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
     entry.detail = result.detail;
     entry.uri = result.written.uri;
     entry.cid = result.written.cid;
+    if (result.attestation) {
+        entry.attestation_cid = result.attestation->payload_cid;
+        entry.attestation_signature = result.attestation->signature_hex;
+        entry.attestation_public_key = result.attestation->public_key_did;
+        entry.attestation_key_id = result.attestation->key_id;
+        entry.attestation_algorithm = result.attestation->algorithm;
+    }
     append_outbound_audit(audit_file, entry);
 
     /* The journal (#27) records the same attempt as durable experience

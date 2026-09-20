@@ -51,6 +51,12 @@ struct OutboundAuditEntry {
     /* Result URI/CID when the write was executed; empty otherwise. */
     std::string uri;
     std::string cid;
+    /* Public proof metadata only; private signing material is never logged. */
+    std::string attestation_cid;
+    std::string attestation_signature;
+    std::string attestation_public_key;
+    std::string attestation_key_id;
+    std::string attestation_algorithm;
 };
 
 /* Deterministic JSON object for one entry (no trailing newline). */
