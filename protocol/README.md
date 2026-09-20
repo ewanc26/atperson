@@ -26,5 +26,11 @@ A cursor gap creates a bounded resynchronization plan and pauses advancement
 until a validated repository/CAR resync is explicitly committed. App View
 observations are marked derived and never treated as repository authority.
 
+Live Jetstream `#commit` frames may feed the social-content pipeline only after
+the ordinary ingestion policy. `#sync`, `#identity`, `#account`, and account
+deletion frames are protocol-only: their raw Wolfram payloads are written to
+the evidence ledger with sequence and provenance, and they are never passed to
+the social learner. Archive replay uses the same evidence boundary.
+
 Run `atperson protocol status` to inspect the local evidence ledger, or
 `atperson protocol explain <subject>` to inspect provenance for one subject.
