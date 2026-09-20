@@ -47,6 +47,12 @@ int main() {
     assert(classify_service_role("unknown") == ServiceRole::Unknown);
     assert(authority_for_service(ServiceRole::Pds) == RecordAuthority::Repository);
     assert(authority_for_service(ServiceRole::AppView) == RecordAuthority::AppViewDerived);
+    const auto service = accept_service_fact(ServiceRole::AppView,
+                                             "https://appview.example",
+                                             "did:plc:abc", Verification::Verified);
+    assert(service && service->role == ServiceRole::AppView);
+    assert(!accept_service_fact(ServiceRole::Unknown, "https://example", "did:plc:abc",
+                                Verification::Verified));
     assert(authority_for_service(ServiceRole::Relay) == RecordAuthority::Unknown);
     const auto repository = accept_repository_fact(
         "did:plc:abc", "3jui3s7xq2m2a", "bafyreiabcdef", "https://pds.example/repo.car",

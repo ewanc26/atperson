@@ -61,6 +61,17 @@ RecordAuthority authority_for_service(ServiceRole role) noexcept {
     return RecordAuthority::Unknown;
 }
 
+std::optional<ServiceFact> accept_service_fact(ServiceRole role,
+                                               std::string_view endpoint,
+                                               std::string_view subject_did,
+                                               Verification verification) {
+    if (role == ServiceRole::Unknown || endpoint.find("https://") != 0 ||
+        !is_did(subject_did)) {
+        return std::nullopt;
+    }
+    return ServiceFact{role, std::string(endpoint), std::string(subject_did), verification};
+}
+
 std::optional<RepositoryFact> accept_repository_fact(
     std::string_view repo_did, std::string_view revision,
     std::string_view signed_root_cid, std::string_view car_source,
@@ -390,6 +401,20 @@ bool append_identity_fact(EvidenceLedger &ledger, const IdentityFact &fact,
     for (const auto &rotation : fact.rotation_keys) payload += "|rotation=" + rotation;
     return ledger.append({EvidenceKind::Identity, std::string(source), "#identity",
                           fact.did, std::move(payload), sequence, observed_at,
+                          fact.verification, fact.verification == Verification::Verified ? 1.0 : 0.5});
+}
+
+bool append_service_fact(EvidenceLedger &ledger, const ServiceFact &fact,
+                         std::string_view source, std::uint64_t sequence,
+                         std::uint64_t observed_at) {
+    if (fact.role == ServiceRole::Unknown || source.empty() ||
+        !is_did(fact.subject_did) || fact.endpoint.find("https://") != 0) {
+        return false;
+    }
+    const std::string payload = std::to_string(static_cast<int>(fact.role)) +
+                                "|" + fact.endpoint;
+    return ledger.append({EvidenceKind::Identity, std::string(source), "#service",
+                          fact.subject_did, payload, sequence, observed_at,
                           fact.verification, fact.verification == Verification::Verified ? 1.0 : 0.5});
 }
 

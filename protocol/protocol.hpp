@@ -72,6 +72,11 @@ struct ServiceFact {
     Verification verification{Verification::Unverified};
 };
 
+std::optional<ServiceFact> accept_service_fact(ServiceRole role,
+                                               std::string_view endpoint,
+                                               std::string_view subject_did,
+                                               Verification verification);
+
 struct RecordFact {
     AtUri uri;
     std::string cid;
@@ -220,6 +225,9 @@ bool append_firehose_event(EvidenceLedger &ledger, std::string_view source,
 bool append_identity_fact(EvidenceLedger &ledger, const IdentityFact &fact,
                           std::string_view source, std::uint64_t sequence,
                           std::uint64_t observed_at);
+bool append_service_fact(EvidenceLedger &ledger, const ServiceFact &fact,
+                         std::string_view source, std::uint64_t sequence,
+                         std::uint64_t observed_at);
 bool append_repository_fact(EvidenceLedger &ledger, const RepositoryFact &fact,
                             std::uint64_t sequence, std::uint64_t observed_at);
 
