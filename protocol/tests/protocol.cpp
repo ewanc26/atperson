@@ -126,8 +126,9 @@ int main() {
     assert(plan.required && plan.repo == "did:plc:abc" && plan.from_sequence == 10 &&
            plan.max_records == 1 && !plan.reason.empty());
     assert(observe_stream(cursor, 11, "did:plc:abc", "3jui3s7xq2m2c") == CursorResult::Gap);
-    assert(!complete_resync(cursor, 9, "did:plc:abc", "3jui3s7xq2m2c"));
-    assert(complete_resync(cursor, 11, "did:plc:abc", "3jui3s7xq2m2c"));
+    assert(!complete_resync(cursor, 9, "did:plc:abc", "3jui3s7xq2m2c", Verification::Verified));
+    assert(!complete_resync(cursor, 11, "did:plc:abc", "3jui3s7xq2m2c", Verification::Unverified));
+    assert(complete_resync(cursor, 11, "did:plc:abc", "3jui3s7xq2m2c", Verification::Verified));
     assert(observe_stream(cursor, 10, "did:plc:abc", "3jui3s7xq2m2c") == CursorResult::Rewind);
     assert(observe_stream(cursor, 12, "did:plc:other", "3jui3s7xq2m2d") == CursorResult::Advanced);
     assert(revision_for(cursor, "did:plc:abc") == std::optional<std::string>("3jui3s7xq2m2c"));

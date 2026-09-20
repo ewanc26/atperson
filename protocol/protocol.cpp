@@ -426,9 +426,11 @@ ResyncPlan plan_resync(const CursorState &state, std::uint32_t max_records) {
 }
 
 bool complete_resync(CursorState &state, std::uint64_t sequence,
-                     std::string_view repo, std::string_view revision) {
+                     std::string_view repo, std::string_view revision,
+                     Verification verification) {
     if (!state.resync_required || sequence < state.last_sequence || repo.empty() ||
-        revision.empty() || !is_did(repo) || !is_tid(revision)) return false;
+        revision.empty() || !is_did(repo) || !is_tid(revision) ||
+        verification != Verification::Verified) return false;
     state.last_sequence = sequence;
     state.repo = repo;
     state.repo_revision = revision;
