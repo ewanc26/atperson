@@ -79,6 +79,25 @@ std::optional<OAuthSessionFact> accept_oauth_session(
                             std::string(scope), dpop_bound, verification};
 }
 
+std::optional<OAuthAuthorizationPlan> make_loopback_oauth_plan(
+    std::string_view redirect_uri, std::string_view scope) {
+    if (redirect_uri.find("http://127.0.0.1:") != 0 || scope.empty() ||
+        redirect_uri.find_first_of("?#") != std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto port_start = std::string_view("http://127.0.0.1:").size();
+    const auto slash = redirect_uri.find('/', port_start);
+    const auto port = redirect_uri.substr(
+        port_start, slash == std::string_view::npos ? std::string_view::npos
+                                                     : slash - port_start);
+    if (port.empty() || port.find_first_not_of("0123456789") !=
+                            std::string_view::npos) {
+        return std::nullopt;
+    }
+    return OAuthAuthorizationPlan{std::string(redirect_uri), std::string(scope),
+                                  classify_permission(scope), true};
+}
+
 std::optional<AtUri> parse_at_uri(std::string_view value) {
     if (!value.starts_with("at://") || value.find_first_of("?#") != std::string_view::npos) {
         return std::nullopt;
