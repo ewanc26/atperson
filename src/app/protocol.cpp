@@ -47,6 +47,18 @@ std::optional<AtUri> parse_at_uri(std::string_view value) {
     return out;
 }
 
+bool is_did(std::string_view value) noexcept {
+    return value.starts_with("did:") && value.size() > 4 &&
+           value.find_first_of(" /?#") == std::string_view::npos;
+}
+
+bool is_handle(std::string_view value) noexcept {
+    if (value.empty() || value.starts_with("did:") || value.find('.') == std::string_view::npos) {
+        return false;
+    }
+    return value.find_first_of(" /?#:@") == std::string_view::npos;
+}
+
 XrpcKind classify_xrpc(bool query, bool procedure, bool subscription) {
     const int count = static_cast<int>(query) + static_cast<int>(procedure) +
                       static_cast<int>(subscription);

@@ -13,6 +13,8 @@ namespace atperson::protocol {
 enum class Verification { Verified, Unverified, Rejected };
 enum class XrpcKind { Query, Procedure, Subscription, Unknown };
 enum class EvidenceKind { Identity, Repository, Record, Lexicon, Sync, Authorization };
+enum class ServiceRole { Pds, Relay, AppView, FeedGenerator, Labeler };
+enum class RecordState { Present, Deleted, Missing, Unverified };
 
 struct AtUri {
     std::string did;
@@ -20,9 +22,35 @@ struct AtUri {
     std::string rkey;
 };
 
+struct IdentityFact {
+    std::string did;
+    std::string handle;
+    std::string did_document_source;
+    std::string signing_key;
+    std::vector<std::string> rotation_keys;
+    std::string pds_endpoint;
+    Verification verification{Verification::Unverified};
+};
+
+struct ServiceFact {
+    ServiceRole role{ServiceRole::Pds};
+    std::string endpoint;
+    std::string subject_did;
+    Verification verification{Verification::Unverified};
+};
+
+struct RecordFact {
+    AtUri uri;
+    std::string cid;
+    RecordState state{RecordState::Unverified};
+    bool app_view_derived{};
+};
+
 /* Parse only the authority/collection/rkey form; query and fragment suffixes
  * are rejected so callers cannot accidentally learn from an ambiguous URI. */
 std::optional<AtUri> parse_at_uri(std::string_view value);
+bool is_did(std::string_view value) noexcept;
+bool is_handle(std::string_view value) noexcept;
 
 /* NSIDs identify XRPC/Lexicon operations. The suffix is deliberately supplied
  * by the schema/event source rather than guessed from the name. */

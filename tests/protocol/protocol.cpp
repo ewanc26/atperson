@@ -11,6 +11,10 @@ int main() {
            parsed->collection == "app.bsky.feed.post" && parsed->rkey == "3k1");
     assert(!parse_at_uri("at://handle.example/app.bsky.feed.post/3k1"));
     assert(!parse_at_uri("at://did:plc:abc/app.bsky.feed.post/3k1?x=1"));
+    assert(is_did("did:plc:abc"));
+    assert(!is_did("alice.example"));
+    assert(is_handle("alice.example"));
+    assert(!is_handle("did:plc:abc"));
 
     assert(classify_xrpc(true, false) == XrpcKind::Query);
     assert(classify_xrpc(false, true) == XrpcKind::Procedure);
