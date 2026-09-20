@@ -143,7 +143,11 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
         result.reconciled = true;
     }
 
-    if (result.exhausted) {
+    if (result.protocol_resync_required) {
+        /* Never checkpoint past a protocol gap. The persisted cursor remains
+         * the last known-good boundary until a validated CAR resync clears it. */
+        state.catchup.active = true;
+    } else if (result.exhausted) {
         state.catchup.active = false;
         state.catchup.cursor = std::nullopt;
     } else {
