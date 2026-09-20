@@ -216,6 +216,7 @@ if(ATPERSON_BUILD_NETWORK)
   src/app/atproto/jetstream_replay_client.cpp
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
+    src/app/autonomy/run_state.cpp
     src/app/attestation/signer.cpp
     src/app/attestation/proof.cpp
     src/app/audit/command.cpp

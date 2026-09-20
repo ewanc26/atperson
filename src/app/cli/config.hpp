@@ -49,6 +49,7 @@ std::filesystem::path outbound_audit_path();
  * entity's own outbound attempts. */
 std::filesystem::path action_journal_path();
 std::filesystem::path protocol_ledger_path();
+std::filesystem::path autonomy_run_state_path();
 
 std::vector<std::filesystem::path> durable_paths();
 

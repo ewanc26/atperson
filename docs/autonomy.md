@@ -14,6 +14,13 @@ records, or enable outbound writes.
 
 ## Runtime ownership
 
+The runtime lifecycle is checkpointed locally in `autonomy-run.json` under the
+configured central data directory. `atperson autonomy status` exposes the last
+run id, phase, checkpoint number, and diagnostic detail. Daemon startup records
+`recovering`, successful bounded AT Protocol perception records `learning`,
+and graceful shutdown records `stopped`. This state is runtime metadata only;
+it is never added to the learned graph or sent to a service.
+
 The daemon owns the long-lived writer lock and runs bounded sync cycles. Each
 cycle checkpoints durable state only after successful processing, uses bounded
 backoff on transport failures, and responds to pause, resume, shutdown, and

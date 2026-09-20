@@ -1,6 +1,7 @@
 #include "atperson/bootstrap.h"
 #include "protocol.hpp"
 #include "atperson/graph.hpp"
+#include "autonomy/run_state.hpp"
 #include "inspection.hpp"
 #include "audit/command.hpp"
 #include "cli/config.hpp"
@@ -132,6 +133,22 @@ int main(int argc, char **argv) {
             return atperson::cli::run_control(std::cout, resource_status,
                                               atperson::cli::control_state_path(), sub,
                                               argument);
+        }
+
+        if (command == "autonomy") {
+            const std::string sub = argc >= 3 ? argv[2] : "status";
+            if (sub != "status") {
+                usage(std::cerr);
+                return 2;
+            }
+            const auto state = atperson::load_autonomy_run_state(
+                atperson::cli::autonomy_run_state_path());
+            std::cout << "run id: " << state.run_id << '\n'
+                      << "phase: " << atperson::autonomy_phase_name(state.phase) << '\n'
+                      << "checkpoint: " << state.checkpoint << '\n'
+                      << "last at: " << state.last_at << '\n'
+                      << "detail: " << state.detail << '\n';
+            return 0;
         }
 
         if (command == "outbound") {

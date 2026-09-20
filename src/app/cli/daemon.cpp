@@ -1,4 +1,5 @@
 #include "daemon.hpp"
+#include "autonomy/run_state.hpp"
 
 #include "client.hpp"
 #include "atproto/jetstream_replay_client.hpp"
@@ -120,6 +121,14 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                        const std::filesystem::path &ledger_file,
                        const std::filesystem::path &state_file, int max_cycles_override,
                        const std::function<void(const LanguageGraph &)> &print_stats) {
+    const auto run_state_file = autonomy_run_state_path();
+    auto run_state = load_autonomy_run_state(run_state_file);
+    run_state.run_id = control_now_rfc3339();
+    run_state.phase = AutonomyPhase::Recovering;
+    run_state.checkpoint++;
+    run_state.last_at = run_state.run_id;
+    run_state.detail = "daemon recovery started; AT Protocol timeline only";
+    save_autonomy_run_state(run_state, run_state_file);
     DaemonConfig config = daemon_config_from_environment();
     if (max_cycles_override > 0) {
         config.max_cycles = static_cast<std::uint64_t>(max_cycles_override);
@@ -147,6 +156,11 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
     const auto linker = make_journal_linker(action_journal_path());
     run_startup_archive_if_configured(
         out, resource_status, graph, model_path, ledger, linker);
+    run_state.phase = AutonomyPhase::Learning;
+    run_state.checkpoint++;
+    run_state.last_at = control_now_rfc3339();
+    run_state.detail = "bounded AT Protocol perception cycle ready";
+    save_autonomy_run_state(run_state, run_state_file);
     auto ingestion = load_ingestion_state(state_file, service, client.account_did());
 
     auto mutable_status = resource_status;
@@ -285,6 +299,11 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         << ", duplicate " << report.duplicates << "); transient failures "
         << report.transient_failures << ", snapshots " << report.snapshots_saved << '\n';
     print_stats(graph);
+    run_state.phase = AutonomyPhase::Stopped;
+    run_state.checkpoint++;
+    run_state.last_at = control_now_rfc3339();
+    run_state.detail = "daemon stopped after local checkpoint";
+    save_autonomy_run_state(run_state, run_state_file);
     return 0;
 }
 
