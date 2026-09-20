@@ -59,6 +59,20 @@ bool is_handle(std::string_view value) noexcept {
     return value.find_first_of(" /?#:@") == std::string_view::npos;
 }
 
+SyncEvent classify_sync_event(std::string_view type) noexcept {
+    if (type == "#commit") return SyncEvent::Commit;
+    if (type == "#sync") return SyncEvent::Sync;
+    if (type == "#identity") return SyncEvent::Identity;
+    if (type == "#account") return SyncEvent::Account;
+    return SyncEvent::Unknown;
+}
+
+Verification verification_from_wolfram(bool transport_ok,
+                                       bool cryptographically_valid) noexcept {
+    if (!transport_ok) return Verification::Unverified;
+    return cryptographically_valid ? Verification::Verified : Verification::Rejected;
+}
+
 XrpcKind classify_xrpc(bool query, bool procedure, bool subscription) {
     const int count = static_cast<int>(query) + static_cast<int>(procedure) +
                       static_cast<int>(subscription);

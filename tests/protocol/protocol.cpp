@@ -15,6 +15,12 @@ int main() {
     assert(!is_did("alice.example"));
     assert(is_handle("alice.example"));
     assert(!is_handle("did:plc:abc"));
+    assert(classify_sync_event("#commit") == SyncEvent::Commit);
+    assert(classify_sync_event("#identity") == SyncEvent::Identity);
+    assert(classify_sync_event("#unknown") == SyncEvent::Unknown);
+    assert(verification_from_wolfram(true, true) == Verification::Verified);
+    assert(verification_from_wolfram(true, false) == Verification::Rejected);
+    assert(verification_from_wolfram(false, false) == Verification::Unverified);
 
     assert(classify_xrpc(true, false) == XrpcKind::Query);
     assert(classify_xrpc(false, true) == XrpcKind::Procedure);

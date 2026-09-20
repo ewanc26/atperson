@@ -15,6 +15,7 @@ enum class XrpcKind { Query, Procedure, Subscription, Unknown };
 enum class EvidenceKind { Identity, Repository, Record, Lexicon, Sync, Authorization };
 enum class ServiceRole { Pds, Relay, AppView, FeedGenerator, Labeler };
 enum class RecordState { Present, Deleted, Missing, Unverified };
+enum class SyncEvent { Commit, Sync, Identity, Account, Unknown };
 
 struct AtUri {
     std::string did;
@@ -51,6 +52,12 @@ struct RecordFact {
 std::optional<AtUri> parse_at_uri(std::string_view value);
 bool is_did(std::string_view value) noexcept;
 bool is_handle(std::string_view value) noexcept;
+SyncEvent classify_sync_event(std::string_view type) noexcept;
+/* Maps Wolfram's transport/crypto outcome without performing verification in
+ * atperson. A transport failure is retained as unverified evidence; a parsed
+ * but invalid signature is retained as rejected evidence. */
+Verification verification_from_wolfram(bool transport_ok,
+                                       bool cryptographically_valid) noexcept;
 
 /* NSIDs identify XRPC/Lexicon operations. The suffix is deliberately supplied
  * by the schema/event source rather than guessed from the name. */
