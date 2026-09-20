@@ -26,6 +26,12 @@ A cursor gap creates a bounded resynchronization plan and pauses advancement
 until a validated repository/CAR resync is explicitly committed. App View
 observations are marked derived and never treated as repository authority.
 
+Complete repository CARs are verified by Wolfram against a resolved DID signing
+key before atperson records their root CID as `#repository` evidence. A parse,
+signature, or root failure is retained as explicit `#car` evidence with its
+source, revision, sequence, timestamp, and non-verified status; it is never
+fed into social learning or treated as repository authority.
+
 Live Jetstream `#commit` frames may feed the social-content pipeline only after
 the ordinary ingestion policy. `#sync`, `#identity`, `#account`, and account
 deletion frames are protocol-only: their raw Wolfram payloads are written to

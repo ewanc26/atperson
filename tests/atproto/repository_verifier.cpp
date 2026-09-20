@@ -84,6 +84,18 @@ int main() {
             assert(atperson::verify_signed_repository_car(
                        did_key, car, car_len) !=
                    atperson::protocol::Verification::Verified);
+            const auto bad_path = std::filesystem::temp_directory_path() /
+                                  "atperson-verifier-bad-car-evidence.bin";
+            std::filesystem::remove(bad_path, car_error);
+            atperson::protocol::EvidenceLedger bad_ledger(bad_path);
+            assert(atperson::record_repository_car(
+                bad_ledger, "did:plc:repo", "3jui3s7xq2m2a", did_key, car,
+                car_len, "https://pds.example", 10u, 18u));
+            assert(bad_ledger.entries().size() == 1u &&
+                   bad_ledger.entries()[0].event_type == "#car" &&
+                   bad_ledger.entries()[0].verification !=
+                       atperson::protocol::Verification::Verified);
+            std::filesystem::remove(bad_path, car_error);
             std::free(car);
         }
         std::free(did_key);
