@@ -197,6 +197,25 @@ int main(int argc, char **argv) {
                 }
                 return 0;
             }
+            if (subcommand == "oauth-plan") {
+                if (argc < 4) {
+                    usage(std::cerr);
+                    return 2;
+                }
+                const auto plan = atperson::protocol::make_loopback_oauth_plan(
+                    atperson::cli::env_or("ATPERSON_OAUTH_REDIRECT",
+                                          "http://127.0.0.1:43127/callback"),
+                    argv[3]);
+                if (!plan) {
+                    std::cerr << "protocol oauth-plan: redirect must be a valid loopback URI\n";
+                    return 1;
+                }
+                std::cout << "redirect=" << plan->redirect_uri << " scope=" << plan->scope
+                          << " permission=" << static_cast<int>(plan->permission)
+                          << " loopback-only=" << (plan->loopback_only ? "yes" : "no")
+                          << '\n';
+                return 0;
+            }
             if (subcommand != "status") {
                 usage(std::cerr);
                 return 2;
