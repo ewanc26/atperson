@@ -53,7 +53,7 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
         wf_jetstream_replay_plan_page page{};
         if (wf_jetstream_replay_plan(client, &filter, &page) != WF_OK) {
             wf_jetstream_replay_plan_page_free(&page);
-            throw std::runtime_error("Jetstream replay planSnapshot failed");
+            throw std::runtime_error("Jetstream replay planBackfill failed");
         }
         if (!before_seq) {
             before_seq = page.sealed_tip_seq;
