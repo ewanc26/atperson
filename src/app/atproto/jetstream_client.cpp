@@ -92,6 +92,9 @@ JetstreamClient::~JetstreamClient() {
 void *JetstreamClient::connect() {
     wf_jetstream_options options{};
     options.endpoint = endpoint_.c_str();
+    const bool v2 = endpoint_.find("/xrpc/network.bsky.jetstream.subscribeEvents") !=
+                    std::string::npos;
+    options.protocol_version = v2 ? 2 : 1;
 
     std::vector<const char *> collection_ptrs;
     collection_ptrs.reserve(collections_.size());
@@ -108,6 +111,9 @@ void *JetstreamClient::connect() {
     }
     options.wanted_dids = did_ptrs.empty() ? nullptr : did_ptrs.data();
     options.wanted_dids_count = did_ptrs.size();
+    static const char *const v2_kinds[] = {"commit"};
+    options.kinds = v2 ? v2_kinds : nullptr;
+    options.kinds_count = v2 ? 1u : 0u;
     /* Cursor 0 omits the query parameter entirely; Jetstream starts at the
      * head. A persisted cursor resumes exactly after the last processed frame,
      * which is fine for a public backfill and deduplicated by the ledger. */

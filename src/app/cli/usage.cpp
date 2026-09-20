@@ -74,7 +74,7 @@ void print_usage(std::ostream &out) {
         << "  ATPERSON_APP_PASSWORD  app password for sync/daemon\n"
         << "  ATPERSON_SELF_DID      entity DID for unauthenticated Jetstream self-filtering\n"
         << "  ATPERSON_JETSTREAM_ENDPOINT  Jetstream ws(s) URL for public ingestion\n"
-        << "                              (default wss://jetstream.us-east.bsky.network/subscribe)\n"
+        << "                              (default wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents)\n"
         << "  ATPERSON_JETSTREAM_COLLECTIONS_FILE  one wantedCollections filter per line\n"
         << "  ATPERSON_JETSTREAM_DIDS_FILE         one wantedDids DID per line\n\n"
         << "  ATPERSON_DAEMON_ARCHIVE_AFTER        optional startup archive lower bound\n"

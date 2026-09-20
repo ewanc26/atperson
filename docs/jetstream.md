@@ -15,10 +15,13 @@ The positional limits bound one invocation by event count and wall-clock millise
 The default public endpoint is:
 
 ```text
-wss://jetstream.us-east.bsky.network/subscribe
+wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents
 ```
 
-Override it with `ATPERSON_JETSTREAM_ENDPOINT` for another public or self-hosted Jetstream service.
+Override it with `ATPERSON_JETSTREAM_ENDPOINT` for another public or self-hosted
+Jetstream service. The canonical `subscribeEvents` endpoint enables v2 sequence
+cursors and is required for archive-to-live cutover; the legacy `/subscribe`
+endpoint remains available for explicitly configured live-only consumers.
 
 ## Status inspection
 
