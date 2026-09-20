@@ -191,6 +191,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     atperson::require_runtime_write_headroom(resource_status);
     const atperson::StateLock writer_lock(data_dir);
     atperson::Ledger ledger(ledger_file);
+    atperson::protocol::EvidenceLedger protocol_ledger(cli::protocol_ledger_path());
 
     const std::string endpoint = env_or(
         "ATPERSON_JETSTREAM_ENDPOINT",
@@ -236,7 +237,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
             batch_limits.max_ms = remaining;
         }
         result = atperson::run_jetstream_backfill(graph, ledger, ingestion, client,
-                                                  batch_limits, linker);
+                                                  batch_limits, linker, &protocol_ledger);
         if (result.exhausted) {
             break;
         }
