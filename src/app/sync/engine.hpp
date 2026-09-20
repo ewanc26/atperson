@@ -127,8 +127,15 @@ struct JetstreamRunResult {
     bool exhausted{}; /* feed closed cleanly at the head */
 };
 
-using JetstreamResyncExecutor =
-    std::function<void(const protocol::ResyncPlan &plan)>;
+struct JetstreamResyncResult {
+    std::uint64_t sequence{};
+    std::string repo;
+    std::string revision;
+    protocol::Verification verification{protocol::Verification::Unverified};
+};
+
+using JetstreamResyncExecutor = std::function<std::optional<JetstreamResyncResult>(
+    const protocol::ResyncPlan &plan)>;
 
 /* Implemented in sync/jetstream_backfill.cpp, which is compiled only into
  * the network runtime (it drives the Wolfram-backed JetstreamClient). The

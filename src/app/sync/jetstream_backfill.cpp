@@ -151,7 +151,19 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
 
     if (result.protocol_resync_required && resync) {
         const auto plan = protocol::plan_resync(protocol_cursor, 0u);
-        if (plan.required) resync(plan);
+        if (plan.required) {
+            const auto recovered = resync(plan);
+            if (recovered && protocol::complete_resync(
+                                 protocol_cursor, recovered->sequence,
+                                 recovered->repo, recovered->revision,
+                                 recovered->verification)) {
+                result.protocol_resync_required = false;
+                state.catchup.active = true;
+                state.catchup.cursor = std::to_string(recovered->sequence);
+                state.catchup.protocol_repo = recovered->repo;
+                state.catchup.protocol_revision = recovered->revision;
+            }
+        }
     }
 
     if (result.withdrawn > 0u) {
