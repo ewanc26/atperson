@@ -1,6 +1,7 @@
 #include "atperson/protocol.hpp"
 
 #include <cassert>
+#include <filesystem>
 
 using namespace atperson::protocol;
 
@@ -30,4 +31,14 @@ int main() {
     assert(observe_stream(cursor, 12, "did:plc:abc", "rev-c") == CursorResult::Gap);
     assert(cursor.resync_required);
     assert(observe_stream(cursor, 9, "did:plc:abc", "rev-b") == CursorResult::Rewind);
+
+    const auto path = std::filesystem::temp_directory_path() / "atperson-protocol-evidence-test.bin";
+    std::error_code error;
+    std::filesystem::remove(path, error);
+    EvidenceLedger ledger(path);
+    assert(ledger.append(fact));
+    assert(!ledger.append(fact));
+    const auto restored = ledger.entries();
+    assert(restored.size() == 1 && restored[0].subject == "did:plc:abc");
+    std::filesystem::remove(path, error);
 }

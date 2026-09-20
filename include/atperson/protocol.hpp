@@ -2,6 +2,7 @@
 #define ATPERSON_PROTOCOL_HPP
 
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -52,6 +53,21 @@ class EvidenceStore {
 
   private:
     std::vector<ProtocolEvidence> entries_;
+};
+
+/* Append-only protocol evidence generation. This file is intentionally
+ * independent from the social observation ledger and model snapshot. */
+class EvidenceLedger {
+  public:
+    explicit EvidenceLedger(const std::filesystem::path &path);
+    ~EvidenceLedger();
+    EvidenceLedger(const EvidenceLedger &) = delete;
+    EvidenceLedger &operator=(const EvidenceLedger &) = delete;
+    bool append(ProtocolEvidence evidence);
+    [[nodiscard]] std::vector<ProtocolEvidence> entries() const;
+
+  private:
+    std::filesystem::path path_;
 };
 
 struct CursorState {
