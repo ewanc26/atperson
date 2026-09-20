@@ -51,6 +51,18 @@ void usage(std::ostream &out) {
     atperson::cli::print_usage(out);
 }
 
+const char *verification_name(atperson::protocol::Verification verification) {
+    switch (verification) {
+    case atperson::protocol::Verification::Verified:
+        return "verified";
+    case atperson::protocol::Verification::Rejected:
+        return "rejected";
+    case atperson::protocol::Verification::Unverified:
+        return "unverified";
+    }
+    return "unknown";
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -206,7 +218,7 @@ int main(int argc, char **argv) {
                               << " payload=" << entry.payload
                               << " sequence=" << entry.sequence
                               << " observed_at=" << entry.observed_at
-                              << " verification=" << static_cast<int>(entry.verification)
+                              << " verification=" << verification_name(entry.verification)
                               << " confidence=" << entry.confidence << '\n';
                 }
                 if (matches == 0) {
@@ -269,7 +281,7 @@ int main(int argc, char **argv) {
                           << " subject=" << entry.subject << " sequence=" << entry.sequence
                           << " observed_at=" << entry.observed_at
                           << " payload=" << entry.payload
-                          << " verification=" << static_cast<int>(entry.verification)
+                          << " verification=" << verification_name(entry.verification)
                           << " confidence=" << entry.confidence << '\n';
             }
             return 0;
