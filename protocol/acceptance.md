@@ -21,6 +21,11 @@ The network-disabled build is also required to pass the core, C++, protocol,
 replay, and sync tests. Public learning remains read-only; autonomous
 publishing is not enabled by protocol evidence ingestion.
 
-The future JetStream v2 bounded replay/cutover check remains dependent on the
-Wolfram replay API tracked in issue #60. The current live path must not claim
-archive replay until that dependency is available.
+Bounded JetStream archive replay is implemented through Wolfram's native
+replay API and is covered by `tests/sync/jetstream_archive.cpp`. It remains
+explicitly gated at runtime: archive replay requires the configured archive
+token, a valid bounded sequence window, and an authenticated Wolfram client.
+Without those credentials the public path remains live-only and must not claim
+that an archive was replayed. The archive API is used only to recover a
+bounded gap/startup window; it does not turn learning into an autonomous
+publisher.
