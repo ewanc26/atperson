@@ -26,6 +26,49 @@ std::string read_field(std::istream &in) {
 
 namespace atperson::protocol {
 
+namespace {
+void remember_revision(CursorState &state, std::string_view repo,
+                       std::string_view revision) {
+    if (repo.empty() || revision.empty()) return;
+    auto found = std::find_if(state.repository_revisions.begin(),
+                              state.repository_revisions.end(),
+                              [&](const auto &item) { return item.repo == repo; });
+    if (found == state.repository_revisions.end()) {
+        state.repository_revisions.push_back({std::string(repo), std::string(revision)});
+    } else {
+        found->revision = revision;
+    }
+}
+} // namespace
+
+ServiceRole classify_service_role(std::string_view type) noexcept {
+    if (type == "AtprotoPersonalDataServer") return ServiceRole::Pds;
+    if (type == "AtprotoRelay") return ServiceRole::Relay;
+    if (type == "AtprotoAppView") return ServiceRole::AppView;
+    if (type == "AtprotoFeedGenerator") return ServiceRole::FeedGenerator;
+    if (type == "AtprotoLabeler") return ServiceRole::Labeler;
+    return ServiceRole::Unknown;
+}
+
+RecordAuthority authority_for_service(ServiceRole role) noexcept {
+    if (role == ServiceRole::AppView) return RecordAuthority::AppViewDerived;
+    if (role == ServiceRole::Pds) return RecordAuthority::Repository;
+    return RecordAuthority::Unknown;
+}
+
+std::optional<RepositoryFact> accept_repository_fact(
+    std::string_view repo_did, std::string_view revision,
+    std::string_view signed_root_cid, std::string_view car_source,
+    Verification verification) {
+    if (!is_did(repo_did) || revision.empty() || !is_cid(signed_root_cid) ||
+        car_source.empty()) {
+        return std::nullopt;
+    }
+    return RepositoryFact{std::string(repo_did), std::string(revision),
+                          std::string(signed_root_cid), std::string(car_source),
+                          verification};
+}
+
 std::optional<AtUri> parse_at_uri(std::string_view value) {
     if (!value.starts_with("at://") || value.find_first_of("?#") != std::string_view::npos) {
         return std::nullopt;
@@ -45,6 +88,14 @@ std::optional<AtUri> parse_at_uri(std::string_view value) {
         return std::nullopt;
     }
     return out;
+}
+
+std::optional<StrongRef> parse_strong_ref(std::string_view uri,
+                                          std::string_view cid) {
+    if (!is_cid(cid)) return std::nullopt;
+    const auto parsed = parse_at_uri(uri);
+    if (!parsed) return std::nullopt;
+    return StrongRef{*parsed, std::string(cid)};
 }
 
 bool is_did(std::string_view value) noexcept {
@@ -105,7 +156,8 @@ std::optional<IdentityFact> accept_identity(std::string_view did,
                                             std::string_view source,
                                             std::string_view signing_key,
                                             std::string_view pds_endpoint,
-                                            Verification verification) {
+                                            Verification verification,
+                                            std::vector<std::string> rotation_keys) {
     if (!is_did(did) || !is_handle(handle) || source.empty() || signing_key.empty() ||
         pds_endpoint.empty() || pds_endpoint.find("https://") != 0) {
         return std::nullopt;
@@ -115,6 +167,7 @@ std::optional<IdentityFact> accept_identity(std::string_view did,
     fact.handle = handle;
     fact.did_document_source = source;
     fact.signing_key = signing_key;
+    fact.rotation_keys = std::move(rotation_keys);
     fact.pds_endpoint = pds_endpoint;
     fact.verification = verification;
     return fact;
@@ -232,12 +285,32 @@ std::vector<ProtocolEvidence> EvidenceLedger::entries() const {
     return result;
 }
 
+bool append_firehose_event(EvidenceLedger &ledger, std::string_view source,
+                           std::string_view event_type, std::string_view subject,
+                           std::string_view payload, std::uint64_t sequence,
+                           std::uint64_t observed_at, Verification verification) {
+    ProtocolEvidence evidence{EvidenceKind::Sync, std::string(source),
+                               std::string(event_type), std::string(subject),
+                               std::string(payload), sequence, observed_at,
+                               verification, verification == Verification::Verified ? 1.0 : 0.0};
+    return ledger.append(std::move(evidence));
+}
+
+bool append_repository_fact(EvidenceLedger &ledger, const RepositoryFact &fact,
+                            std::uint64_t sequence, std::uint64_t observed_at) {
+    return append_firehose_event(
+        ledger, fact.car_source, "#repository", fact.repo_did,
+        fact.revision + "|" + fact.signed_root_cid, sequence, observed_at,
+        fact.verification);
+}
+
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
                             std::string_view repo, std::string_view revision) {
     if (state.last_sequence == 0) {
         state.last_sequence = sequence;
         state.repo = repo;
         state.repo_revision = revision;
+        remember_revision(state, repo, revision);
         state.resync_required = false;
         return CursorResult::Initialized;
     }
@@ -249,8 +322,20 @@ CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
     }
     state.last_sequence = sequence;
     if (!repo.empty()) state.repo = repo;
-    if (!revision.empty()) state.repo_revision = revision;
+    if (!revision.empty()) {
+        state.repo_revision = revision;
+        remember_revision(state, repo, revision);
+    }
     return CursorResult::Advanced;
+}
+
+std::optional<std::string> revision_for(const CursorState &state,
+                                        std::string_view repo) {
+    const auto found = std::find_if(
+        state.repository_revisions.begin(), state.repository_revisions.end(),
+        [&](const auto &item) { return item.repo == repo; });
+    if (found == state.repository_revisions.end()) return std::nullopt;
+    return found->revision;
 }
 
 ResyncPlan plan_resync(const CursorState &state, std::uint32_t max_records) {

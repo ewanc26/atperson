@@ -63,13 +63,11 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
 
     const auto on_event = [&](const JetstreamEvent &event) {
         if (protocol_ledger != nullptr) {
-            protocol::ProtocolEvidence evidence{
-                protocol::EvidenceKind::Sync, "jetstream",
-                event.deleted ? "#commit/delete" : "#commit", event.author_did,
-                event.source_uri + "|" + std::to_string(event.seq),
-                event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u, 0u,
-                protocol::Verification::Unverified, 0.0};
-            (void)protocol_ledger->append(std::move(evidence));
+            (void)protocol::append_firehose_event(
+                *protocol_ledger, "jetstream",
+                event.deleted ? "#commit/delete" : event.event_type,
+                event.author_did, event.source_uri + "|" + std::to_string(event.seq),
+                event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u, 0u);
         }
         if (event.deleted) {
             result.withdrawn += ledger.withdraw_source(event.source_uri);

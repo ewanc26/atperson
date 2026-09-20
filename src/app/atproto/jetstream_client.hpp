@@ -60,6 +60,8 @@ struct JetstreamEvent {
     PolicyReason policy_reason{PolicyReason::Eligible};
     std::int64_t seq{0};
     bool deleted{false};
+    /* Firehose event family; commit is the default for legacy fixtures. */
+    std::string event_type{"#commit"};
 };
 
 /* A Jetstream feed: connect, fetch a bounded batch, checkpoint the cursor.
