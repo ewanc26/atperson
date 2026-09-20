@@ -380,6 +380,7 @@ bool append_repository_fact(EvidenceLedger &ledger, const RepositoryFact &fact,
 
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
                             std::string_view repo, std::string_view revision) {
+    if (!is_did(repo) || !is_tid(revision)) return CursorResult::Rejected;
     if (state.last_sequence == 0) {
         state.last_sequence = sequence;
         state.repo = repo;
@@ -427,7 +428,7 @@ ResyncPlan plan_resync(const CursorState &state, std::uint32_t max_records) {
 bool complete_resync(CursorState &state, std::uint64_t sequence,
                      std::string_view repo, std::string_view revision) {
     if (!state.resync_required || sequence < state.last_sequence || repo.empty() ||
-        revision.empty()) return false;
+        revision.empty() || !is_did(repo) || !is_tid(revision)) return false;
     state.last_sequence = sequence;
     state.repo = repo;
     state.repo_revision = revision;

@@ -230,7 +230,7 @@ struct CursorState {
     bool resync_required{};
 };
 
-enum class CursorResult { Initialized, Advanced, Duplicate, Gap, Rewind };
+enum class CursorResult { Initialized, Advanced, Duplicate, Gap, Rewind, Rejected };
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
                             std::string_view repo, std::string_view revision);
 std::optional<std::string> revision_for(const CursorState &state,
