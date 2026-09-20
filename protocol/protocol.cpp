@@ -202,6 +202,12 @@ bool is_nsid(std::string_view value) noexcept {
 }
 
 bool is_cid(std::string_view value) noexcept {
+    if (value.starts_with("Qm")) {
+        if (value.size() != 46) return false;
+        constexpr std::string_view base58 =
+            "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+        return value.find_first_not_of(base58, 2) == std::string_view::npos;
+    }
     if (!value.starts_with("b") || value.size() < 10) return false;
     for (const char c : value.substr(1)) {
         if (!((c >= 'a' && c <= 'z') || (c >= '2' && c <= '7'))) return false;

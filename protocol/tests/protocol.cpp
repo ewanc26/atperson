@@ -37,8 +37,10 @@ int main() {
     assert(!is_nsid("App.Bsky.feed.post"));
     assert(is_cid("bafyreib valid-ish" ) == false);
     assert(is_cid("bafyreiabcdef"));
+    assert(is_cid("QmYwAPJzv5CZsnAzt8auVZRnGi4J9f9Yk8fP6vV6q9r6fQ"));
     assert(!is_cid("bafyrei0abcdef"));
     assert(!is_cid("bafyreiABCDEF"));
+    assert(!is_cid("Qm0invalid"));
     assert(is_tid("3jui3s7xq2m2a"));
     assert(!is_tid("not-a-tid"));
     assert(classify_service_role("AtprotoPersonalDataServer") == ServiceRole::Pds);
