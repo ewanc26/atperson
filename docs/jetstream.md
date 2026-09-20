@@ -40,13 +40,17 @@ The archive command also accepts `--collections <file>` and `--dids <file>`;
 when omitted it uses the same configured filter files as live Jetstream. These
 filters are passed to the replay planner and are never inferred from records.
 
-It authenticates through the configured Wolfram session, defaults `after-seq` to the
+It authenticates the archive API with `ATPERSON_JETSTREAM_ARCHIVE_TOKEN` (a raw
+Jetstream archive token; it is never persisted or logged) and uses the configured
+Wolfram session for service setup. It defaults `after-seq` to the
 persisted Jetstream checkpoint (or zero), and optionally caps the window at an
 inclusive `before-seq`. Every invocation is hard-capped to a 10,000,000-sequence
 window; when no upper bound is supplied, that cap is applied automatically.
 Successful completion checkpoints the sealed replay tip
 through the same durable ingestion path. The daemon does not invoke archive replay
 automatically yet; operators should run this command before starting live catch-up.
+The same token is required when `ATPERSON_DAEMON_ARCHIVE_AFTER` enables the
+daemon startup archive phase.
 
 ## Entity identity and policy parity
 

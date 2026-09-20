@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -41,7 +42,8 @@ class JetstreamReplaySource {
  * state; the caller checkpoints only after this method returns successfully. */
 class JetstreamReplayClient final : public JetstreamReplaySource {
   public:
-    explicit JetstreamReplayClient(wf_agent &agent) noexcept : agent_(agent) {}
+    JetstreamReplayClient(wf_agent &agent, std::string archive_token)
+        : agent_(agent), archive_token_(std::move(archive_token)) {}
 
     [[nodiscard]] JetstreamReplayWindow fetch_window(
         std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,
@@ -51,6 +53,7 @@ class JetstreamReplayClient final : public JetstreamReplaySource {
 
   private:
     wf_agent &agent_;
+    std::string archive_token_;
 };
 
 } // namespace atperson

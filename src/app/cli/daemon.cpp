@@ -91,7 +91,8 @@ void run_startup_archive_if_configured(
     const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
     WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
                            required_env("ATPERSON_APP_PASSWORD"));
-    JetstreamReplayClient replay(*session.agent());
+    JetstreamReplayClient replay(
+        *session.agent(), required_env("ATPERSON_JETSTREAM_ARCHIVE_TOKEN"));
     const auto result = atperson::run_jetstream_archive(
         graph, ledger, archive_state, replay, after, before, required_self_did(),
         jetstream_collections_path().empty()
