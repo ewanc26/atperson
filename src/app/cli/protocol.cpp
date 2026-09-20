@@ -46,18 +46,10 @@ int run_protocol_resolve(std::ostream &out, std::ostream &err,
         wf_xrpc_client_free(client);
         return 1;
     }
-    protocol::ProtocolEvidence evidence{
-        protocol::EvidenceKind::Identity,
-        service,
-        "identity",
-        did,
-        std::string(handle) + "|" + document.pds_endpoint + "|" + document.signing_key,
-        0,
-        static_cast<std::uint64_t>(std::time(nullptr)),
-        protocol::Verification::Verified,
-        1.0};
     protocol::EvidenceLedger ledger(protocol_ledger_path());
-    const bool added = ledger.append(std::move(evidence));
+    const auto identity_fact = *identity;
+    const bool added = protocol::append_identity_fact(
+        ledger, identity_fact, service, 0, static_cast<std::uint64_t>(std::time(nullptr)));
     char *raw_document = nullptr;
     const wf_status raw_status = wf_did_resolve_raw(client, did, &raw_document);
     bool raw_added = false;

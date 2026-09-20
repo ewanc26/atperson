@@ -372,6 +372,18 @@ bool append_firehose_event(EvidenceLedger &ledger, std::string_view source,
     return ledger.append(std::move(evidence));
 }
 
+bool append_identity_fact(EvidenceLedger &ledger, const IdentityFact &fact,
+                          std::string_view source, std::uint64_t sequence,
+                          std::uint64_t observed_at) {
+    if (!is_did(fact.did) || !is_handle(fact.handle) || source.empty()) return false;
+    std::string payload = fact.handle + "|" + fact.pds_endpoint + "|" +
+                          fact.signing_key;
+    for (const auto &rotation : fact.rotation_keys) payload += "|rotation=" + rotation;
+    return ledger.append({EvidenceKind::Identity, std::string(source), "#identity",
+                          fact.did, std::move(payload), sequence, observed_at,
+                          fact.verification, fact.verification == Verification::Verified ? 1.0 : 0.5});
+}
+
 bool append_repository_fact(EvidenceLedger &ledger, const RepositoryFact &fact,
                             std::uint64_t sequence, std::uint64_t observed_at) {
     return append_firehose_event(

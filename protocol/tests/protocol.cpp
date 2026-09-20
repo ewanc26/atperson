@@ -171,6 +171,7 @@ int main() {
                                  "did:plc:abc", "rev-a", 2, 11));
     assert(append_firehose_event(ledger, "wss://relay.example", "#identity",
                                  "did:plc:abc", "alice.example", 3, 12));
+    assert(append_identity_fact(ledger, *identity, "https://bsky.social", 3, 12));
     assert(append_firehose_event(ledger, "wss://relay.example", "#account",
                                  "did:plc:abc", "active", 4, 13));
     assert(append_firehose_event(ledger, "wss://relay.example", "#unknown",
@@ -183,9 +184,12 @@ int main() {
                                  "did:plc:unknown", "transport-failure", 8, 17,
                                  Verification::Unverified));
     const auto restored = ledger.entries();
-    assert(restored.size() == 8 && restored[1].event_type == "#sync" &&
-           restored[4].event_type == "#unknown" && restored[5].event_type == "#repository" &&
-           restored[6].verification == Verification::Rejected &&
-           restored[7].verification == Verification::Unverified);
+    assert(restored.size() == 9);
+    assert(restored[1].event_type == "#sync" &&
+           restored[2].event_type == "#identity" &&
+           restored[3].payload.find("rotation=did:key:z6Mkrotation") != std::string::npos &&
+           restored[5].event_type == "#unknown" && restored[6].event_type == "#repository" &&
+           restored[7].verification == Verification::Rejected &&
+           restored[8].verification == Verification::Unverified);
     std::filesystem::remove(path, error);
 }
