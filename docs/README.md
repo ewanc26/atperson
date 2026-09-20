@@ -26,6 +26,7 @@ The project has one architectural rule running through all of them: **learned st
 - [`outbound-policy.md`](outbound-policy.md) — default-deny action policy and durable rate budgets.
 - [`outbound-execution.md`](outbound-execution.md) — the operator-led `publish` path and its network-write gates.
 - [`action-journal.md`](action-journal.md) — durable history of the entity's own outbound attempts, later events and applied valence.
+- [`attestation.md`](attestation.md) — operator-owned signing-key and audit metadata contract for future outbound record attestation.
 - [`docker.md`](docker.md) — container builds and deployment.
 
 ## Repository operation
