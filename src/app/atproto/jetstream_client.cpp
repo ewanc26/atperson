@@ -257,8 +257,10 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                 protocol_event.event_type = "#identity";
                 break;
             case WF_JETSTREAM_EVENT_ACCOUNT:
-            case WF_JETSTREAM_EVENT_ACCOUNT_DELETE:
                 protocol_event.event_type = "#account";
+                break;
+            case WF_JETSTREAM_EVENT_ACCOUNT_DELETE:
+                protocol_event.event_type = "#account-delete";
                 break;
             default:
                 protocol_event.event_type = "#unknown";
