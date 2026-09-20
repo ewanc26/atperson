@@ -244,7 +244,13 @@ bool is_handle(std::string_view value) noexcept {
 
 namespace {
 bool is_did_key(std::string_view value) noexcept {
-    return is_did(value) && value.starts_with("did:key:") && value.size() > 8;
+    if (!is_did(value) || !value.starts_with("did:key:") || value.size() <= 9 ||
+        value[8] != 'z') {
+        return false;
+    }
+    constexpr std::string_view base58 =
+        "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    return value.find_first_not_of(base58, 9) == std::string_view::npos;
 }
 }
 

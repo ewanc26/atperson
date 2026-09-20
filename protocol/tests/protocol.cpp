@@ -38,6 +38,8 @@ int main() {
                             "https://pds.example", Verification::Verified));
     assert(!accept_identity("did:plc:abc", "alice.example", "source", "did:key:",
                             "https://pds.example", Verification::Verified));
+    assert(!accept_identity("did:plc:abc", "alice.example", "source", "did:key:xbad",
+                            "https://pds.example", Verification::Verified));
     assert(!accept_identity("did:plc:abc", "alice.example", "source",
                             "did:key:z6Mksigning", "https://pds.example",
                             Verification::Verified, {"did:plc:not-a-key"}));
