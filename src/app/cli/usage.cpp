@@ -71,6 +71,8 @@ void print_usage(std::ostream &out) {
         << "  ATPERSON_SERVICE       PDS/service URL (default https://bsky.social)\n"
         << "  ATPERSON_IDENTIFIER    handle or email for sync/daemon\n"
         << "  ATPERSON_APP_PASSWORD  app password for sync/daemon\n"
+        << "  OAuth integration contract: docs/oauth.md (loopback callback;\n"
+           "                           repo scope is explicit; CAR management is separate)\n"
         << "  ATPERSON_SELF_DID      entity DID for unauthenticated Jetstream self-filtering\n"
         << "  ATPERSON_JETSTREAM_ENDPOINT  Jetstream ws(s) URL for public ingestion\n"
         << "                              (default wss://jetstream.us-east.bsky.network/subscribe)\n"

@@ -48,6 +48,11 @@ AT Protocol network
 
 See [`docs/architecture.md`](docs/architecture.md) for the deeper architectural invariants and persistence model.
 
+The OAuth/loopback integration contract and repository-scope safety rules are
+documented in [`docs/oauth.md`](docs/oauth.md). OAuth session material is
+runtime credential state, not learned experience, and must remain outside the
+model snapshot and observation ledger.
+
 ## Current state
 
 The project is already beyond the initial scaffold. The important pieces currently look like this:
