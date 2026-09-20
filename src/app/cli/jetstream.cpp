@@ -208,6 +208,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
                                        kSourceKindJetstream);
 
     const JetstreamLimits limits = parse_limits(max_events, max_ms);
+    const auto budget_start = std::chrono::steady_clock::now();
     const std::vector<std::string> collections =
         collections_file.empty()
             ? atperson::default_jetstream_collections()
@@ -224,8 +225,18 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
 
     atperson::JetstreamRunResult result;
     for (;;) {
-        result = atperson::run_jetstream_backfill(graph, ledger, ingestion, client, limits,
-                                                  linker);
+        JetstreamLimits batch_limits = limits;
+        if (limits.max_ms > 0) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - budget_start).count();
+            const auto remaining = limits.max_ms - elapsed;
+            if (remaining <= 0) {
+                break;
+            }
+            batch_limits.max_ms = remaining;
+        }
+        result = atperson::run_jetstream_backfill(graph, ledger, ingestion, client,
+                                                  batch_limits, linker);
         if (result.exhausted) {
             break;
         }
