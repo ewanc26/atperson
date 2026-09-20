@@ -242,6 +242,12 @@ bool is_handle(std::string_view value) noexcept {
     return value.find_first_of(" /?#:@") == std::string_view::npos;
 }
 
+namespace {
+bool is_did_key(std::string_view value) noexcept {
+    return is_did(value) && value.starts_with("did:key:") && value.size() > 8;
+}
+}
+
 std::optional<IdentityFact> accept_identity(std::string_view did,
                                             std::string_view handle,
                                             std::string_view source,
@@ -250,12 +256,12 @@ std::optional<IdentityFact> accept_identity(std::string_view did,
                                             Verification verification,
                                             std::vector<std::string> rotation_keys) {
     if (!is_did(did) || !is_handle(handle) || source.empty() ||
-        !is_did(signing_key) || !signing_key.starts_with("did:key:") ||
+        !is_did_key(signing_key) ||
         pds_endpoint.empty() || pds_endpoint.find("https://") != 0) {
         return std::nullopt;
     }
     for (const auto &rotation : rotation_keys) {
-        if (!is_did(rotation) || !rotation.starts_with("did:key:")) return std::nullopt;
+        if (!is_did_key(rotation)) return std::nullopt;
     }
     IdentityFact fact;
     fact.did = did;
