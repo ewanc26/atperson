@@ -109,6 +109,19 @@ enum class CursorResult { Initialized, Advanced, Duplicate, Gap, Rewind };
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
                             std::string_view repo, std::string_view revision);
 
+struct ResyncPlan {
+    bool required{};
+    std::string repo;
+    std::uint64_t from_sequence{};
+    std::uint32_t max_records{};
+    std::string reason;
+};
+
+/* A gap never becomes an unbounded catch-up loop. The caller hands this plan
+ * to Wolfram's repository/CAR synchronizer and keeps the stream paused until
+ * the bounded snapshot has been validated. */
+ResyncPlan plan_resync(const CursorState &state, std::uint32_t max_records);
+
 } // namespace atperson::protocol
 
 #endif

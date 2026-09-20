@@ -34,6 +34,9 @@ int main() {
     assert(observe_stream(cursor, 10, "did:plc:abc", "rev-a") == CursorResult::Duplicate);
     assert(observe_stream(cursor, 12, "did:plc:abc", "rev-c") == CursorResult::Gap);
     assert(cursor.resync_required);
+    const auto plan = plan_resync(cursor, 0);
+    assert(plan.required && plan.repo == "did:plc:abc" && plan.from_sequence == 10 &&
+           plan.max_records == 1 && !plan.reason.empty());
     assert(observe_stream(cursor, 9, "did:plc:abc", "rev-b") == CursorResult::Rewind);
 
     const auto path = std::filesystem::temp_directory_path() / "atperson-protocol-evidence-test.bin";
