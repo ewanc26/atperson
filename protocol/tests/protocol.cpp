@@ -134,6 +134,9 @@ int main() {
     assert(revision_for(cursor, "did:plc:abc") == std::optional<std::string>("3jui3s7xq2m2c"));
     assert(revision_for(cursor, "did:plc:other") == std::optional<std::string>("3jui3s7xq2m2d"));
     assert(observe_stream(cursor, 13, "did:plc:other", "bad-revision") == CursorResult::Rejected);
+    CursorState sequence_only;
+    assert(observe_sequence(sequence_only, 20) == CursorResult::Initialized);
+    assert(observe_sequence(sequence_only, 22) == CursorResult::Gap);
 
     const auto path = std::filesystem::temp_directory_path() / "atperson-protocol-evidence-test.bin";
     std::error_code error;

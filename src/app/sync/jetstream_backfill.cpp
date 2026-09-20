@@ -75,7 +75,9 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
 
     const auto on_event = [&](const JetstreamEvent &event) {
         const auto cursor_result = event.protocol_only
-            ? protocol::CursorResult::Advanced
+            ? protocol::observe_sequence(
+                  protocol_cursor,
+                  event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u)
             : protocol::observe_stream(
                   protocol_cursor,
                   event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u,

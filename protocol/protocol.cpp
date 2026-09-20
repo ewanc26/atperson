@@ -378,14 +378,10 @@ bool append_repository_fact(EvidenceLedger &ledger, const RepositoryFact &fact,
         fact.verification);
 }
 
-CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
-                            std::string_view repo, std::string_view revision) {
-    if (!is_did(repo) || !is_tid(revision)) return CursorResult::Rejected;
+CursorResult observe_sequence(CursorState &state, std::uint64_t sequence) {
+    if (sequence == 0u) return CursorResult::Rejected;
     if (state.last_sequence == 0) {
         state.last_sequence = sequence;
-        state.repo = repo;
-        state.repo_revision = revision;
-        remember_revision(state, repo, revision);
         state.resync_required = false;
         return CursorResult::Initialized;
     }
@@ -397,6 +393,21 @@ CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
         return CursorResult::Gap;
     }
     state.last_sequence = sequence;
+    return CursorResult::Advanced;
+}
+
+CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
+                            std::string_view repo, std::string_view revision) {
+    if (!is_did(repo) || !is_tid(revision)) return CursorResult::Rejected;
+    const auto result = observe_sequence(state, sequence);
+    if (result != CursorResult::Initialized && result != CursorResult::Advanced)
+        return result;
+    if (result == CursorResult::Initialized) {
+        state.repo = repo;
+        state.repo_revision = revision;
+        remember_revision(state, repo, revision);
+        return result;
+    }
     if (!repo.empty()) state.repo = repo;
     if (!revision.empty()) {
         state.repo_revision = revision;
