@@ -58,8 +58,26 @@ int run_protocol_resolve(std::ostream &out, std::ostream &err,
         1.0};
     protocol::EvidenceLedger ledger(protocol_ledger_path());
     const bool added = ledger.append(std::move(evidence));
+    char *raw_document = nullptr;
+    const wf_status raw_status = wf_did_resolve_raw(client, did, &raw_document);
+    bool raw_added = false;
+    if (raw_status == WF_OK && raw_document != nullptr) {
+        protocol::ProtocolEvidence document_evidence{
+            protocol::EvidenceKind::Identity,
+            service,
+            "did-document",
+            did,
+            raw_document,
+            0,
+            static_cast<std::uint64_t>(std::time(nullptr)),
+            protocol::Verification::Verified,
+            1.0};
+        raw_added = ledger.append(std::move(document_evidence));
+        free(raw_document);
+    }
     out << (added ? "learned" : "duplicate") << " identity " << handle << " -> " << did
-        << " pds=" << document.pds_endpoint << '\n';
+        << " pds=" << document.pds_endpoint
+        << " did-document=" << (raw_added ? "learned" : "duplicate/unavailable") << '\n';
     free(did);
     wf_did_document_free(&document);
     wf_xrpc_client_free(client);
