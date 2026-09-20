@@ -125,6 +125,9 @@ int main() {
     auto incomplete = fact;
     incomplete.source.clear();
     assert(!store.append(incomplete));
+    auto impossible_confidence = fact;
+    impossible_confidence.confidence = 1.1;
+    assert(!store.append(impossible_confidence));
     assert(!store.append(fact));
     assert(store.entries().size() == 1);
     auto distinct_event = fact;

@@ -1,6 +1,7 @@
 #include "protocol.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <stdexcept>
 
@@ -307,7 +308,9 @@ bool EvidenceStore::contains(const ProtocolEvidence &evidence) const {
 bool EvidenceStore::append(ProtocolEvidence evidence) {
     if (evidence.source.empty() || evidence.event_type.empty() ||
         evidence.subject.empty() || evidence.payload.empty() ||
-        (evidence.sequence == 0 && evidence.observed_at == 0)) {
+        (evidence.sequence == 0 && evidence.observed_at == 0) ||
+        !std::isfinite(evidence.confidence) || evidence.confidence < 0.0 ||
+        evidence.confidence > 1.0) {
         return false;
     }
     if (contains(evidence)) return false;
