@@ -14,7 +14,7 @@
 #include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
-#include "cli/protocol.hpp"
+#include "cli/protocol_command.hpp"
 #include "cli/sync.hpp"
 #include "cli/usage.hpp"
 #include "control/state.hpp"

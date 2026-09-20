@@ -1,4 +1,4 @@
-#include "cli/protocol.hpp"
+#include "cli/protocol_command.hpp"
 
 #include "cli/config.hpp"
 #include "protocol.hpp"
@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <ostream>
 
 namespace atperson::cli {
 
