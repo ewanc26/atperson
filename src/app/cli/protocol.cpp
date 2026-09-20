@@ -64,6 +64,21 @@ int run_protocol_resolve(std::ostream &out, std::ostream &err,
     const auto identity_fact = *identity;
     const bool added = protocol::append_identity_fact(
         ledger, identity_fact, service, 0, static_cast<std::uint64_t>(std::time(nullptr)));
+    const auto observed_at = static_cast<std::uint64_t>(std::time(nullptr));
+    if (const auto pds = protocol::accept_service_fact(
+            protocol::ServiceRole::Pds, document.pds_endpoint, did,
+            protocol::Verification::Verified)) {
+        static_cast<void>(protocol::append_service_fact(
+            ledger, *pds, service, 0, observed_at));
+    }
+    if (document.feedgen_endpoint != nullptr) {
+        if (const auto feedgen = protocol::accept_service_fact(
+                protocol::ServiceRole::FeedGenerator, document.feedgen_endpoint, did,
+                protocol::Verification::Verified)) {
+            static_cast<void>(protocol::append_service_fact(
+                ledger, *feedgen, service, 0, observed_at));
+        }
+    }
     char *raw_document = nullptr;
     const wf_status raw_status = wf_did_resolve_raw(client, did, &raw_document);
     bool raw_added = false;
