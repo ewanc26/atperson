@@ -1,0 +1,33 @@
+#include "atperson/protocol.hpp"
+
+#include <cassert>
+
+using namespace atperson::protocol;
+
+int main() {
+    const auto parsed = parse_at_uri("at://did:plc:abc/app.bsky.feed.post/3k1");
+    assert(parsed && parsed->did == "did:plc:abc" &&
+           parsed->collection == "app.bsky.feed.post" && parsed->rkey == "3k1");
+    assert(!parse_at_uri("at://handle.example/app.bsky.feed.post/3k1"));
+    assert(!parse_at_uri("at://did:plc:abc/app.bsky.feed.post/3k1?x=1"));
+
+    assert(classify_xrpc(true, false) == XrpcKind::Query);
+    assert(classify_xrpc(false, true) == XrpcKind::Procedure);
+    assert(classify_xrpc(false, false, true) == XrpcKind::Subscription);
+    assert(classify_xrpc(true, true) == XrpcKind::Unknown);
+
+    EvidenceStore store;
+    ProtocolEvidence fact{EvidenceKind::Identity, "https://pds.example/.well-known",
+                          "identity", "did:plc:abc", "did-document-v1", 1, 10,
+                          Verification::Verified, 1.0};
+    assert(store.append(fact));
+    assert(!store.append(fact));
+    assert(store.entries().size() == 1);
+
+    CursorState cursor;
+    assert(observe_stream(cursor, 10, "did:plc:abc", "rev-a") == CursorResult::Initialized);
+    assert(observe_stream(cursor, 10, "did:plc:abc", "rev-a") == CursorResult::Duplicate);
+    assert(observe_stream(cursor, 12, "did:plc:abc", "rev-c") == CursorResult::Gap);
+    assert(cursor.resync_required);
+    assert(observe_stream(cursor, 9, "did:plc:abc", "rev-b") == CursorResult::Rewind);
+}
