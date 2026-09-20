@@ -115,8 +115,10 @@ int main() {
     const auto plan = plan_resync(cursor, 0);
     assert(plan.required && plan.repo == "did:plc:abc" && plan.from_sequence == 10 &&
            plan.max_records == 1 && !plan.reason.empty());
-    assert(observe_stream(cursor, 9, "did:plc:abc", "rev-b") == CursorResult::Rewind);
-    assert(observe_stream(cursor, 11, "did:plc:abc", "rev-b") == CursorResult::Advanced);
+    assert(observe_stream(cursor, 11, "did:plc:abc", "rev-b") == CursorResult::Gap);
+    assert(!complete_resync(cursor, 9, "did:plc:abc", "rev-b"));
+    assert(complete_resync(cursor, 11, "did:plc:abc", "rev-b"));
+    assert(observe_stream(cursor, 10, "did:plc:abc", "rev-b") == CursorResult::Rewind);
     assert(observe_stream(cursor, 12, "did:plc:other", "rev-x") == CursorResult::Advanced);
     assert(revision_for(cursor, "did:plc:abc") == std::optional<std::string>("rev-b"));
     assert(revision_for(cursor, "did:plc:other") == std::optional<std::string>("rev-x"));

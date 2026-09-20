@@ -231,6 +231,12 @@ struct ResyncPlan {
  * the bounded snapshot has been validated. */
 ResyncPlan plan_resync(const CursorState &state, std::uint32_t max_records);
 
+/* Commit a validated bounded repository resynchronization. Stream events
+ * remain paused while resync_required is true; only the caller that has
+ * validated the repository revision and applied its bounded CAR may clear it. */
+bool complete_resync(CursorState &state, std::uint64_t sequence,
+                     std::string_view repo, std::string_view revision);
+
 } // namespace atperson::protocol
 
 #endif

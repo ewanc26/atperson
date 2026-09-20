@@ -350,6 +350,7 @@ CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
         state.resync_required = false;
         return CursorResult::Initialized;
     }
+    if (state.resync_required) return CursorResult::Gap;
     if (sequence == state.last_sequence) return CursorResult::Duplicate;
     if (sequence < state.last_sequence) return CursorResult::Rewind;
     if (sequence != state.last_sequence + 1) {
@@ -383,6 +384,18 @@ ResyncPlan plan_resync(const CursorState &state, std::uint32_t max_records) {
     plan.max_records = std::max<std::uint32_t>(1u, max_records);
     plan.reason = "firehose sequence gap requires bounded repository resync";
     return plan;
+}
+
+bool complete_resync(CursorState &state, std::uint64_t sequence,
+                     std::string_view repo, std::string_view revision) {
+    if (!state.resync_required || sequence < state.last_sequence || repo.empty() ||
+        revision.empty()) return false;
+    state.last_sequence = sequence;
+    state.repo = repo;
+    state.repo_revision = revision;
+    remember_revision(state, repo, revision);
+    state.resync_required = false;
+    return true;
 }
 
 } // namespace atperson::protocol
