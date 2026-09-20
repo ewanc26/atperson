@@ -27,10 +27,8 @@ namespace atperson {
 
 namespace {
 
-/* The pinned Wolfram live API exposes Jetstream's envelope time_us as its
- * cursor. Jetstream v2 accepts this legacy unix-microsecond cursor form on the
- * live tail for v1 compatibility. Native v2 replay/cutover uses event seq and
- * belongs to the separate Wolfram #36 integration. */
+/* v1 uses the envelope timestamp while v2 uses the envelope sequence. Both
+ * are decimal cursors, but they are not interchangeable across reconnects. */
 std::string cursor_from_seq(std::int64_t seq) {
     return seq <= 0 ? std::string() : std::to_string(seq);
 }
@@ -60,6 +58,8 @@ JetstreamClient::JetstreamClient(
     std::string initial_cursor)
     : endpoint_(std::move(endpoint)), self_did_(std::move(self_did)),
       collections_(std::move(collections)), dids_(std::move(dids)),
+      protocol_v2_(endpoint_.find("/xrpc/network.bsky.jetstream.subscribeEvents") !=
+                   std::string::npos),
       cursor_(std::move(initial_cursor)) {
     if (self_did_.empty() || self_did_.rfind("did:", 0u) != 0u) {
         throw std::runtime_error(
@@ -92,9 +92,7 @@ JetstreamClient::~JetstreamClient() {
 void *JetstreamClient::connect() {
     wf_jetstream_options options{};
     options.endpoint = endpoint_.c_str();
-    const bool v2 = endpoint_.find("/xrpc/network.bsky.jetstream.subscribeEvents") !=
-                    std::string::npos;
-    options.protocol_version = v2 ? 2 : 1;
+    options.protocol_version = protocol_v2_ ? 2 : 1;
 
     std::vector<const char *> collection_ptrs;
     collection_ptrs.reserve(collections_.size());
@@ -112,8 +110,8 @@ void *JetstreamClient::connect() {
     options.wanted_dids = did_ptrs.empty() ? nullptr : did_ptrs.data();
     options.wanted_dids_count = did_ptrs.size();
     static const char *const v2_kinds[] = {"commit"};
-    options.kinds = v2 ? v2_kinds : nullptr;
-    options.kinds_count = v2 ? 1u : 0u;
+    options.kinds = protocol_v2_ ? v2_kinds : nullptr;
+    options.kinds_count = protocol_v2_ ? 1u : 0u;
     /* Cursor 0 omits the query parameter entirely; Jetstream starts at the
      * head. A persisted cursor resumes exactly after the last processed frame,
      * which is fine for a public backfill and deduplicated by the ledger. */
@@ -214,7 +212,7 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                 js.source_uri = "at://" + std::string(event.did) + "/" +
                                 typed.commit.collection + "/" + typed.commit.rkey;
                 js.author_did = event.did;
-                js.seq = event.time_us;
+                js.seq = protocol_v2_ ? event.seq : event.time_us;
                 js.deleted = true;
                 on_event(js);
             }
@@ -232,13 +230,14 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                 js.reply_parent = observation.context.reply_parent_uri;
                 js.quote_uri = observation.context.quote_uri;
                 js.policy_reason = observation.policy_reason;
-                js.seq = event.time_us;
+                js.seq = protocol_v2_ ? event.seq : event.time_us;
                 on_event(js);
             }
         }
 
-        if (event.time_us > 0) {
-            cursor_ = cursor_from_seq(event.time_us);
+        const std::int64_t cursor = protocol_v2_ ? event.seq : event.time_us;
+        if (cursor > 0) {
+            cursor_ = cursor_from_seq(cursor);
         }
 
         wf_jetstream_event_free(&event);
