@@ -119,7 +119,7 @@ std::optional<AtUri> parse_at_uri(std::string_view value) {
     AtUri out{std::string(value.substr(0, first)),
               std::string(value.substr(first + 1, second - first - 1)),
               std::string(value.substr(second + 1))};
-    if (!out.did.starts_with("did:") || out.collection.find('.') == std::string::npos ||
+    if (!out.did.starts_with("did:") || !is_nsid(out.collection) ||
         out.rkey.find('/') != std::string::npos) {
         return std::nullopt;
     }

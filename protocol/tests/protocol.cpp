@@ -11,6 +11,7 @@ int main() {
            parsed->collection == "app.bsky.feed.post" && parsed->rkey == "3k1");
     assert(!parse_at_uri("at://handle.example/app.bsky.feed.post/3k1"));
     assert(!parse_at_uri("at://did:plc:abc/app.bsky.feed.post/3k1?x=1"));
+    assert(!parse_at_uri("at://did:plc:abc/Not.bsky.feed/3k1"));
     const auto strong = parse_strong_ref("at://did:plc:abc/app.bsky.feed.post/3k1",
                                          "bafyreiabcdef");
     assert(strong && strong->cid == "bafyreiabcdef");
