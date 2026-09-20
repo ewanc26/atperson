@@ -24,6 +24,8 @@ int main() {
     assert(!is_did("alice.example"));
     assert(is_handle("alice.example"));
     assert(!is_handle("did:plc:abc"));
+    assert(!is_handle("alice..example"));
+    assert(!is_handle("-alice.example"));
     const auto identity = accept_identity("did:plc:abc", "alice.example",
                                          "https://plc.directory/did:plc:abc",
                                          "did:key:z6Mkkey", "https://pds.example",

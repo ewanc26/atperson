@@ -239,7 +239,23 @@ bool is_handle(std::string_view value) noexcept {
     if (value.empty() || value.starts_with("did:") || value.find('.') == std::string_view::npos) {
         return false;
     }
-    return value.find_first_of(" /?#:@") == std::string_view::npos;
+    if (value.find_first_of(" /?#:@") != std::string_view::npos) return false;
+    std::size_t label_start = 0;
+    while (label_start < value.size()) {
+        const auto dot = value.find('.', label_start);
+        const auto label_end = dot == std::string_view::npos ? value.size() : dot;
+        if (label_end == label_start || value[label_start] == '-' ||
+            value[label_end - 1] == '-') return false;
+        for (std::size_t i = label_start; i < label_end; ++i) {
+            const char c = value[i];
+            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) {
+                return false;
+            }
+        }
+        if (dot == std::string_view::npos) break;
+        label_start = dot + 1;
+    }
+    return true;
 }
 
 namespace {
