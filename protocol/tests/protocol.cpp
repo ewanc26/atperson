@@ -120,8 +120,9 @@ int main() {
                                  "did:plc:abc", "active", 4, 13));
     assert(append_firehose_event(ledger, "wss://relay.example", "#unknown",
                                  "did:plc:abc", "future", 5, 14));
+    assert(append_repository_fact(ledger, *repository, 6, 15));
     const auto restored = ledger.entries();
-    assert(restored.size() == 5 && restored[1].event_type == "#sync" &&
-           restored[4].event_type == "#unknown");
+    assert(restored.size() == 6 && restored[1].event_type == "#sync" &&
+           restored[4].event_type == "#unknown" && restored[5].event_type == "#repository");
     std::filesystem::remove(path, error);
 }

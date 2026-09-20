@@ -165,6 +165,8 @@ bool append_firehose_event(EvidenceLedger &ledger, std::string_view source,
                            std::string_view payload, std::uint64_t sequence,
                            std::uint64_t observed_at,
                            Verification verification = Verification::Unverified);
+bool append_repository_fact(EvidenceLedger &ledger, const RepositoryFact &fact,
+                            std::uint64_t sequence, std::uint64_t observed_at);
 
 struct CursorState {
     std::uint64_t last_sequence{};

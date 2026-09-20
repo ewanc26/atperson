@@ -296,6 +296,14 @@ bool append_firehose_event(EvidenceLedger &ledger, std::string_view source,
     return ledger.append(std::move(evidence));
 }
 
+bool append_repository_fact(EvidenceLedger &ledger, const RepositoryFact &fact,
+                            std::uint64_t sequence, std::uint64_t observed_at) {
+    return append_firehose_event(
+        ledger, fact.car_source, "#repository", fact.repo_did,
+        fact.revision + "|" + fact.signed_root_cid, sequence, observed_at,
+        fact.verification);
+}
+
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
                             std::string_view repo, std::string_view revision) {
     if (state.last_sequence == 0) {
