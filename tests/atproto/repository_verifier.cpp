@@ -109,6 +109,12 @@ int main() {
     const auto entries = ledger.entries();
     assert(entries.size() == 1u && entries[0].event_type == "#commit" &&
            entries[0].verification == atperson::protocol::Verification::Unverified);
+    assert(atperson::fetch_and_record_bounded_resync(
+        ledger, nullptr, "did:plc:repo", "3jui3s7xq2m2a", "did:key:zUnsupported",
+        "", "https://pds.example", 10u, 1024u, 43u, 43u));
+    assert(ledger.entries().back().event_type == "#resync" &&
+           ledger.entries().back().verification ==
+               atperson::protocol::Verification::Unverified);
     std::filesystem::remove(path, error);
     return 0;
 }

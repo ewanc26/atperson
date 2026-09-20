@@ -44,6 +44,18 @@ bool record_repository_car(protocol::EvidenceLedger &ledger,
                            std::uint64_t sequence,
                            std::uint64_t observed_at);
 
+bool fetch_and_record_bounded_resync(protocol::EvidenceLedger &ledger,
+                                     wf_xrpc_client *client,
+                                     std::string_view repo_did,
+                                     std::string_view revision,
+                                     std::string_view signing_key,
+                                     std::string_view since,
+                                     std::string_view source,
+                                     std::size_t max_blocks,
+                                     std::size_t max_bytes,
+                                     std::uint64_t sequence,
+                                     std::uint64_t observed_at);
+
 } // namespace atperson
 
 #endif

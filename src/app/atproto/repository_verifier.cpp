@@ -2,6 +2,7 @@
 
 #include "wolfram/repo/cid.h"
 #include "wolfram/repo/car.h"
+#include "wolfram/sync.h"
 #include "wolfram/sync_verify.h"
 #include "wolfram/verify.h"
 
@@ -107,6 +108,47 @@ bool record_repository_car(protocol::EvidenceLedger &ledger,
         ledger, source, "#car", repo_did,
         std::string(revision) + "|" + (root.empty() ? "no-root" : root), sequence,
         observed_at, verification);
+}
+
+bool fetch_and_record_bounded_resync(protocol::EvidenceLedger &ledger,
+                                     wf_xrpc_client *client,
+                                     std::string_view repo_did,
+                                     std::string_view revision,
+                                     std::string_view signing_key,
+                                     std::string_view since,
+                                     std::string_view source,
+                                     std::size_t max_blocks,
+                                     std::size_t max_bytes,
+                                     std::uint64_t sequence,
+                                     std::uint64_t observed_at) {
+    wf_car fetched{};
+    const wf_status status = wf_sync_get_repo(
+        client, std::string(repo_did).c_str(),
+        since.empty() ? nullptr : std::string(since).c_str(), &fetched);
+    if (status != WF_OK) {
+        return protocol::append_firehose_event(
+            ledger, source, "#resync", repo_did, std::string(revision) + "|fetch-failed",
+            sequence, observed_at, protocol::Verification::Unverified);
+    }
+    bool bounded = fetched.block_count <= max_blocks;
+    unsigned char *bytes = nullptr;
+    std::size_t length = 0;
+    if (bounded && wf_car_write(&fetched, &bytes, &length) == WF_OK)
+        bounded = length <= max_bytes;
+    bool recorded = false;
+    if (bounded && bytes != nullptr) {
+        recorded = record_repository_car(
+            ledger, repo_did, revision, signing_key, bytes, length, source, sequence,
+            observed_at);
+    } else {
+        recorded = protocol::append_firehose_event(
+            ledger, source, "#resync", repo_did,
+            std::string(revision) + "|bounds-exceeded", sequence, observed_at,
+            protocol::Verification::Rejected);
+    }
+    std::free(bytes);
+    wf_car_free(&fetched);
+    return recorded;
 }
 
 } // namespace atperson
