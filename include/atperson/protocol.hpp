@@ -16,6 +16,7 @@ enum class EvidenceKind { Identity, Repository, Record, Lexicon, Sync, Authoriza
 enum class ServiceRole { Pds, Relay, AppView, FeedGenerator, Labeler };
 enum class RecordState { Present, Deleted, Missing, Unverified };
 enum class SyncEvent { Commit, Sync, Identity, Account, Unknown };
+enum class PermissionKind { Record, AllRecords, RepositoryMigration, DpopBound };
 
 struct AtUri {
     std::string did;
@@ -47,6 +48,14 @@ struct RecordFact {
     bool app_view_derived{};
 };
 
+struct AuthorizationFact {
+    PermissionKind kind{PermissionKind::Record};
+    std::string scope;
+    std::string subject_did;
+    bool granted{};
+    Verification verification{Verification::Unverified};
+};
+
 /* Parse only the authority/collection/rkey form; query and fragment suffixes
  * are rejected so callers cannot accidentally learn from an ambiguous URI. */
 std::optional<AtUri> parse_at_uri(std::string_view value);
@@ -58,6 +67,7 @@ SyncEvent classify_sync_event(std::string_view type) noexcept;
  * but invalid signature is retained as rejected evidence. */
 Verification verification_from_wolfram(bool transport_ok,
                                        bool cryptographically_valid) noexcept;
+PermissionKind classify_permission(std::string_view scope) noexcept;
 
 /* NSIDs identify XRPC/Lexicon operations. The suffix is deliberately supplied
  * by the schema/event source rather than guessed from the name. */

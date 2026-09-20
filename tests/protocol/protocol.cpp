@@ -21,6 +21,12 @@ int main() {
     assert(verification_from_wolfram(true, true) == Verification::Verified);
     assert(verification_from_wolfram(true, false) == Verification::Rejected);
     assert(verification_from_wolfram(false, false) == Verification::Unverified);
+    assert(classify_permission("repo:app.bsky.feed.post?action=create") ==
+           PermissionKind::Record);
+    assert(classify_permission("repo:*") == PermissionKind::AllRecords);
+    assert(classify_permission("account:repo?action=manage") ==
+           PermissionKind::RepositoryMigration);
+    assert(classify_permission("dpop") == PermissionKind::DpopBound);
 
     assert(classify_xrpc(true, false) == XrpcKind::Query);
     assert(classify_xrpc(false, true) == XrpcKind::Procedure);

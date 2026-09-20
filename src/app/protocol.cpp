@@ -73,6 +73,16 @@ Verification verification_from_wolfram(bool transport_ok,
     return cryptographically_valid ? Verification::Verified : Verification::Rejected;
 }
 
+PermissionKind classify_permission(std::string_view scope) noexcept {
+    if (scope == "account:repo?action=manage") return PermissionKind::RepositoryMigration;
+    if (scope == "repo:*") return PermissionKind::AllRecords;
+    if (scope.find("repo:") == 0 && scope.find("action=") != std::string_view::npos) {
+        return PermissionKind::Record;
+    }
+    if (scope == "dpop") return PermissionKind::DpopBound;
+    return PermissionKind::Record;
+}
+
 XrpcKind classify_xrpc(bool query, bool procedure, bool subscription) {
     const int count = static_cast<int>(query) + static_cast<int>(procedure) +
                       static_cast<int>(subscription);
