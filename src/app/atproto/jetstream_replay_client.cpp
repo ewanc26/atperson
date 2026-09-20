@@ -7,6 +7,7 @@
 #include "wolfram/xrpc.h"
 
 #include <stdexcept>
+#include <utility>
 
 namespace atperson {
 
@@ -41,6 +42,11 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
     if (client == nullptr) {
         throw std::runtime_error("Jetstream replay requires an authenticated agent client");
     }
+    if (archive_token_.empty()) {
+        throw std::runtime_error("Jetstream replay requires ATPERSON_JETSTREAM_ARCHIVE_TOKEN");
+    }
+    /* Archive endpoints use a raw archive API token, not the PDS session JWT. */
+    wf_xrpc_client_set_auth(client, archive_token_.c_str());
 
     JetstreamReplayWindow result;
     for (;;) {

@@ -144,7 +144,8 @@ int run_jetstream_archive(
     const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
     WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
                            required_env("ATPERSON_APP_PASSWORD"));
-    JetstreamReplayClient client(*session.agent());
+    JetstreamReplayClient client(
+        *session.agent(), required_env("ATPERSON_JETSTREAM_ARCHIVE_TOKEN"));
     const std::vector<std::string> collections =
         collections_file.empty() ? default_jetstream_collections()
                                   : load_jetstream_collections(collections_file);
