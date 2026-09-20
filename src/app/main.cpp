@@ -1,5 +1,5 @@
 #include "atperson/bootstrap.h"
-#include "atperson/protocol.hpp"
+#include "protocol.hpp"
 #include "atperson/graph.hpp"
 #include "inspection.hpp"
 #include "audit/command.hpp"

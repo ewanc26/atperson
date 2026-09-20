@@ -58,7 +58,7 @@ tests demonstrating that it can:
 - distinguish a record delete from a missing observation;
 - explain why an App View's result is not itself repository authority.
 
-The first implementation slice should add a protocol evidence ledger and a
-read-only `protocol` inspection command. Network acquisition and verification
-belong in Wolfram; durable evidence, replay and inspectable explanations belong
-in atperson's runtime/core boundary.
+The protocol evidence ledger and read-only `protocol` inspection command live
+under the dedicated `./protocol/` subsystem. Network acquisition and
+cryptographic verification belong in Wolfram; durable evidence, replay and
+inspectable explanations belong in `./protocol/`, not in the social model.

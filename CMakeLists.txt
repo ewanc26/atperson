@@ -100,7 +100,8 @@ add_library(
   src/app/resource/neural_runtime.cpp
   src/app/resource/runtime.cpp
   src/app/worker/pool.cpp)
-target_sources(atperson-cpp PRIVATE src/app/protocol.cpp)
+target_sources(atperson-cpp PRIVATE protocol/protocol.cpp)
+target_include_directories(atperson-cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/protocol)
 target_include_directories(
   atperson-cpp
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -430,8 +431,9 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-cpp-test PRIVATE atperson-cpp)
   add_test(NAME atperson-cpp COMMAND atperson-cpp-test)
 
-  add_executable(atperson-protocol-test tests/protocol/protocol.cpp)
+  add_executable(atperson-protocol-test protocol/tests/protocol.cpp)
   target_link_libraries(atperson-protocol-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-protocol-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/protocol)
   add_test(NAME atperson-protocol COMMAND atperson-protocol-test)
 
   # Read-only rendering of authoritative C23 plan/context/decision traces.

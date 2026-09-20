@@ -1,4 +1,4 @@
-#include "atperson/protocol.hpp"
+#include "protocol.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -143,6 +143,12 @@ bool EvidenceStore::append(ProtocolEvidence evidence) {
     if (contains(evidence.source, evidence.payload)) return false;
     entries_.push_back(std::move(evidence));
     return true;
+}
+
+EvidenceStore EvidenceStore::replay(const std::vector<ProtocolEvidence> &evidence) {
+    EvidenceStore restored;
+    for (const auto &entry : evidence) restored.append(entry);
+    return restored;
 }
 
 EvidenceLedger::EvidenceLedger(const std::filesystem::path &path) : path_(path) {

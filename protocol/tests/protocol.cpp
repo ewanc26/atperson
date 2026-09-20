@@ -1,4 +1,4 @@
-#include "atperson/protocol.hpp"
+#include "../protocol.hpp"
 
 #include <cassert>
 #include <filesystem>
@@ -55,6 +55,9 @@ int main() {
     assert(store.append(fact));
     assert(!store.append(fact));
     assert(store.entries().size() == 1);
+    const auto replayed = EvidenceStore::replay(
+        std::vector<ProtocolEvidence>{fact, fact, fact});
+    assert(replayed.entries().size() == 1);
 
     CursorState cursor;
     assert(observe_stream(cursor, 10, "did:plc:abc", "rev-a") == CursorResult::Initialized);

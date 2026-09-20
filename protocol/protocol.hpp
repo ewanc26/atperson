@@ -106,6 +106,7 @@ class EvidenceStore {
         return entries_;
     }
     [[nodiscard]] bool contains(std::string_view source, std::string_view payload) const;
+    static EvidenceStore replay(const std::vector<ProtocolEvidence> &evidence);
 
   private:
     std::vector<ProtocolEvidence> entries_;
