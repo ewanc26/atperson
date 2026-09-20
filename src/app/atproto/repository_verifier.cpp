@@ -1,6 +1,7 @@
 #include "repository_verifier.hpp"
 
 #include "wolfram/repo/cid.h"
+#include "wolfram/repo/car.h"
 #include "wolfram/sync_verify.h"
 #include "wolfram/verify.h"
 
@@ -73,6 +74,39 @@ bool record_repository_commit(protocol::EvidenceLedger &ledger,
         verification.revision + "|unverified-or-invalid", commit.seq > 0
             ? static_cast<std::uint64_t>(commit.seq) : 0u, observed_at,
         verification.verification);
+}
+
+bool record_repository_car(protocol::EvidenceLedger &ledger,
+                           std::string_view repo_did,
+                           std::string_view revision,
+                           std::string_view signing_key,
+                           const unsigned char *car,
+                           std::size_t car_len,
+                           std::string_view source,
+                           std::uint64_t sequence,
+                           std::uint64_t observed_at) {
+    const auto verification = verify_signed_repository_car(signing_key, car, car_len);
+    wf_car parsed{};
+    std::string root;
+    if (car != nullptr && car_len > 0u && wf_car_parse(car, car_len, &parsed) == WF_OK &&
+        parsed.root_count > 0u) {
+        char *cid = wf_cid_to_string(&parsed.roots[0]);
+        if (cid != nullptr) {
+            root = cid;
+            std::free(cid);
+        }
+    }
+    wf_car_free(&parsed);
+    if (verification == protocol::Verification::Verified &&
+        !root.empty()) {
+        const auto fact = protocol::accept_repository_fact(
+            repo_did, revision, root, source, verification);
+        if (fact) return protocol::append_repository_fact(ledger, *fact, sequence, observed_at);
+    }
+    return protocol::append_firehose_event(
+        ledger, source, "#car", repo_did,
+        std::string(revision) + "|" + (root.empty() ? "no-root" : root), sequence,
+        observed_at, verification);
 }
 
 } // namespace atperson

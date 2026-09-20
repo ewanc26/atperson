@@ -34,6 +34,16 @@ bool record_repository_commit(protocol::EvidenceLedger &ledger,
                               std::string_view source,
                               std::uint64_t observed_at);
 
+bool record_repository_car(protocol::EvidenceLedger &ledger,
+                           std::string_view repo_did,
+                           std::string_view revision,
+                           std::string_view signing_key,
+                           const unsigned char *car,
+                           std::size_t car_len,
+                           std::string_view source,
+                           std::uint64_t sequence,
+                           std::uint64_t observed_at);
+
 } // namespace atperson
 
 #endif

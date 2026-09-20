@@ -67,6 +67,19 @@ int main() {
             assert(atperson::verify_signed_repository_car(
                        did_key, car, car_len) ==
                    atperson::protocol::Verification::Verified);
+            const auto car_path = std::filesystem::temp_directory_path() /
+                                  "atperson-verifier-car-evidence.bin";
+            std::error_code car_error;
+            std::filesystem::remove(car_path, car_error);
+            atperson::protocol::EvidenceLedger car_ledger(car_path);
+            assert(atperson::record_repository_car(
+                car_ledger, "did:plc:repo", "3jui3s7xq2m2a", did_key, car,
+                car_len, "https://pds.example", 9u, 17u));
+            assert(car_ledger.entries().size() == 1u &&
+                   car_ledger.entries()[0].event_type == "#repository" &&
+                   car_ledger.entries()[0].verification ==
+                       atperson::protocol::Verification::Verified);
+            std::filesystem::remove(car_path, car_error);
             car[car_len - 1u] ^= 0x01u;
             assert(atperson::verify_signed_repository_car(
                        did_key, car, car_len) !=
