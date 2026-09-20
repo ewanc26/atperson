@@ -114,7 +114,9 @@ int main() {
     assert(reduce_record_observation(record_uri, "bafyreiabcdef", false, true, true).state ==
            RecordState::Unverified);
     assert(classify_sync_event("#commit") == SyncEvent::Commit);
+    assert(classify_sync_event("#sync") == SyncEvent::Sync);
     assert(classify_sync_event("#identity") == SyncEvent::Identity);
+    assert(classify_sync_event("#account") == SyncEvent::Account);
     assert(classify_sync_event("#unknown") == SyncEvent::Unknown);
     assert(verification_from_wolfram(true, true) == Verification::Verified);
     assert(verification_from_wolfram(true, false) == Verification::Rejected);
