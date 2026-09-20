@@ -729,6 +729,15 @@ if(ATPERSON_BUILD_TESTS)
     target_include_directories(
       atperson-jetstream-archive-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
     add_test(NAME atperson-jetstream-archive COMMAND atperson-jetstream-archive-test)
+
+    add_executable(atperson-repository-verifier-test
+                   tests/atproto/repository_verifier.cpp
+                   src/app/atproto/repository_verifier.cpp)
+    target_compile_features(atperson-repository-verifier-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-repository-verifier-test PRIVATE atperson-cpp wolfram)
+    target_include_directories(
+      atperson-repository-verifier-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-repository-verifier COMMAND atperson-repository-verifier-test)
   endif()
 
   if(ATPERSON_BUILD_NETWORK)
