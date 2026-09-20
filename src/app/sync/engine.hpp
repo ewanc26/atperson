@@ -127,6 +127,9 @@ struct JetstreamRunResult {
     bool exhausted{}; /* feed closed cleanly at the head */
 };
 
+using JetstreamResyncExecutor =
+    std::function<void(const protocol::ResyncPlan &plan)>;
+
 /* Implemented in sync/jetstream_backfill.cpp, which is compiled only into
  * the network runtime (it drives the Wolfram-backed JetstreamClient). The
  * engine declares it here so the daemon loop and CLI share the contract. */
@@ -135,7 +138,8 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                                           JetstreamClient &client,
                                           const JetstreamLimits &limits,
                                           const SyncLinker &link = nullptr,
-                                          protocol::EvidenceLedger *protocol_ledger = nullptr);
+                                          protocol::EvidenceLedger *protocol_ledger = nullptr,
+                                          const JetstreamResyncExecutor &resync = nullptr);
 
 /* Process one bounded sealed-archive window through the same durable pipeline
  * as live Jetstream. On success, the persisted Jetstream cursor is set to the

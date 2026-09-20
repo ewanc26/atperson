@@ -54,7 +54,8 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                                           IngestionState &state, JetstreamClient &client,
                                           const JetstreamLimits &limits,
                                           const SyncLinker &link,
-                                          protocol::EvidenceLedger *protocol_ledger) {
+                                          protocol::EvidenceLedger *protocol_ledger,
+                                          const JetstreamResyncExecutor &resync) {
     JetstreamRunResult result;
     protocol::CursorState protocol_cursor;
     if (state.catchup.cursor) {
@@ -147,6 +148,11 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     result.events_consumed = batch.frames_consumed;
     result.malformed_frames = batch.malformed_frames;
     result.exhausted = batch.exhausted;
+
+    if (result.protocol_resync_required && resync) {
+        const auto plan = protocol::plan_resync(protocol_cursor, 0u);
+        if (plan.required) resync(plan);
+    }
 
     if (result.withdrawn > 0u) {
         (void)graph.rebuild_from_ledger(ledger);
