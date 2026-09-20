@@ -187,6 +187,7 @@ class EvidenceStore {
     }
     [[nodiscard]] bool contains(std::string_view source, std::string_view payload,
                                 Verification verification) const;
+    [[nodiscard]] bool contains(const ProtocolEvidence &evidence) const;
     static EvidenceStore replay(const std::vector<ProtocolEvidence> &evidence);
 
   private:

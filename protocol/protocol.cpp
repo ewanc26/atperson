@@ -272,8 +272,17 @@ bool EvidenceStore::contains(std::string_view source, std::string_view payload,
     });
 }
 
+bool EvidenceStore::contains(const ProtocolEvidence &evidence) const {
+    return std::any_of(entries_.begin(), entries_.end(), [&](const auto &entry) {
+        return entry.kind == evidence.kind && entry.source == evidence.source &&
+               entry.event_type == evidence.event_type &&
+               entry.subject == evidence.subject && entry.payload == evidence.payload &&
+               entry.verification == evidence.verification;
+    });
+}
+
 bool EvidenceStore::append(ProtocolEvidence evidence) {
-    if (contains(evidence.source, evidence.payload, evidence.verification)) return false;
+    if (contains(evidence)) return false;
     entries_.push_back(std::move(evidence));
     return true;
 }

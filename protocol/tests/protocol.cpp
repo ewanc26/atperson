@@ -112,10 +112,14 @@ int main() {
     assert(store.append(fact));
     assert(!store.append(fact));
     assert(store.entries().size() == 1);
+    auto distinct_event = fact;
+    distinct_event.event_type = "did-document";
+    assert(store.append(distinct_event));
+    assert(store.entries().size() == 2);
     auto upgraded = fact;
     upgraded.verification = Verification::Verified;
     assert(store.append(upgraded));
-    assert(store.entries().size() == 2);
+    assert(store.entries().size() == 3);
     const auto replayed = EvidenceStore::replay(
         std::vector<ProtocolEvidence>{fact, fact, fact});
     assert(replayed.entries().size() == 1);
