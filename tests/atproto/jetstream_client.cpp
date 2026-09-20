@@ -18,6 +18,13 @@ int main() {
     }
 
     {
+        atperson::JetstreamClient client(
+            "wss://jetstream.example/subscribe", "",
+            {"app.bsky.feed.post"});
+        assert(client.cursor().empty());
+    }
+
+    {
         bool threw = false;
         try {
             atperson::JetstreamClient client(
