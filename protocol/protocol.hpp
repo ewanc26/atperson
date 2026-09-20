@@ -15,6 +15,7 @@ enum class XrpcKind { Query, Procedure, Subscription, Unknown };
 enum class EvidenceKind { Identity, Repository, Record, Lexicon, Sync, Authorization };
 enum class ServiceRole { Unknown, Pds, Relay, AppView, FeedGenerator, Labeler };
 enum class RecordState { Present, Deleted, Missing, Unverified };
+enum class RecordAuthority { Repository, AppViewDerived, Unknown };
 enum class SyncEvent { Commit, Sync, Identity, Account, Unknown };
 enum class PermissionKind { Record, AllRecords, RepositoryMigration, DpopBound };
 
@@ -64,6 +65,8 @@ struct RecordFact {
     RecordState state{RecordState::Unverified};
     bool app_view_derived{};
 };
+
+RecordAuthority authority_for_service(ServiceRole role) noexcept;
 
 struct AuthorizationFact {
     PermissionKind kind{PermissionKind::Record};

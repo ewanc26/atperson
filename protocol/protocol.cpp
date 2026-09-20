@@ -50,6 +50,12 @@ ServiceRole classify_service_role(std::string_view type) noexcept {
     return ServiceRole::Unknown;
 }
 
+RecordAuthority authority_for_service(ServiceRole role) noexcept {
+    if (role == ServiceRole::AppView) return RecordAuthority::AppViewDerived;
+    if (role == ServiceRole::Pds) return RecordAuthority::Repository;
+    return RecordAuthority::Unknown;
+}
+
 std::optional<AtUri> parse_at_uri(std::string_view value) {
     if (!value.starts_with("at://") || value.find_first_of("?#") != std::string_view::npos) {
         return std::nullopt;

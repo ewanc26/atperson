@@ -41,6 +41,9 @@ int main() {
     assert(classify_service_role("AtprotoFeedGenerator") == ServiceRole::FeedGenerator);
     assert(classify_service_role("AtprotoLabeler") == ServiceRole::Labeler);
     assert(classify_service_role("unknown") == ServiceRole::Unknown);
+    assert(authority_for_service(ServiceRole::Pds) == RecordAuthority::Repository);
+    assert(authority_for_service(ServiceRole::AppView) == RecordAuthority::AppViewDerived);
+    assert(authority_for_service(ServiceRole::Relay) == RecordAuthority::Unknown);
     const AtUri record_uri{"did:plc:abc", "app.bsky.feed.post", "3k1"};
     assert(reduce_record_observation(record_uri, "bafyreiabcdef", false, false, true).state ==
            RecordState::Present);
