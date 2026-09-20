@@ -12,6 +12,10 @@ RepositoryVerification verify_repository_commit(const wf_subscribe_commit &commi
     RepositoryVerification result;
     result.repo_did = commit.did;
     result.revision = commit.rev;
+    if (result.repo_did.empty() || !protocol::is_tid(result.revision)) {
+        result.verification = protocol::Verification::Rejected;
+        return result;
+    }
     if (commit.blocks == nullptr || commit.blocks_len == 0u || client == nullptr) {
         return result;
     }

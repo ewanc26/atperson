@@ -5,6 +5,7 @@
 #include "wolfram/sync_subscribe.h"
 
 #include <string>
+#include <string_view>
 #include <cstdint>
 
 namespace atperson {

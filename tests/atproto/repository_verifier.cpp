@@ -19,6 +19,11 @@ int main() {
     commit.blocks_len = sizeof(malformed);
     const auto no_transport = atperson::verify_repository_commit(commit, nullptr);
     assert(no_transport.verification == atperson::protocol::Verification::Unverified);
+    wf_subscribe_commit malformed_commit = commit;
+    std::strncpy(malformed_commit.rev, "not-a-tid",
+                  sizeof(malformed_commit.rev) - 1u);
+    const auto rejected = atperson::verify_repository_commit(malformed_commit, nullptr);
+    assert(rejected.verification == atperson::protocol::Verification::Rejected);
     const auto path = std::filesystem::temp_directory_path() / "atperson-verifier-evidence.bin";
     std::error_code error;
     std::filesystem::remove(path, error);
