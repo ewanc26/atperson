@@ -223,7 +223,10 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
             }
             wf_jetstream_event_typed_free(&typed);
             SyncObservation observation;
-            if (typed_status == WF_OK && !typed_delete &&
+            const bool normalized_v2_commit =
+                protocol_v2_ && typed_status != WF_OK;
+            if (!typed_delete &&
+                (normalized_v2_commit || typed_status == WF_OK) &&
                 atperson::extract_jetstream_commit(event.json, event.json_len,
                                                    self_did_, observation)) {
                 JetstreamEvent js;
