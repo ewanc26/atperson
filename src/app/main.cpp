@@ -60,8 +60,10 @@ int main(int argc, char **argv) {
             return 2;
         }
 
+        const std::string_view command = argv[1];
         char home_buffer[4096];
-        if (atp_default_home_directory(home_buffer, sizeof(home_buffer), nullptr) != nullptr) {
+        if (command != "protocol" &&
+            atp_default_home_directory(home_buffer, sizeof(home_buffer), nullptr) != nullptr) {
             char notice[ATP_BOOTSTRAP_NOTICE_BYTES];
             if (atp_bootstrap_home(home_buffer, notice, sizeof(notice)) == ATP_OK &&
                 notice[0] != '\0') {
@@ -69,7 +71,6 @@ int main(int argc, char **argv) {
             }
         }
 
-        const std::string_view command = argv[1];
         const auto path = atperson::cli::state_path();
         const auto resource_paths = atperson::cli::durable_paths();
         const auto resource_overrides = atperson::resource_overrides_from_environment();
