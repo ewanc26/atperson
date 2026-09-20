@@ -26,6 +26,21 @@ std::string read_field(std::istream &in) {
 
 namespace atperson::protocol {
 
+namespace {
+void remember_revision(CursorState &state, std::string_view repo,
+                       std::string_view revision) {
+    if (repo.empty() || revision.empty()) return;
+    auto found = std::find_if(state.repository_revisions.begin(),
+                              state.repository_revisions.end(),
+                              [&](const auto &item) { return item.repo == repo; });
+    if (found == state.repository_revisions.end()) {
+        state.repository_revisions.push_back({std::string(repo), std::string(revision)});
+    } else {
+        found->revision = revision;
+    }
+}
+} // namespace
+
 ServiceRole classify_service_role(std::string_view type) noexcept {
     if (type == "AtprotoPersonalDataServer") return ServiceRole::Pds;
     if (type == "AtprotoRelay") return ServiceRole::Relay;
@@ -268,6 +283,7 @@ CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
         state.last_sequence = sequence;
         state.repo = repo;
         state.repo_revision = revision;
+        remember_revision(state, repo, revision);
         state.resync_required = false;
         return CursorResult::Initialized;
     }
@@ -279,8 +295,20 @@ CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
     }
     state.last_sequence = sequence;
     if (!repo.empty()) state.repo = repo;
-    if (!revision.empty()) state.repo_revision = revision;
+    if (!revision.empty()) {
+        state.repo_revision = revision;
+        remember_revision(state, repo, revision);
+    }
     return CursorResult::Advanced;
+}
+
+std::optional<std::string> revision_for(const CursorState &state,
+                                        std::string_view repo) {
+    const auto found = std::find_if(
+        state.repository_revisions.begin(), state.repository_revisions.end(),
+        [&](const auto &item) { return item.repo == repo; });
+    if (found == state.repository_revisions.end()) return std::nullopt;
+    return found->revision;
 }
 
 ResyncPlan plan_resync(const CursorState &state, std::uint32_t max_records) {

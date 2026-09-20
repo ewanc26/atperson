@@ -154,12 +154,20 @@ struct CursorState {
     std::uint64_t last_sequence{};
     std::string repo;
     std::string repo_revision;
+    struct RepositoryRevision {
+        std::string repo;
+        std::string revision;
+        bool operator==(const RepositoryRevision &) const = default;
+    };
+    std::vector<RepositoryRevision> repository_revisions;
     bool resync_required{};
 };
 
 enum class CursorResult { Initialized, Advanced, Duplicate, Gap, Rewind };
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
                             std::string_view repo, std::string_view revision);
+std::optional<std::string> revision_for(const CursorState &state,
+                                        std::string_view repo);
 
 struct ResyncPlan {
     bool required{};

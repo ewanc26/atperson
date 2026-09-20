@@ -81,6 +81,7 @@ int main() {
 
     CursorState cursor;
     assert(observe_stream(cursor, 10, "did:plc:abc", "rev-a") == CursorResult::Initialized);
+    assert(revision_for(cursor, "did:plc:abc") == std::optional<std::string>("rev-a"));
     assert(observe_stream(cursor, 10, "did:plc:abc", "rev-a") == CursorResult::Duplicate);
     assert(observe_stream(cursor, 12, "did:plc:abc", "rev-c") == CursorResult::Gap);
     assert(cursor.resync_required);
@@ -88,6 +89,10 @@ int main() {
     assert(plan.required && plan.repo == "did:plc:abc" && plan.from_sequence == 10 &&
            plan.max_records == 1 && !plan.reason.empty());
     assert(observe_stream(cursor, 9, "did:plc:abc", "rev-b") == CursorResult::Rewind);
+    assert(observe_stream(cursor, 11, "did:plc:abc", "rev-b") == CursorResult::Advanced);
+    assert(observe_stream(cursor, 12, "did:plc:other", "rev-x") == CursorResult::Advanced);
+    assert(revision_for(cursor, "did:plc:abc") == std::optional<std::string>("rev-b"));
+    assert(revision_for(cursor, "did:plc:other") == std::optional<std::string>("rev-x"));
 
     const auto path = std::filesystem::temp_directory_path() / "atperson-protocol-evidence-test.bin";
     std::error_code error;
