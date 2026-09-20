@@ -65,7 +65,7 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
         if (protocol_ledger != nullptr) {
             protocol::ProtocolEvidence evidence{
                 protocol::EvidenceKind::Sync, "jetstream",
-                event.deleted ? "#commit/delete" : "#commit", event.author_did,
+                event.deleted ? "#commit/delete" : event.event_type, event.author_did,
                 event.source_uri + "|" + std::to_string(event.seq),
                 event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u, 0u,
                 protocol::Verification::Unverified, 0.0};
