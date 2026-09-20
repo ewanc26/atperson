@@ -33,10 +33,13 @@ source, revision, sequence, timestamp, and non-verified status; it is never
 fed into social learning or treated as repository authority.
 
 The live JetStream reducer applies the same boundary to cursors: protocol-only
-frames still advance sequence continuity, while commit frames also carry a
-repository revision. A gap, rewind, or rejected revision pauses learning and
-preserves the last known-good checkpoint. The checkpoint may advance again
-only after a bounded CAR resynchronization has been validated as `Verified`.
+frames still advance sequence continuity, while commit frames carry a
+repository revision when the selected endpoint exposes one. Collection-filtered
+JetStream feeds naturally skip unrelated global sequence numbers; such gaps
+remain visible as reconciliation-needed evidence while valid events continue
+through the ordinary ingestion policy. Rewinds and invalid identity/revision
+claims are rejected. A bounded CAR resynchronization can clear the gap state;
+events without a repository revision remain explicitly `Unverified`.
 
 The resync adapter delegates repository retrieval to Wolfram's
 `com.atproto.sync.getRepo` implementation, then bounds both CAR block count and
