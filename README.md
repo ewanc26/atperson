@@ -48,6 +48,11 @@ AT Protocol network
 
 See [`docs/architecture.md`](docs/architecture.md) for the deeper architectural invariants and persistence model.
 
+The OAuth/loopback integration contract and repository-scope safety rules are
+documented in [`docs/oauth.md`](docs/oauth.md). OAuth session material is
+runtime credential state, not learned experience, and must remain outside the
+model snapshot and observation ledger.
+
 ## Current state
 
 The project is already beyond the initial scaffold. The important pieces currently look like this:
@@ -108,6 +113,10 @@ The C23 core currently provides:
 - versioned portable snapshots and deterministic replay state.
 
 The C++23 layer wraps that core and provides the CLI/runtime, configuration and Wolfram-backed AT Protocol ingestion and publishing paths.
+
+AT Protocol literacy is a hard requirement, not an incidental side effect of
+reading posts. The required protocol concepts, evidence provenance, replay
+rules and capability gates are defined in [`docs/protocol-learning.md`](docs/protocol-learning.md).
 
 More detail lives in:
 

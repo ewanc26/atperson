@@ -15,6 +15,10 @@ The project has a strict C23/C++23 boundary:
 - **C++23 owns runtime and application concerns.** This includes configuration,
   filesystem/state-directory handling, process locking, scheduling, ingestion
   cursors, operator policy and orchestration.
+- **`protocol/` owns AT Protocol knowledge.** Protocol facts, identifier
+  validation, evidence replay/reduction and protocol-specific durable storage
+  belong under the dedicated `./protocol/` subsystem. C++ may adapt it for
+  networking and CLI inspection but must not make it part of social learning.
 - **`ewanc26/wolfram` owns AT Protocol mechanics.** Use Wolfram for sessions,
   XRPC/protocol operations and eventual repository writes. Do not copy or
   reimplement Wolfram protocol APIs inside atperson.
