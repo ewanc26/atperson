@@ -6,6 +6,7 @@
 
 #include <cassert>
 #include <filesystem>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -57,6 +58,22 @@ class DeletionReplay final : public atperson::JetstreamReplaySource {
     }
 
     unsigned calls{};
+};
+
+class FailingReplay final : public atperson::JetstreamReplaySource {
+  public:
+    [[nodiscard]] atperson::JetstreamReplayWindow fetch_window(
+        std::uint64_t, std::optional<std::uint64_t>, std::string_view,
+        const std::vector<std::string> &, const std::vector<std::string> &,
+        const std::function<void(const atperson::JetstreamEvent &)> &on_event) override {
+        on_event(atperson::JetstreamEvent{
+            .source_uri = "at://did:plc:archive/app.bsky.feed.post/failure",
+            .author_did = "did:plc:author",
+            .created_at = "2026-09-20T00:00:00Z",
+            .text = "event before transport failure",
+        });
+        throw std::runtime_error("scripted replay transport failure");
+    }
 };
 
 } // namespace
@@ -116,6 +133,30 @@ int main() {
     assert(withdrawn.withdrawn == 1u);
     assert(withdrawn.reconciled);
     std::filesystem::remove_all(withdrawal_root);
+
+    atperson::LanguageGraph failure_graph;
+    const auto failure_root =
+        std::filesystem::temp_directory_path() / "atperson-archive-failure-test";
+    std::filesystem::remove_all(failure_root);
+    std::filesystem::create_directories(failure_root);
+    atperson::Ledger failure_ledger(failure_root / "ledger.bin");
+    atperson::IngestionState failure_state = atperson::initial_ingestion_state(
+        "wss://jetstream.example/subscribe", "", atperson::kSourceKindJetstream);
+    failure_state.catchup.active = true;
+    failure_state.catchup.cursor = std::string("40");
+    FailingReplay failing_replay;
+    bool failed = false;
+    try {
+        static_cast<void>(atperson::run_jetstream_archive(
+            failure_graph, failure_ledger, failure_state, failing_replay, 40u, 50u,
+            "did:plc:self", collections, dids));
+    } catch (const std::runtime_error &) {
+        failed = true;
+    }
+    assert(failed);
+    assert(failure_state.catchup.active);
+    assert(failure_state.catchup.cursor == std::optional<std::string>("40"));
+    std::filesystem::remove_all(failure_root);
 
     std::filesystem::remove_all(root);
     return 0;
