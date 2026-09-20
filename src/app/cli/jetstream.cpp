@@ -59,7 +59,7 @@ int run_jetstream_status(
     const std::string archive_before = env_or("ATPERSON_DAEMON_ARCHIVE_BEFORE");
 
     out << "jetstream endpoint: " << endpoint << '\n'
-        << "self DID: " << (configured_self.empty() ? "missing (live ingestion will refuse)" : configured_self) << '\n'
+        << "self DID: " << (configured_self.empty() ? "unset (public tail; self-filter unavailable)" : configured_self) << '\n'
         << "phase: "
         << (archive_after.empty()
                 ? "live-only (archive replay available; daemon startup window not configured)"
@@ -198,7 +198,10 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         "ATPERSON_JETSTREAM_ENDPOINT",
         "wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents");
 
-    const std::string configured_self = required_self_did();
+    /* Jetstream is public and does not require an authenticated session. An
+     * unset self DID is valid for bootstrap training; when configured, the
+     * client still excludes the entity's own records. */
+    const std::string configured_self = self_did();
 
     /*
      * Bind the persisted cursor to the actual Jetstream endpoint, not the

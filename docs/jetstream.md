@@ -57,7 +57,7 @@ daemon startup archive phase.
 
 ## Entity identity and policy parity
 
-Live Jetstream ingestion requires `ATPERSON_SELF_DID`, a non-secret DID such as `did:plc:...`. Jetstream itself remains unauthenticated; the DID is used only to apply the same self-authored exclusion as authenticated timeline polling.
+Live Jetstream ingestion is unauthenticated and can bootstrap without credentials. If `ATPERSON_SELF_DID` is set to a non-secret DID such as `did:plc:...`, it is used only to apply the same self-authored exclusion as authenticated timeline polling; when unset, the public tail remains available but that exclusion cannot be applied.
 
 If the DID is missing, `atperson jetstream` refuses before connecting or mutating learned state. `atperson jetstream status` remains available and reports that the self DID is missing.
 

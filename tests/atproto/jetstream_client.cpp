@@ -38,7 +38,7 @@ int main() {
         try {
             atperson::JetstreamClient client(
                 "wss://jetstream.example/subscribe",
-                "",
+                "not-a-did",
                 {"app.bsky.feed.post"});
             (void)client;
         } catch (const std::runtime_error &) {

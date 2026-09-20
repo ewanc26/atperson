@@ -61,9 +61,9 @@ JetstreamClient::JetstreamClient(
       protocol_v2_(endpoint_.find("/xrpc/network.bsky.jetstream.subscribeEvents") !=
                    std::string::npos),
       cursor_(std::move(initial_cursor)) {
-    if (self_did_.empty() || self_did_.rfind("did:", 0u) != 0u) {
+    if (!self_did_.empty() && self_did_.rfind("did:", 0u) != 0u) {
         throw std::runtime_error(
-            "JetstreamClient: a valid self DID is required for ingestion policy");
+            "JetstreamClient: self DID must be empty or begin with 'did:'");
     }
     if (collections_.empty()) {
         throw std::runtime_error(
