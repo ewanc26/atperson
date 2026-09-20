@@ -77,6 +77,8 @@ void print_usage(std::ostream &out) {
         << "                              (default wss://jetstream.us-east.bsky.network/subscribe)\n"
         << "  ATPERSON_JETSTREAM_COLLECTIONS_FILE  one wantedCollections filter per line\n"
         << "  ATPERSON_JETSTREAM_DIDS_FILE         one wantedDids DID per line\n\n"
+        << "  ATPERSON_DAEMON_ARCHIVE_AFTER        optional startup archive lower bound\n"
+        << "  ATPERSON_DAEMON_ARCHIVE_BEFORE       optional startup archive upper bound\n"
         << "  ATPERSON_DAEMON_PAGES_PER_CYCLE  pages per daemon sync cycle (default 1)\n"
         << "  ATPERSON_DAEMON_POLL_MS          wait after an exhausted cycle "
            "(default 300000)\n"
