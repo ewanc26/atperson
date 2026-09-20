@@ -212,6 +212,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
     src/app/attestation/signer.cpp
+    src/app/attestation/proof.cpp
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
     src/app/journal/command.cpp
@@ -701,6 +702,18 @@ if(ATPERSON_BUILD_TESTS)
       atperson-attestation-signer-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
     add_test(NAME atperson-attestation-signer
              COMMAND atperson-attestation-signer-test)
+
+    add_executable(
+      atperson-attestation-proof-test
+      tests/attestation/proof.cpp
+      src/app/attestation/proof.cpp
+      src/app/attestation/signer.cpp)
+    target_compile_features(atperson-attestation-proof-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-attestation-proof-test PRIVATE wolfram)
+    target_include_directories(
+      atperson-attestation-proof-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-attestation-proof
+             COMMAND atperson-attestation-proof-test)
   endif()
 
   add_executable(
