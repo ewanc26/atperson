@@ -17,6 +17,7 @@
 namespace atperson {
 
 class JetstreamClient; /* defined in atproto/jetstream_client.hpp */
+class JetstreamReplaySource;
 class JetstreamReplayClient;
 
 /* One fetched feed item, already reduced to what the learning core needs.
@@ -138,7 +139,7 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
  * sealed tip so the next live cycle resumes after the archive without a gap. */
 JetstreamRunResult run_jetstream_archive(LanguageGraph &graph, Ledger &ledger,
                                          IngestionState &state,
-                                         JetstreamReplayClient &client,
+                                         JetstreamReplaySource &client,
                                          std::uint64_t after_seq,
                                          std::optional<std::uint64_t> before_seq,
                                          std::string_view self_did,

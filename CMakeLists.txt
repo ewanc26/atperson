@@ -705,6 +705,20 @@ if(ATPERSON_BUILD_TESTS)
     target_link_libraries(atperson-jetstream-replay-test PRIVATE atperson-cpp wolfram-cpp cjson)
     target_include_directories(atperson-jetstream-replay-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
     add_test(NAME atperson-jetstream-replay COMMAND atperson-jetstream-replay-test)
+
+    add_executable(
+      atperson-jetstream-archive-test
+      tests/sync/jetstream_archive.cpp
+      src/app/sync/jetstream_archive.cpp
+      src/app/sync/engine.cpp
+      src/app/ingestion/policy.cpp
+      src/app/ingestion/state.cpp
+      src/app/state/time.cpp)
+    target_compile_features(atperson-jetstream-archive-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-jetstream-archive-test PRIVATE atperson-cpp wolfram-cpp cjson)
+    target_include_directories(
+      atperson-jetstream-archive-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-jetstream-archive COMMAND atperson-jetstream-archive-test)
   endif()
 
   if(ATPERSON_BUILD_NETWORK)
