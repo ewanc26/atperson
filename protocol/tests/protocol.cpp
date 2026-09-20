@@ -120,6 +120,25 @@ int main() {
         std::vector<ProtocolEvidence>{fact, fact, fact});
     assert(replayed.entries().size() == 1);
 
+    /* A reconnect may replay the last commit, and a bounded resync may add
+     * its repository evidence afterward. Replay must remain deterministic and
+     * must not turn either transport event into a second protocol fact. */
+    const ProtocolEvidence commit{EvidenceKind::Sync, "wss://relay.example",
+                                  "#commit", "did:plc:abc", "rev-a|42", 42,
+                                  100, Verification::Unverified, 0.5};
+    const ProtocolEvidence reconnect = commit;
+    const ProtocolEvidence resync{EvidenceKind::Repository, "https://pds.example",
+                                  "#resync", "did:plc:abc", "rev-a|car-root", 43,
+                                  101, Verification::Verified, 1.0};
+    const std::vector<ProtocolEvidence> replay_input{
+        commit, reconnect, resync, commit, resync};
+    const auto replay_once = EvidenceStore::replay(replay_input);
+    const auto replay_twice = EvidenceStore::replay(replay_input);
+    assert(replay_once.entries() == replay_twice.entries());
+    assert(replay_once.entries().size() == 2u);
+    assert(replay_once.entries()[0].event_type == "#commit");
+    assert(replay_once.entries()[1].event_type == "#resync");
+
     CursorState cursor;
     assert(observe_stream(cursor, 10, "did:plc:abc", "3jui3s7xq2m2a") == CursorResult::Initialized);
     assert(revision_for(cursor, "did:plc:abc") == std::optional<std::string>("3jui3s7xq2m2a"));

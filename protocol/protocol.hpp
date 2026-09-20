@@ -173,6 +173,7 @@ struct ProtocolEvidence {
     std::uint64_t observed_at{};
     Verification verification{Verification::Unverified};
     double confidence{};
+    bool operator==(const ProtocolEvidence &) const = default;
 };
 
 /* In-memory authoritative reducer used by the durable adapter and tests. It
