@@ -177,7 +177,7 @@ if(ATPERSON_BUILD_NETWORK)
   FetchContent_Declare(
     wolfram
     GIT_REPOSITORY https://github.com/ewanc26/wolfram.git
-    GIT_TAG 9e63f76ab0b4f97f2cb5c62a5d0129b3d9023917
+    GIT_TAG e75adb9970bd36477f03f46fec93707a38163a56
     # wolfram-src/cpp/CMakeLists.txt uses ${CMAKE_SOURCE_DIR} (the top-level
     # project) to locate Wolfram's public headers. Under FetchContent that is
     # atperson, so the generated_owners.hpp codegen step would scan a
@@ -211,6 +211,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/atproto/jetstream_client.cpp
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
+    src/app/attestation/signer.cpp
     src/app/audit/command.cpp
     src/app/audit/transport.cpp
     src/app/journal/command.cpp
@@ -687,6 +688,19 @@ if(ATPERSON_BUILD_TESTS)
     target_include_directories(
       atperson-jetstream-client-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
     add_test(NAME atperson-jetstream-client COMMAND atperson-jetstream-client-test)
+  endif()
+
+  if(ATPERSON_BUILD_NETWORK)
+    add_executable(
+      atperson-attestation-signer-test
+      tests/attestation/signer.cpp
+      src/app/attestation/signer.cpp)
+    target_compile_features(atperson-attestation-signer-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-attestation-signer-test PRIVATE wolfram)
+    target_include_directories(
+      atperson-attestation-signer-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-attestation-signer
+             COMMAND atperson-attestation-signer-test)
   endif()
 
   add_executable(
