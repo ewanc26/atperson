@@ -86,7 +86,9 @@ bool record_repository_car(protocol::EvidenceLedger &ledger,
                            std::string_view source,
                            std::uint64_t sequence,
                            std::uint64_t observed_at) {
-    const auto verification = verify_signed_repository_car(signing_key, car, car_len);
+    auto verification = verify_signed_repository_car(signing_key, car, car_len);
+    if (!protocol::is_did(repo_did) || !protocol::is_tid(revision))
+        verification = protocol::Verification::Rejected;
     wf_car parsed{};
     std::string root;
     if (car != nullptr && car_len > 0u && wf_car_parse(car, car_len, &parsed) == WF_OK &&

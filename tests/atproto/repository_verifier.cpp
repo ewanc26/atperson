@@ -80,6 +80,16 @@ int main() {
                    car_ledger.entries()[0].verification ==
                        atperson::protocol::Verification::Verified);
             std::filesystem::remove(car_path, car_error);
+            const auto metadata_path = std::filesystem::temp_directory_path() /
+                                       "atperson-verifier-metadata-evidence.bin";
+            std::filesystem::remove(metadata_path, car_error);
+            atperson::protocol::EvidenceLedger metadata_ledger(metadata_path);
+            assert(atperson::record_repository_car(
+                metadata_ledger, "not-a-did", "3jui3s7xq2m2a", did_key, car,
+                car_len, "https://pds.example", 11u, 19u));
+            assert(metadata_ledger.entries().front().verification ==
+                   atperson::protocol::Verification::Rejected);
+            std::filesystem::remove(metadata_path, car_error);
             car[car_len - 1u] ^= 0x01u;
             assert(atperson::verify_signed_repository_car(
                        did_key, car, car_len) !=
