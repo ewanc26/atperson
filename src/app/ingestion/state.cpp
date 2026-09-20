@@ -1,4 +1,5 @@
 #include "state.hpp"
+#include "protocol.hpp"
 
 #include <cJSON.h>
 
@@ -165,6 +166,11 @@ void validate(const IngestionState &state) {
     if (state.catchup.protocol_repo.has_value() !=
         state.catchup.protocol_revision.has_value()) {
         invalid("protocol repository and revision must be paired");
+    }
+    if (state.catchup.protocol_repo &&
+        (!protocol::is_did(*state.catchup.protocol_repo) ||
+         !protocol::is_tid(*state.catchup.protocol_revision))) {
+        invalid("protocol repository checkpoint has invalid identifiers");
     }
 }
 
