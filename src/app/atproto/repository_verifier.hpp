@@ -23,8 +23,8 @@ struct RepositoryVerification {
 RepositoryVerification verify_repository_commit(const wf_subscribe_commit &commit,
                                                 wf_xrpc_client *client);
 
-/* Verify a complete repository CAR against the supplied DID signing key. */
-protocol::Verification verify_signed_repository_car(std::string_view repo_did,
+/* Verify a complete repository CAR against a resolved DID signing key. */
+protocol::Verification verify_signed_repository_car(std::string_view signing_key,
                                                     const unsigned char *car,
                                                     std::size_t car_len);
 

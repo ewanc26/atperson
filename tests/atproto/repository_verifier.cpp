@@ -7,6 +7,35 @@
 #include <filesystem>
 #include <cstdlib>
 
+static bool build_signed_car(const wf_signing_key &key, const char *did,
+                             unsigned char **out, size_t *out_len) {
+    wf_car car{};
+    wf_mst_node node{};
+    if (wf_mst_node_build(0, nullptr, nullptr, 0, &node) != WF_OK) return false;
+    if (wf_mst_node_finalize(&node, &car) != WF_OK) {
+        wf_mst_node_free(&node);
+        return false;
+    }
+    const wf_cid root = node.cid;
+    wf_mst_node_free(&node);
+    wf_commit commit{};
+    if (wf_commit_create(did, "3jui3s7xq2m2a", &root, nullptr, &key, &car,
+                         &commit) != WF_OK) {
+        wf_car_free(&car);
+        return false;
+    }
+    car.roots = static_cast<wf_cid *>(std::malloc(sizeof(wf_cid)));
+    if (!car.roots) {
+        wf_car_free(&car);
+        return false;
+    }
+    car.roots[0] = commit.cid;
+    car.root_count = 1;
+    const wf_status status = wf_car_write(&car, out, out_len);
+    wf_car_free(&car);
+    return status == WF_OK;
+}
+
 int main() {
     wf_subscribe_commit commit{};
     std::strncpy(commit.did, "did:plc:repo", sizeof(commit.did) - 1u);
@@ -30,29 +59,21 @@ int main() {
 
     wf_signing_key key{};
     if (wf_signing_key_generate(WF_KEY_TYPE_SECP256K1, &key) == WF_OK) {
+        char *did_key = nullptr;
         unsigned char *car = nullptr;
         size_t car_len = 0;
-        wf_car empty{};
-        wf_cid root{};
-        root.bytes[0] = 0x01;
-        root.bytes[1] = 0x71;
-        root.bytes[2] = 0x12;
-        root.bytes[3] = 0x20;
-        root.len = 36;
-        wf_commit signed_commit{};
-        if (wf_commit_create("did:plc:repo", "3jui3s7xq2m2a", &root, nullptr,
-                             &key, &empty, &signed_commit) == WF_OK &&
-            wf_car_write(&empty, &car, &car_len) == WF_OK) {
+        if (wf_signing_key_public_didkey(&key, &did_key) == WF_OK &&
+            build_signed_car(key, "did:plc:repo", &car, &car_len)) {
             assert(atperson::verify_signed_repository_car(
-                       "did:plc:repo", car, car_len) !=
+                       did_key, car, car_len) ==
                    atperson::protocol::Verification::Verified);
             car[car_len - 1u] ^= 0x01u;
             assert(atperson::verify_signed_repository_car(
-                       "did:plc:repo", car, car_len) !=
+                       did_key, car, car_len) !=
                    atperson::protocol::Verification::Verified);
             std::free(car);
         }
-        wf_car_free(&empty);
+        std::free(did_key);
     }
     const auto path = std::filesystem::temp_directory_path() / "atperson-verifier-evidence.bin";
     std::error_code error;

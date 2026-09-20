@@ -8,14 +8,14 @@
 
 namespace atperson {
 
-protocol::Verification verify_signed_repository_car(std::string_view repo_did,
+protocol::Verification verify_signed_repository_car(std::string_view signing_key,
                                                     const unsigned char *car,
                                                     std::size_t car_len) {
-    if (repo_did.empty() || car == nullptr || car_len == 0u)
+    if (signing_key.empty() || car == nullptr || car_len == 0u)
         return protocol::Verification::Rejected;
     int valid = 0;
     const wf_status status = wf_verify_record_commit(
-        std::string(repo_did).c_str(), car, car_len, &valid);
+        std::string(signing_key).c_str(), car, car_len, &valid);
     if (status != WF_OK) return protocol::Verification::Unverified;
     return valid ? protocol::Verification::Verified : protocol::Verification::Rejected;
 }
