@@ -34,21 +34,12 @@ std::string rfc3339_from_micros(std::int64_t micros) {
 
 } // namespace
 
-void decode_jetstream_replay_segment(
-    const void *bytes, std::size_t bytes_len, std::string_view self_did,
-    const std::function<void(const JetstreamEvent &)> &on_event) {
-    if (bytes == nullptr || bytes_len == 0u || !on_event) {
-        throw std::invalid_argument("invalid Jetstream replay segment arguments");
+void translate_jetstream_replay_events(
+    const wf_jetstream_replay_event *events, std::size_t event_count,
+    std::string_view self_did, const std::function<void(const JetstreamEvent &)> &on_event) {
+    if (events == nullptr || !on_event) {
+        throw std::invalid_argument("invalid Jetstream replay event arguments");
     }
-
-    wf_jetstream_replay_event *events = nullptr;
-    std::size_t event_count = 0u;
-    const wf_status status =
-        wf_jetstream_replay_segment_decode(bytes, bytes_len, &events, &event_count);
-    if (status != WF_OK) {
-        throw std::runtime_error("Wolfram failed to decode Jetstream replay segment");
-    }
-
     for (std::size_t i = 0u; i < event_count; ++i) {
         const auto &event = events[i];
         /* The replay API's commit rows are the only rows with record payloads.
@@ -72,7 +63,6 @@ void decode_jetstream_replay_segment(
             cJSON_Delete(root);
             cJSON_Delete(commit);
             cJSON_Delete(record);
-            wf_jetstream_replay_events_free(events, event_count);
             throw std::runtime_error("failed to allocate replay event envelope");
         }
         cJSON_AddStringToObject(root, "did", event.did);
@@ -101,6 +91,27 @@ void decode_jetstream_replay_segment(
             cJSON_free(json);
         }
         cJSON_Delete(root);
+    }
+}
+
+void decode_jetstream_replay_segment(
+    const void *bytes, std::size_t bytes_len, std::string_view self_did,
+    const std::function<void(const JetstreamEvent &)> &on_event) {
+    if (bytes == nullptr || bytes_len == 0u || !on_event) {
+        throw std::invalid_argument("invalid Jetstream replay segment arguments");
+    }
+    wf_jetstream_replay_event *events = nullptr;
+    std::size_t event_count = 0u;
+    const wf_status status =
+        wf_jetstream_replay_segment_decode(bytes, bytes_len, &events, &event_count);
+    if (status != WF_OK) {
+        throw std::runtime_error("Wolfram failed to decode Jetstream replay segment");
+    }
+    try {
+        translate_jetstream_replay_events(events, event_count, self_did, on_event);
+    } catch (...) {
+        wf_jetstream_replay_events_free(events, event_count);
+        throw;
     }
     wf_jetstream_replay_events_free(events, event_count);
 }

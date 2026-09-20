@@ -210,6 +210,7 @@ if(ATPERSON_BUILD_NETWORK)
   src/app/atproto/jetstream.cpp
   src/app/atproto/jetstream_client.cpp
   src/app/atproto/jetstream_replay.cpp
+  src/app/atproto/jetstream_replay_client.cpp
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
     src/app/attestation/signer.cpp
@@ -690,6 +691,19 @@ if(ATPERSON_BUILD_TESTS)
     target_include_directories(
       atperson-jetstream-client-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
     add_test(NAME atperson-jetstream-client COMMAND atperson-jetstream-client-test)
+
+    add_executable(
+      atperson-jetstream-replay-test
+      tests/atproto/jetstream_replay.cpp
+      src/app/atproto/jetstream_replay.cpp
+      src/app/atproto/jetstream.cpp
+      src/app/ingestion/policy.cpp
+      src/app/sync/engine.cpp
+      src/app/state/time.cpp)
+    target_compile_features(atperson-jetstream-replay-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-jetstream-replay-test PRIVATE atperson-cpp wolfram-cpp cjson)
+    target_include_directories(atperson-jetstream-replay-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-jetstream-replay COMMAND atperson-jetstream-replay-test)
   endif()
 
   if(ATPERSON_BUILD_NETWORK)
