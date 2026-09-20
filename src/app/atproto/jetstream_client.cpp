@@ -213,7 +213,7 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                                 typed.commit.collection + "/" + typed.commit.rkey;
                 js.author_did = event.did;
                 js.seq = protocol_v2_ ? event.seq : event.time_us;
-                if (typed.commit.rev != nullptr) {
+                if (typed_status == WF_OK && typed.commit.rev != nullptr) {
                     js.repo_revision = typed.commit.rev;
                     if (!protocol::is_tid(js.repo_revision))
                         js.verification = protocol::Verification::Rejected;
@@ -225,10 +225,12 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
             SyncObservation observation;
             const bool normalized_v2_commit =
                 protocol_v2_ && typed_status != WF_OK;
-            if (!typed_delete &&
+            const bool extracted =
+                !typed_delete &&
                 (normalized_v2_commit || typed_status == WF_OK) &&
                 atperson::extract_jetstream_commit(event.json, event.json_len,
-                                                   self_did_, observation)) {
+                                                   self_did_, observation);
+            if (extracted) {
                 JetstreamEvent js;
                 js.source_uri = observation.source_uri;
                 js.author_did = observation.author_did;
@@ -239,7 +241,7 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                 js.quote_uri = observation.context.quote_uri;
                 js.policy_reason = observation.policy_reason;
                 js.seq = protocol_v2_ ? event.seq : event.time_us;
-                if (typed.commit.rev != nullptr) {
+                if (typed_status == WF_OK && typed.commit.rev != nullptr) {
                     js.repo_revision = typed.commit.rev;
                     if (!protocol::is_tid(js.repo_revision))
                         js.verification = protocol::Verification::Rejected;

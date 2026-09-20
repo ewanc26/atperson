@@ -85,12 +85,21 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
             ? protocol::observe_sequence(
                   protocol_cursor,
                   event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u)
-            : protocol::observe_stream(
+            : event.repo_revision.empty()
+                  ? protocol::observe_sequence(
+                        protocol_cursor,
+                        event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u)
+                  : protocol::observe_stream(
                   protocol_cursor,
                   event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u,
                   event.author_did, event.repo_revision);
-        if (cursor_result == protocol::CursorResult::Gap ||
-            cursor_result == protocol::CursorResult::Rewind ||
+        if (cursor_result == protocol::CursorResult::Gap) {
+            /* Jetstream seq is global. A collection-filtered subscription
+             * necessarily skips unrelated commits, so a gap requests
+             * reconciliation but must not discard the valid event. */
+            result.protocol_resync_required = true;
+        }
+        if (cursor_result == protocol::CursorResult::Rewind ||
             cursor_result == protocol::CursorResult::Rejected) {
             result.protocol_resync_required = true;
             if (protocol_ledger != nullptr) {
