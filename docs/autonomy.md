@@ -31,6 +31,14 @@ The autonomy supervisor must maintain these invariants:
 - malformed, unverified, or rejected protocol input remains inspectable;
 - shutdown and emergency pause are fail-closed and recoverable.
 
+External publishing also has an independent environment master switch:
+`ATPERSON_ALLOW_EXTERNAL_PUBLISHING=true`. Bootstrap writes it as false in the
+private `.env` template. After the first interactive ingest completes, the CLI
+asks whether the operator wants to enable publishing and prints the exact
+change; activation requires sourcing the updated environment and starting a
+new process. The switch cannot bypass policy, dry-run, pause, or exact-digest
+approval.
+
 ## Recovery phases
 
 1. bootstrap and validate private paths;

@@ -102,7 +102,8 @@ struct OutboundExecutionResult {
 execute_outbound_action(const ControlState &control, const OutboundPolicy &policy,
                         OutboundBudgetState &budget, const OutboundAction &action,
                         const OutboundWriterFactory &writer_for, std::int64_t now,
-                        const OutboundAttestationFactory &attest = {});
+                        const OutboundAttestationFactory &attest = {},
+                        bool external_publishing_allowed = true);
 
 /* One-sentence human explanation of an execution result. */
 [[nodiscard]] std::string describe_outbound_execution(const OutboundExecutionResult &result);

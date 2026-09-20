@@ -1,6 +1,8 @@
 #include "cli/config.hpp"
 
 #include <cstdlib>
+#include <algorithm>
+#include <cctype>
 #include <stdexcept>
 
 namespace atperson {
@@ -19,6 +21,21 @@ std::string required_env(const char *name) {
         throw std::runtime_error(std::string("missing required environment variable ") + name);
     }
     return value;
+}
+
+bool external_publishing_enabled() {
+    std::string value = env_or("ATPERSON_ALLOW_EXTERNAL_PUBLISHING");
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (value.empty() || value == "0" || value == "false" || value == "no" ||
+        value == "off") {
+        return false;
+    }
+    if (value == "1" || value == "true" || value == "yes" || value == "on") {
+        return true;
+    }
+    throw std::runtime_error(
+        "ATPERSON_ALLOW_EXTERNAL_PUBLISHING must be one of: true, false, 1, 0, yes, no, on, off");
 }
 
 std::string self_did() {

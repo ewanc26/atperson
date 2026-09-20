@@ -140,7 +140,8 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
     };
 
     const OutboundExecutionResult result =
-        execute_outbound_action(control, policy, budget, action, writer_for, now, attest);
+        execute_outbound_action(control, policy, budget, action, writer_for, now, attest,
+                                external_publishing_enabled());
 
     if (result.budget_recorded) {
         budget.saved_at = now;

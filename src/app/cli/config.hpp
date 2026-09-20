@@ -18,6 +18,7 @@ namespace cli {
 
 std::string env_or(const char *name, std::string fallback = {});
 std::string required_env(const char *name);
+bool external_publishing_enabled();
 
 /* Non-secret repository identity used by unauthenticated public ingestion to
  * enforce the self-authored exclusion from #20. Empty means unconfigured. */
