@@ -38,6 +38,12 @@ repository revision. A gap, rewind, or rejected revision pauses learning and
 preserves the last known-good checkpoint. The checkpoint may advance again
 only after a bounded CAR resynchronization has been validated as `Verified`.
 
+The resync adapter delegates repository retrieval to Wolfram's
+`com.atproto.sync.getRepo` implementation, then bounds both CAR block count and
+serialized size before invoking signature verification and ledger recording.
+Fetch failures and bound violations are retained as `#resync` evidence with
+their provenance and cannot clear the pause.
+
 Live Jetstream `#commit` frames may feed the social-content pipeline only after
 the ordinary ingestion policy. `#sync`, `#identity`, `#account`, and account
 deletion frames are protocol-only: their raw Wolfram payloads are written to
