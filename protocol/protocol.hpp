@@ -91,7 +91,16 @@ struct OAuthAuthorizationPlan {
     bool loopback_only{};
 };
 
+struct OAuthClientMetadata {
+    std::string client_id;
+    std::string redirect_uri;
+    std::string scope;
+    bool dpop_bound{true};
+};
+
 std::optional<OAuthAuthorizationPlan> make_loopback_oauth_plan(
+    std::string_view redirect_uri, std::string_view scope);
+std::optional<OAuthClientMetadata> localhost_oauth_client_metadata(
     std::string_view redirect_uri, std::string_view scope);
 
 std::optional<OAuthSessionFact> accept_oauth_session(

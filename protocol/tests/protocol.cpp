@@ -64,6 +64,10 @@ int main() {
     assert(oauth_plan && oauth_plan->loopback_only &&
            oauth_plan->permission == PermissionKind::RepositoryMigration);
     assert(!make_loopback_oauth_plan("https://evil.example/callback", "repo:*"));
+    const auto metadata = localhost_oauth_client_metadata(
+        "http://127.0.0.1:43127/callback", "repo:*");
+    assert(metadata && metadata->client_id == "http://localhost/" &&
+           metadata->dpop_bound);
     const AtUri record_uri{"did:plc:abc", "app.bsky.feed.post", "3k1"};
     assert(reduce_record_observation(record_uri, "bafyreiabcdef", false, false, true).state ==
            RecordState::Present);

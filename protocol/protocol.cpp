@@ -98,6 +98,13 @@ std::optional<OAuthAuthorizationPlan> make_loopback_oauth_plan(
                                   classify_permission(scope), true};
 }
 
+std::optional<OAuthClientMetadata> localhost_oauth_client_metadata(
+    std::string_view redirect_uri, std::string_view scope) {
+    if (!make_loopback_oauth_plan(redirect_uri, scope)) return std::nullopt;
+    return OAuthClientMetadata{"http://localhost/", std::string(redirect_uri),
+                               std::string(scope), true};
+}
+
 std::optional<AtUri> parse_at_uri(std::string_view value) {
     if (!value.starts_with("at://") || value.find_first_of("?#") != std::string_view::npos) {
         return std::nullopt;

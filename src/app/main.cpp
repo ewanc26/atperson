@@ -216,6 +216,28 @@ int main(int argc, char **argv) {
                           << '\n';
                 return 0;
             }
+            if (subcommand == "oauth-metadata") {
+                if (argc < 4) {
+                    usage(std::cerr);
+                    return 2;
+                }
+                const auto metadata = atperson::protocol::localhost_oauth_client_metadata(
+                    atperson::cli::env_or("ATPERSON_OAUTH_REDIRECT",
+                                          "http://127.0.0.1:43127/callback"),
+                    argv[3]);
+                if (!metadata) {
+                    std::cerr << "protocol oauth-metadata: invalid loopback redirect\n";
+                    return 1;
+                }
+                std::cout << "{\"client_id\":\"" << metadata->client_id
+                          << "\",\"redirect_uris\":[\"" << metadata->redirect_uri
+                          << "\"],\"grant_types\":[\"authorization_code\",\"refresh_token\"]"
+                          << ",\"response_types\":[\"code\"],\"scope\":\""
+                          << metadata->scope
+                          << "\",\"token_endpoint_auth_method\":\"none\""
+                          << ",\"application_type\":\"native\",\"dpop_bound_access_tokens\":true}\n";
+                return 0;
+            }
             if (subcommand != "status") {
                 usage(std::cerr);
                 return 2;
