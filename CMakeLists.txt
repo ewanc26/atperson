@@ -235,7 +235,8 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/execute.cpp
     src/app/state/lock.cpp
     src/app/sync/engine.cpp
-    src/app/sync/jetstream_backfill.cpp
+  src/app/sync/jetstream_backfill.cpp
+  src/app/sync/jetstream_archive.cpp
     src/app/state/time.cpp
     src/app/sync/linkage.cpp
     src/app/sync/parallel.cpp

@@ -17,6 +17,7 @@
 namespace atperson {
 
 class JetstreamClient; /* defined in atproto/jetstream_client.hpp */
+class JetstreamReplayClient;
 
 /* One fetched feed item, already reduced to what the learning core needs.
  * Produced by Wolfram-backed AtprotoClient in the network build and by test
@@ -131,6 +132,17 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                                           JetstreamClient &client,
                                           const JetstreamLimits &limits,
                                           const SyncLinker &link = nullptr);
+
+/* Process one bounded sealed-archive window through the same durable pipeline
+ * as live Jetstream. On success, the persisted Jetstream cursor is set to the
+ * sealed tip so the next live cycle resumes after the archive without a gap. */
+JetstreamRunResult run_jetstream_archive(LanguageGraph &graph, Ledger &ledger,
+                                         IngestionState &state,
+                                         JetstreamReplayClient &client,
+                                         std::uint64_t after_seq,
+                                         std::optional<std::uint64_t> before_seq,
+                                         std::string_view self_did,
+                                         const SyncLinker &link = nullptr);
 
 } // namespace atperson
 
