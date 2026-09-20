@@ -6,6 +6,7 @@
 #include "wolfram/jetstream_replay.h"
 #include "wolfram/xrpc.h"
 
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -19,6 +20,7 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
     if (!on_event || self_did.empty() || collections.empty()) {
         throw std::invalid_argument("invalid Jetstream replay window arguments");
     }
+    const bool caller_supplied_before = before_seq.has_value();
     const char *kinds[] = {"commit"};
     std::vector<const char *> collection_values;
     collection_values.reserve(collections.size());
@@ -33,11 +35,21 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
     filter.collections_count = collection_values.size();
     filter.dids = did_values.data();
     filter.dids_count = did_values.size();
-    filter.after_seq = after_seq;
+    const std::uint64_t max_before =
+        after_seq > std::numeric_limits<std::uint64_t>::max() -
+                       kJetstreamArchiveMaxSequenceSpan
+            ? std::numeric_limits<std::uint64_t>::max()
+            : after_seq + kJetstreamArchiveMaxSequenceSpan;
     if (before_seq) {
-        filter.before_seq = *before_seq;
-        filter.has_before_seq = 1;
+        if (*before_seq <= after_seq || *before_seq > max_before) {
+            throw std::invalid_argument("Jetstream replay window exceeds the hard sequence cap");
+        }
+    } else {
+        before_seq = max_before;
     }
+    filter.after_seq = after_seq;
+    filter.before_seq = *before_seq;
+    filter.has_before_seq = 1;
     wf_xrpc_client *const client = wf_agent_get_xrpc_client(&agent_);
     if (client == nullptr) {
         throw std::runtime_error("Jetstream replay requires an authenticated agent client");
@@ -55,7 +67,7 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
             wf_jetstream_replay_plan_page_free(&page);
             throw std::runtime_error("Jetstream replay planSnapshot failed");
         }
-        if (!before_seq) {
+        if (!caller_supplied_before && page.sealed_tip_seq < *before_seq) {
             before_seq = page.sealed_tip_seq;
         }
         result.sealed_tip_seq = *before_seq;
