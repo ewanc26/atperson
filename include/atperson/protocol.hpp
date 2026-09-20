@@ -67,6 +67,9 @@ std::optional<AtUri> parse_at_uri(std::string_view value);
 bool is_nsid(std::string_view value) noexcept;
 bool is_cid(std::string_view value) noexcept;
 bool is_tid(std::string_view value) noexcept;
+RecordFact reduce_record_observation(AtUri uri, std::string_view cid,
+                                     bool explicit_delete, bool from_app_view,
+                                     bool observed);
 bool is_did(std::string_view value) noexcept;
 bool is_handle(std::string_view value) noexcept;
 SyncEvent classify_sync_event(std::string_view type) noexcept;

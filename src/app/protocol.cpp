@@ -78,6 +78,21 @@ bool is_tid(std::string_view value) noexcept {
     return value.find_first_not_of("234567abcdefghijklmnopqrstuvwxyz") == std::string_view::npos;
 }
 
+RecordFact reduce_record_observation(AtUri uri, std::string_view cid,
+                                     bool explicit_delete, bool from_app_view,
+                                     bool observed) {
+    RecordFact fact{std::move(uri), std::string(cid), RecordState::Unverified,
+                    from_app_view};
+    if (!observed) {
+        fact.state = RecordState::Missing;
+    } else if (explicit_delete) {
+        fact.state = RecordState::Deleted;
+    } else if (!from_app_view && !cid.empty() && is_cid(cid)) {
+        fact.state = RecordState::Present;
+    }
+    return fact;
+}
+
 bool is_handle(std::string_view value) noexcept {
     if (value.empty() || value.starts_with("did:") || value.find('.') == std::string_view::npos) {
         return false;

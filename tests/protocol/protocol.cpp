@@ -21,6 +21,15 @@ int main() {
     assert(is_cid("bafyreiabcdef"));
     assert(is_tid("3jui3s7xq2m2a"));
     assert(!is_tid("not-a-tid"));
+    const AtUri record_uri{"did:plc:abc", "app.bsky.feed.post", "3k1"};
+    assert(reduce_record_observation(record_uri, "bafyreiabcdef", false, false, true).state ==
+           RecordState::Present);
+    assert(reduce_record_observation(record_uri, "", true, false, true).state ==
+           RecordState::Deleted);
+    assert(reduce_record_observation(record_uri, "", false, false, false).state ==
+           RecordState::Missing);
+    assert(reduce_record_observation(record_uri, "bafyreiabcdef", false, true, true).state ==
+           RecordState::Unverified);
     assert(classify_sync_event("#commit") == SyncEvent::Commit);
     assert(classify_sync_event("#identity") == SyncEvent::Identity);
     assert(classify_sync_event("#unknown") == SyncEvent::Unknown);
