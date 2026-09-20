@@ -44,7 +44,7 @@ int run_jetstream_status(
     const std::filesystem::path &dids_file) {
     const std::string endpoint = env_or(
         "ATPERSON_JETSTREAM_ENDPOINT",
-        "wss://jetstream.us-east.bsky.network/subscribe");
+        "wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents");
     const std::string configured_self = self_did();
     const std::vector<std::string> collections =
         collections_file.empty()
@@ -113,7 +113,7 @@ int run_jetstream_archive(
     Ledger ledger(ledger_file);
     const std::string endpoint = env_or(
         "ATPERSON_JETSTREAM_ENDPOINT",
-        "wss://jetstream.us-east.bsky.network/subscribe");
+        "wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents");
     auto state = load_ingestion_state(state_file, endpoint, "", kSourceKindJetstream);
     if (!after_seq) {
         if (state.catchup.active && state.catchup.cursor) {
@@ -194,7 +194,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
 
     const std::string endpoint = env_or(
         "ATPERSON_JETSTREAM_ENDPOINT",
-        "wss://jetstream.us-east.bsky.network/subscribe");
+        "wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents");
 
     const std::string configured_self = required_self_did();
 

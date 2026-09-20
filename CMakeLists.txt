@@ -177,7 +177,7 @@ if(ATPERSON_BUILD_NETWORK)
   FetchContent_Declare(
     wolfram
     GIT_REPOSITORY https://github.com/ewanc26/wolfram.git
-    GIT_TAG 868ef9823a4cb89a4bb74fc11a4d580e35bf4f16
+    GIT_TAG 2b21221
     # wolfram-src/cpp/CMakeLists.txt uses ${CMAKE_SOURCE_DIR} (the top-level
     # project) to locate Wolfram's public headers. Under FetchContent that is
     # atperson, so the generated_owners.hpp codegen step would scan a
