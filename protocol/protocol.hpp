@@ -13,7 +13,7 @@ namespace atperson::protocol {
 enum class Verification { Verified, Unverified, Rejected };
 enum class XrpcKind { Query, Procedure, Subscription, Unknown };
 enum class EvidenceKind { Identity, Repository, Record, Lexicon, Sync, Authorization };
-enum class ServiceRole { Pds, Relay, AppView, FeedGenerator, Labeler };
+enum class ServiceRole { Unknown, Pds, Relay, AppView, FeedGenerator, Labeler };
 enum class RecordState { Present, Deleted, Missing, Unverified };
 enum class SyncEvent { Commit, Sync, Identity, Account, Unknown };
 enum class PermissionKind { Record, AllRecords, RepositoryMigration, DpopBound };
@@ -28,6 +28,10 @@ struct StrongRef {
     AtUri uri;
     std::string cid;
 };
+
+/* Service identity is supplied by a DID document or Lexicon/service
+ * configuration; never infer authority from an endpoint hostname. */
+ServiceRole classify_service_role(std::string_view type) noexcept;
 
 struct IdentityFact {
     std::string did;
@@ -71,6 +75,8 @@ struct AuthorizationFact {
 /* Parse only the authority/collection/rkey form; query and fragment suffixes
  * are rejected so callers cannot accidentally learn from an ambiguous URI. */
 std::optional<AtUri> parse_at_uri(std::string_view value);
+std::optional<StrongRef> parse_strong_ref(std::string_view uri,
+                                          std::string_view cid);
 bool is_nsid(std::string_view value) noexcept;
 bool is_cid(std::string_view value) noexcept;
 bool is_tid(std::string_view value) noexcept;

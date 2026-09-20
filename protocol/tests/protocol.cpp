@@ -11,6 +11,10 @@ int main() {
            parsed->collection == "app.bsky.feed.post" && parsed->rkey == "3k1");
     assert(!parse_at_uri("at://handle.example/app.bsky.feed.post/3k1"));
     assert(!parse_at_uri("at://did:plc:abc/app.bsky.feed.post/3k1?x=1"));
+    const auto strong = parse_strong_ref("at://did:plc:abc/app.bsky.feed.post/3k1",
+                                         "bafyreiabcdef");
+    assert(strong && strong->cid == "bafyreiabcdef");
+    assert(!parse_strong_ref("at://did:plc:abc/app.bsky.feed.post/3k1", "bad"));
     assert(is_did("did:plc:abc"));
     assert(!is_did("alice.example"));
     assert(is_handle("alice.example"));
@@ -29,6 +33,12 @@ int main() {
     assert(is_cid("bafyreiabcdef"));
     assert(is_tid("3jui3s7xq2m2a"));
     assert(!is_tid("not-a-tid"));
+    assert(classify_service_role("AtprotoPersonalDataServer") == ServiceRole::Pds);
+    assert(classify_service_role("AtprotoRelay") == ServiceRole::Relay);
+    assert(classify_service_role("AtprotoAppView") == ServiceRole::AppView);
+    assert(classify_service_role("AtprotoFeedGenerator") == ServiceRole::FeedGenerator);
+    assert(classify_service_role("AtprotoLabeler") == ServiceRole::Labeler);
+    assert(classify_service_role("unknown") == ServiceRole::Unknown);
     const AtUri record_uri{"did:plc:abc", "app.bsky.feed.post", "3k1"};
     assert(reduce_record_observation(record_uri, "bafyreiabcdef", false, false, true).state ==
            RecordState::Present);

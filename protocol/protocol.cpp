@@ -26,6 +26,15 @@ std::string read_field(std::istream &in) {
 
 namespace atperson::protocol {
 
+ServiceRole classify_service_role(std::string_view type) noexcept {
+    if (type == "AtprotoPersonalDataServer") return ServiceRole::Pds;
+    if (type == "AtprotoRelay") return ServiceRole::Relay;
+    if (type == "AtprotoAppView") return ServiceRole::AppView;
+    if (type == "AtprotoFeedGenerator") return ServiceRole::FeedGenerator;
+    if (type == "AtprotoLabeler") return ServiceRole::Labeler;
+    return ServiceRole::Unknown;
+}
+
 std::optional<AtUri> parse_at_uri(std::string_view value) {
     if (!value.starts_with("at://") || value.find_first_of("?#") != std::string_view::npos) {
         return std::nullopt;
@@ -45,6 +54,14 @@ std::optional<AtUri> parse_at_uri(std::string_view value) {
         return std::nullopt;
     }
     return out;
+}
+
+std::optional<StrongRef> parse_strong_ref(std::string_view uri,
+                                          std::string_view cid) {
+    if (!is_cid(cid)) return std::nullopt;
+    const auto parsed = parse_at_uri(uri);
+    if (!parsed) return std::nullopt;
+    return StrongRef{*parsed, std::string(cid)};
 }
 
 bool is_did(std::string_view value) noexcept {
