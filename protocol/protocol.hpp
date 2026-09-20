@@ -76,6 +76,19 @@ struct AuthorizationFact {
     Verification verification{Verification::Unverified};
 };
 
+struct RepositoryFact {
+    std::string repo_did;
+    std::string revision;
+    std::string signed_root_cid;
+    std::string car_source;
+    Verification verification{Verification::Unverified};
+};
+
+std::optional<RepositoryFact> accept_repository_fact(
+    std::string_view repo_did, std::string_view revision,
+    std::string_view signed_root_cid, std::string_view car_source,
+    Verification verification);
+
 /* Parse only the authority/collection/rkey form; query and fragment suffixes
  * are rejected so callers cannot accidentally learn from an ambiguous URI. */
 std::optional<AtUri> parse_at_uri(std::string_view value);

@@ -56,6 +56,19 @@ RecordAuthority authority_for_service(ServiceRole role) noexcept {
     return RecordAuthority::Unknown;
 }
 
+std::optional<RepositoryFact> accept_repository_fact(
+    std::string_view repo_did, std::string_view revision,
+    std::string_view signed_root_cid, std::string_view car_source,
+    Verification verification) {
+    if (!is_did(repo_did) || revision.empty() || !is_cid(signed_root_cid) ||
+        car_source.empty()) {
+        return std::nullopt;
+    }
+    return RepositoryFact{std::string(repo_did), std::string(revision),
+                          std::string(signed_root_cid), std::string(car_source),
+                          verification};
+}
+
 std::optional<AtUri> parse_at_uri(std::string_view value) {
     if (!value.starts_with("at://") || value.find_first_of("?#") != std::string_view::npos) {
         return std::nullopt;

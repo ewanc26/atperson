@@ -44,6 +44,15 @@ int main() {
     assert(authority_for_service(ServiceRole::Pds) == RecordAuthority::Repository);
     assert(authority_for_service(ServiceRole::AppView) == RecordAuthority::AppViewDerived);
     assert(authority_for_service(ServiceRole::Relay) == RecordAuthority::Unknown);
+    const auto repository = accept_repository_fact(
+        "did:plc:abc", "bafyrev1", "bafyreiabcdef", "https://pds.example/repo.car",
+        Verification::Verified);
+    assert(repository && repository->signed_root_cid == "bafyreiabcdef" &&
+           repository->verification == Verification::Verified);
+    assert(!accept_repository_fact("alice.example", "bafyrev1", "bafyreiabcdef",
+                                   "car", Verification::Verified));
+    assert(!accept_repository_fact("did:plc:abc", "bafyrev1", "bad", "car",
+                                   Verification::Rejected));
     const AtUri record_uri{"did:plc:abc", "app.bsky.feed.post", "3k1"};
     assert(reduce_record_observation(record_uri, "bafyreiabcdef", false, false, true).state ==
            RecordState::Present);
