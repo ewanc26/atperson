@@ -66,7 +66,8 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
             (void)protocol::append_firehose_event(
                 *protocol_ledger, "jetstream",
                 event.deleted ? "#commit/delete" : event.event_type,
-                event.author_did, event.source_uri + "|" + std::to_string(event.seq),
+                event.author_did, event.source_uri + "|" + std::to_string(event.seq) +
+                    "|" + event.repo_revision,
                 event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u, 0u);
         }
         if (event.deleted) {

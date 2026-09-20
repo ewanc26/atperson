@@ -18,7 +18,8 @@ JetstreamRunResult run_jetstream_archive(
             (void)protocol::append_firehose_event(
                 *protocol_ledger, "jetstream-archive",
                 event.deleted ? "#commit/delete" : event.event_type,
-                event.author_did, event.source_uri + "|" + std::to_string(event.seq),
+                event.author_did, event.source_uri + "|" + std::to_string(event.seq) +
+                    "|" + event.repo_revision,
                 event.seq, 0u);
         }
         if (event.deleted) {
