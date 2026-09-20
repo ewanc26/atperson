@@ -32,6 +32,12 @@ signature, or root failure is retained as explicit `#car` evidence with its
 source, revision, sequence, timestamp, and non-verified status; it is never
 fed into social learning or treated as repository authority.
 
+The live JetStream reducer applies the same boundary to cursors: protocol-only
+frames still advance sequence continuity, while commit frames also carry a
+repository revision. A gap, rewind, or rejected revision pauses learning and
+preserves the last known-good checkpoint. The checkpoint may advance again
+only after a bounded CAR resynchronization has been validated as `Verified`.
+
 Live Jetstream `#commit` frames may feed the social-content pipeline only after
 the ordinary ingestion policy. `#sync`, `#identity`, `#account`, and account
 deletion frames are protocol-only: their raw Wolfram payloads are written to
