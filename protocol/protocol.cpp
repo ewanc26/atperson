@@ -4,6 +4,11 @@
 #include <fstream>
 #include <stdexcept>
 
+#if !defined(_WIN32)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 namespace {
 
 void write_field(std::ostream &out, std::string_view value) {
@@ -289,6 +294,11 @@ bool EvidenceLedger::append(ProtocolEvidence evidence) {
     EvidenceStore current;
     for (auto &entry : entries()) current.append(std::move(entry));
     if (!current.append(evidence)) return false;
+    if (const auto parent = path_.parent_path(); !parent.empty()) {
+        std::error_code error;
+        std::filesystem::create_directories(parent, error);
+        if (error) throw std::runtime_error("create protocol evidence directory");
+    }
     std::ofstream out(path_, std::ios::binary | std::ios::app);
     if (!out) throw std::runtime_error("open protocol evidence ledger");
     const std::uint32_t magic = 0x41545045u;
@@ -304,7 +314,18 @@ bool EvidenceLedger::append(ProtocolEvidence evidence) {
     write_field(out, evidence.event_type);
     write_field(out, evidence.subject);
     write_field(out, evidence.payload);
+    out.flush();
     if (!out) throw std::runtime_error("write protocol evidence ledger");
+#if !defined(_WIN32)
+    const int fd = ::open(path_.c_str(), O_WRONLY);
+    if (fd >= 0) {
+        if (::fsync(fd) != 0) {
+            ::close(fd);
+            throw std::runtime_error("sync protocol evidence ledger");
+        }
+        ::close(fd);
+    }
+#endif
     return true;
 }
 
