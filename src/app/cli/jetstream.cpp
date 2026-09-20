@@ -100,6 +100,8 @@ int run_jetstream_archive(
     const std::filesystem::path &state_file,
     std::optional<std::uint64_t> after_seq,
     std::optional<std::uint64_t> before_seq,
+    const std::filesystem::path &collections_file,
+    const std::filesystem::path &dids_file,
     const std::function<void(const LanguageGraph &)> &print_stats) {
     const auto control_file = cli::control_state_path();
     if (load_control_state(control_file).paused) {
@@ -143,9 +145,16 @@ int run_jetstream_archive(
     WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
                            required_env("ATPERSON_APP_PASSWORD"));
     JetstreamReplayClient client(*session.agent());
+    const std::vector<std::string> collections =
+        collections_file.empty() ? default_jetstream_collections()
+                                  : load_jetstream_collections(collections_file);
+    const std::vector<std::string> dids =
+        dids_file.empty() ? std::vector<std::string>{}
+                          : load_jetstream_dids(dids_file);
     const auto linker = make_journal_linker(cli::action_journal_path());
     const auto result = atperson::run_jetstream_archive(
-        graph, ledger, state, client, *after_seq, before_seq, required_self_did(), linker);
+        graph, ledger, state, client, *after_seq, before_seq, required_self_did(),
+        collections, dids, linker);
     graph.save(model_path);
     state.checkpoint.generation++;
     save_ingestion_state(state, state_file);

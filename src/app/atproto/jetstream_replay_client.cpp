@@ -12,18 +12,26 @@ namespace atperson {
 
 JetstreamReplayClient::WindowResult JetstreamReplayClient::fetch_window(
     std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,
-    std::string_view self_did,
+    std::string_view self_did, const std::vector<std::string> &collections,
+    const std::vector<std::string> &dids,
     const std::function<void(const JetstreamEvent &)> &on_event) {
-    if (!on_event || self_did.empty()) {
+    if (!on_event || self_did.empty() || collections.empty()) {
         throw std::invalid_argument("invalid Jetstream replay window arguments");
     }
     const char *kinds[] = {"commit"};
-    const char *collections[] = {"app.bsky.feed.post"};
+    std::vector<const char *> collection_values;
+    collection_values.reserve(collections.size());
+    for (const auto &collection : collections) collection_values.push_back(collection.c_str());
+    std::vector<const char *> did_values;
+    did_values.reserve(dids.size());
+    for (const auto &did : dids) did_values.push_back(did.c_str());
     wf_jetstream_replay_filter filter{};
     filter.kinds = kinds;
     filter.kinds_count = 1u;
-    filter.collections = collections;
-    filter.collections_count = 1u;
+    filter.collections = collection_values.data();
+    filter.collections_count = collection_values.size();
+    filter.dids = did_values.data();
+    filter.dids_count = did_values.size();
     filter.after_seq = after_seq;
     if (before_seq) {
         filter.before_seq = *before_seq;

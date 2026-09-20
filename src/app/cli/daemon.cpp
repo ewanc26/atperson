@@ -3,6 +3,7 @@
 #include "client.hpp"
 #include "atproto/jetstream_replay_client.hpp"
 #include "atproto/session.hpp"
+#include "atproto/jetstream_filter.hpp"
 #include "config.hpp"
 #include "control/state.hpp"
 #include "daemon/config.hpp"
@@ -92,7 +93,14 @@ void run_startup_archive_if_configured(
                            required_env("ATPERSON_APP_PASSWORD"));
     JetstreamReplayClient replay(*session.agent());
     const auto result = atperson::run_jetstream_archive(
-        graph, ledger, archive_state, replay, after, before, required_self_did(), linker);
+        graph, ledger, archive_state, replay, after, before, required_self_did(),
+        jetstream_collections_path().empty()
+            ? default_jetstream_collections()
+            : load_jetstream_collections(jetstream_collections_path()),
+        jetstream_dids_path().empty()
+            ? std::vector<std::string>{}
+            : load_jetstream_dids(jetstream_dids_path()),
+        linker);
     graph.save(model_path);
     archive_state.checkpoint.generation++;
     save_ingestion_state(archive_state, jetstream_state_path());

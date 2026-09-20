@@ -36,6 +36,10 @@ The bounded operator command is now available:
 atperson jetstream archive [after-seq] [before-seq]
 ```
 
+The archive command also accepts `--collections <file>` and `--dids <file>`;
+when omitted it uses the same configured filter files as live Jetstream. These
+filters are passed to the replay planner and are never inferred from records.
+
 It authenticates through the configured Wolfram session, defaults `after-seq` to the
 persisted Jetstream checkpoint (or zero), and optionally caps the window at an
 inclusive `before-seq`. Every invocation is hard-capped to a 10,000,000-sequence

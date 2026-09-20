@@ -347,10 +347,6 @@ int main(int argc, char **argv) {
         if (command == "jetstream") {
             /* "status" is handled above before the model is loaded. */
             if (argc >= 3 && std::string_view(argv[2]) == "archive") {
-                if (argc > 5) {
-                    std::cerr << "jetstream archive: expected [after-seq] [before-seq]\n";
-                    return 2;
-                }
                 const auto parse_sequence = [](const char *value,
                                                const char *name) -> std::uint64_t {
                     try {
@@ -366,12 +362,27 @@ int main(int argc, char **argv) {
                 };
                 std::optional<std::uint64_t> after;
                 std::optional<std::uint64_t> before;
+                std::filesystem::path collections_file =
+                    atperson::cli::jetstream_collections_path();
+                std::filesystem::path dids_file = atperson::cli::jetstream_dids_path();
                 if (argc >= 4) after = parse_sequence(argv[3], "after-seq");
                 if (argc >= 5) before = parse_sequence(argv[4], "before-seq");
+                for (int i = 5; i < argc; ++i) {
+                    const std::string_view argument = argv[i];
+                    if (argument == "--collections" && i + 1 < argc) {
+                        collections_file = argv[++i];
+                    } else if (argument == "--dids" && i + 1 < argc) {
+                        dids_file = argv[++i];
+                    } else {
+                        std::cerr << "jetstream archive: unknown or incomplete option "
+                                  << argument << '\n';
+                        return 2;
+                    }
+                }
                 return atperson::cli::run_jetstream_archive(
                     std::cout, resource_status, atperson::cli::data_dir(), graph, path,
                     atperson::cli::ledger_path(), atperson::cli::jetstream_state_path(),
-                    after, before, print_stats);
+                    after, before, collections_file, dids_file, print_stats);
             }
             int max_events = 0;
             int max_ms = 0;
