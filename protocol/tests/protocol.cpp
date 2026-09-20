@@ -122,6 +122,9 @@ int main() {
                           "identity", "did:plc:abc", "did-document-v1", 1, 10,
                           Verification::Unverified, 0.0};
     assert(store.append(fact));
+    auto incomplete = fact;
+    incomplete.source.clear();
+    assert(!store.append(incomplete));
     assert(!store.append(fact));
     assert(store.entries().size() == 1);
     auto distinct_event = fact;

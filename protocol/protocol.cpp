@@ -305,6 +305,11 @@ bool EvidenceStore::contains(const ProtocolEvidence &evidence) const {
 }
 
 bool EvidenceStore::append(ProtocolEvidence evidence) {
+    if (evidence.source.empty() || evidence.event_type.empty() ||
+        evidence.subject.empty() || evidence.payload.empty() ||
+        (evidence.sequence == 0 && evidence.observed_at == 0)) {
+        return false;
+    }
     if (contains(evidence)) return false;
     entries_.push_back(std::move(evidence));
     return true;
