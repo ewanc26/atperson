@@ -1,4 +1,5 @@
 #include "atperson/bootstrap.h"
+#include "atperson/protocol.hpp"
 #include "atperson/graph.hpp"
 #include "inspection.hpp"
 #include "audit/command.hpp"
@@ -156,6 +157,25 @@ int main(int argc, char **argv) {
                 atperson::cli::control_state_path(), atperson::cli::outbound_audit_path(),
                 atperson::cli::action_journal_path(),
                 argv[2], static_cast<std::int64_t>(std::time(nullptr)));
+        }
+
+        if (command == "protocol") {
+            const std::string_view subcommand = argc >= 3 ? argv[2] : "status";
+            if (subcommand != "status") {
+                usage(std::cerr);
+                return 2;
+            }
+            const atperson::protocol::EvidenceLedger ledger(
+                atperson::cli::protocol_ledger_path());
+            const auto entries = ledger.entries();
+            std::cout << "protocol evidence: " << entries.size() << " entries\n";
+            for (const auto &entry : entries) {
+                std::cout << "source=" << entry.source << " event=" << entry.event_type
+                          << " subject=" << entry.subject << " sequence=" << entry.sequence
+                          << " verification=" << static_cast<int>(entry.verification)
+                          << " confidence=" << entry.confidence << '\n';
+            }
+            return 0;
         }
 
         if (command == "jetstream" && argc >= 3 &&

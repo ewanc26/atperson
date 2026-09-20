@@ -47,6 +47,7 @@ std::filesystem::path outbound_audit_path();
 /* Action/outcome journal (#27): durable experience provenance for the
  * entity's own outbound attempts. */
 std::filesystem::path action_journal_path();
+std::filesystem::path protocol_ledger_path();
 
 std::vector<std::filesystem::path> durable_paths();
 
