@@ -146,8 +146,16 @@ int main() {
     assert(append_firehose_event(ledger, "wss://relay.example", "#unknown",
                                  "did:plc:abc", "future", 5, 14));
     assert(append_repository_fact(ledger, *repository, 6, 15));
+    assert(append_firehose_event(ledger, "https://pds.example/repo", "#commit",
+                                 "did:plc:abc", "invalid-signature", 7, 16,
+                                 Verification::Rejected));
+    assert(append_firehose_event(ledger, "https://relay.example", "#identity",
+                                 "did:plc:unknown", "transport-failure", 8, 17,
+                                 Verification::Unverified));
     const auto restored = ledger.entries();
-    assert(restored.size() == 6 && restored[1].event_type == "#sync" &&
-           restored[4].event_type == "#unknown" && restored[5].event_type == "#repository");
+    assert(restored.size() == 8 && restored[1].event_type == "#sync" &&
+           restored[4].event_type == "#unknown" && restored[5].event_type == "#repository" &&
+           restored[6].verification == Verification::Rejected &&
+           restored[7].verification == Verification::Unverified);
     std::filesystem::remove(path, error);
 }
