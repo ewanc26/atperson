@@ -10,7 +10,7 @@
 
 namespace atperson {
 
-JetstreamReplayClient::WindowResult JetstreamReplayClient::fetch_window(
+JetstreamReplayWindow JetstreamReplayClient::fetch_window(
     std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,
     std::string_view self_did, const std::vector<std::string> &collections,
     const std::vector<std::string> &dids,
@@ -42,7 +42,7 @@ JetstreamReplayClient::WindowResult JetstreamReplayClient::fetch_window(
         throw std::runtime_error("Jetstream replay requires an authenticated agent client");
     }
 
-    WindowResult result;
+    JetstreamReplayWindow result;
     for (;;) {
         wf_jetstream_replay_plan_page page{};
         if (wf_jetstream_replay_plan(client, &filter, &page) != WF_OK) {
