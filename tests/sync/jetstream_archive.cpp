@@ -36,6 +36,29 @@ class ScriptedReplay final : public atperson::JetstreamReplaySource {
     unsigned calls{};
 };
 
+class DeletionReplay final : public atperson::JetstreamReplaySource {
+  public:
+    [[nodiscard]] atperson::JetstreamReplayWindow fetch_window(
+        std::uint64_t, std::optional<std::uint64_t>, std::string_view,
+        const std::vector<std::string> &, const std::vector<std::string> &,
+        const std::function<void(const atperson::JetstreamEvent &)> &on_event) override {
+        const std::string source = "at://did:plc:archive/app.bsky.feed.post/withdrawn";
+        if (calls++ == 0u) {
+            on_event(atperson::JetstreamEvent{
+                .source_uri = source,
+                .author_did = "did:plc:author",
+                .created_at = "2026-09-20T00:00:00Z",
+                .text = "archive event to withdraw",
+            });
+        } else {
+            on_event(atperson::JetstreamEvent{.source_uri = source, .deleted = true});
+        }
+        return {.planned_through_seq = calls * 10u, .sealed_tip_seq = calls * 10u};
+    }
+
+    unsigned calls{};
+};
+
 } // namespace
 
 int main() {
@@ -73,6 +96,27 @@ int main() {
     assert(replay.after_values == std::vector<std::uint64_t>({0u, 50u}));
     assert(replay.before_values[0] == std::optional<std::uint64_t>(100u));
     assert(replay.before_values[1] == std::optional<std::uint64_t>(100u));
+
+    const auto withdrawal_root =
+        std::filesystem::temp_directory_path() / "atperson-archive-withdrawal-test";
+    std::filesystem::remove_all(withdrawal_root);
+    std::filesystem::create_directories(withdrawal_root);
+    atperson::LanguageGraph withdrawal_graph;
+    atperson::Ledger withdrawal_ledger(withdrawal_root / "ledger.bin");
+    atperson::IngestionState withdrawal_state = atperson::initial_ingestion_state(
+        "wss://jetstream.example/subscribe", "", atperson::kSourceKindJetstream);
+    DeletionReplay withdrawal_replay;
+    const auto ingested = atperson::run_jetstream_archive(
+        withdrawal_graph, withdrawal_ledger, withdrawal_state, withdrawal_replay, 0u,
+        10u, "did:plc:self", collections, dids);
+    assert(ingested.learned == 1u);
+    const auto withdrawn = atperson::run_jetstream_archive(
+        withdrawal_graph, withdrawal_ledger, withdrawal_state, withdrawal_replay, 10u,
+        20u, "did:plc:self", collections, dids);
+    assert(withdrawn.withdrawn == 1u);
+    assert(withdrawn.reconciled);
+    std::filesystem::remove_all(withdrawal_root);
+
     std::filesystem::remove_all(root);
     return 0;
 }
