@@ -39,6 +39,13 @@ struct IdentityFact {
     Verification verification{Verification::Unverified};
 };
 
+std::optional<IdentityFact> accept_identity(std::string_view did,
+                                            std::string_view handle,
+                                            std::string_view source,
+                                            std::string_view signing_key,
+                                            std::string_view pds_endpoint,
+                                            Verification verification);
+
 struct ServiceFact {
     ServiceRole role{ServiceRole::Pds};
     std::string endpoint;

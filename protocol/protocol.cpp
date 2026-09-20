@@ -100,6 +100,26 @@ bool is_handle(std::string_view value) noexcept {
     return value.find_first_of(" /?#:@") == std::string_view::npos;
 }
 
+std::optional<IdentityFact> accept_identity(std::string_view did,
+                                            std::string_view handle,
+                                            std::string_view source,
+                                            std::string_view signing_key,
+                                            std::string_view pds_endpoint,
+                                            Verification verification) {
+    if (!is_did(did) || !is_handle(handle) || source.empty() || signing_key.empty() ||
+        pds_endpoint.empty() || pds_endpoint.find("https://") != 0) {
+        return std::nullopt;
+    }
+    IdentityFact fact;
+    fact.did = did;
+    fact.handle = handle;
+    fact.did_document_source = source;
+    fact.signing_key = signing_key;
+    fact.pds_endpoint = pds_endpoint;
+    fact.verification = verification;
+    return fact;
+}
+
 SyncEvent classify_sync_event(std::string_view type) noexcept {
     if (type == "#commit") return SyncEvent::Commit;
     if (type == "#sync") return SyncEvent::Sync;
