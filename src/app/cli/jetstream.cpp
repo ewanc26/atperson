@@ -17,6 +17,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -127,6 +128,16 @@ int run_jetstream_archive(
     if (before_seq && *before_seq <= *after_seq) {
         throw std::runtime_error(
             "jetstream archive: before sequence must be greater than after sequence");
+    }
+    if (!before_seq) {
+        if (*after_seq > std::numeric_limits<std::uint64_t>::max() -
+                           kJetstreamArchiveMaxSequenceSpan) {
+            throw std::runtime_error("jetstream archive: after sequence is too large for the default window");
+        }
+        before_seq = *after_seq + kJetstreamArchiveMaxSequenceSpan;
+    }
+    if (*before_seq - *after_seq > kJetstreamArchiveMaxSequenceSpan) {
+        throw std::runtime_error("jetstream archive: requested window exceeds the 10,000,000 sequence cap");
     }
     const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
     WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),

@@ -38,7 +38,9 @@ atperson jetstream archive [after-seq] [before-seq]
 
 It authenticates through the configured Wolfram session, defaults `after-seq` to the
 persisted Jetstream checkpoint (or zero), and optionally caps the window at an
-inclusive `before-seq`. Successful completion checkpoints the sealed replay tip
+inclusive `before-seq`. Every invocation is hard-capped to a 10,000,000-sequence
+window; when no upper bound is supplied, that cap is applied automatically.
+Successful completion checkpoints the sealed replay tip
 through the same durable ingestion path. The daemon does not invoke archive replay
 automatically yet; operators should run this command before starting live catch-up.
 
@@ -153,4 +155,5 @@ The daemon can run the same archive phase while it already holds its single-writ
 lock by setting `ATPERSON_DAEMON_ARCHIVE_AFTER` and optionally
 `ATPERSON_DAEMON_ARCHIVE_BEFORE`. This phase runs once at startup, persists the
 archive checkpoint and model before timeline cycles begin, and is opt-in; leaving
-the variables unset preserves the normal timeline-only daemon behaviour.
+the variables unset preserves the normal timeline-only daemon behaviour. The same
+10,000,000-sequence cap applies to daemon startup windows.

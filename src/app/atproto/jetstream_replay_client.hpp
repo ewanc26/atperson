@@ -12,6 +12,11 @@ typedef struct wf_agent wf_agent;
 
 namespace atperson {
 
+/* Maximum sequence span one operator invocation may ask the archive to plan.
+ * Keeping this cap in the replay boundary prevents a missing/incorrect upper
+ * bound from turning a bounded ingestion command into an archive sweep. */
+inline constexpr std::uint64_t kJetstreamArchiveMaxSequenceSpan = 10'000'000u;
+
 /* Bounded authenticated archive reader. It owns no transport or ingestion
  * state; the caller checkpoints only after this method returns successfully. */
 class JetstreamReplayClient {

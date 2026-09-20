@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <chrono>
 #include <optional>
+#include <limits>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -64,9 +65,21 @@ void run_startup_archive_if_configured(
     const std::string before_value = env_or("ATPERSON_DAEMON_ARCHIVE_BEFORE");
     std::optional<std::uint64_t> before;
     if (!before_value.empty()) before = daemon_archive_sequence("ATPERSON_DAEMON_ARCHIVE_BEFORE");
+    if (!before) {
+        if (after > std::numeric_limits<std::uint64_t>::max() -
+                       kJetstreamArchiveMaxSequenceSpan) {
+            throw std::runtime_error(
+                "ATPERSON_DAEMON_ARCHIVE_AFTER is too large for the default window");
+        }
+        before = after + kJetstreamArchiveMaxSequenceSpan;
+    }
     if (before && *before <= after) {
         throw std::runtime_error(
             "ATPERSON_DAEMON_ARCHIVE_BEFORE must be greater than AFTER");
+    }
+    if (*before - after > kJetstreamArchiveMaxSequenceSpan) {
+        throw std::runtime_error(
+            "daemon archive window exceeds the 10,000,000 sequence cap");
     }
     require_runtime_write_headroom(resource_status);
     const std::string endpoint = env_or(
