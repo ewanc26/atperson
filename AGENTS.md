@@ -158,6 +158,21 @@ lifetime in memory.
 AT Protocol policy belongs in the C++ runtime; learned scoring/state belongs in
 C23; protocol mechanics belong in Wolfram.
 
+The autonomous runtime is strictly AT Protocol-scoped. It may ingest public AT
+Protocol data, learn locally, propose bounded actions, and reach AT Protocol
+endpoints only through the existing Wolfram-backed adapters. Do not add generic
+web browsing, arbitrary shell/tool execution, email, cloud storage, or a
+second external-agent control plane to the autonomous layer.
+
+All autonomy metadata must remain in the configured central data directory
+(`ATPERSON_HOME`): lifecycle checkpoints, approval state, event traces, retry
+state, and recovery markers are local runtime metadata and must never be sent
+to the PDS, added to the learned graph, or scattered beside the repository.
+The lifecycle is resumable and fail-closed: recover → learn → propose →
+approval → execute → verify → stopped/failed. Every restart must load or
+reconstruct its checkpoint before doing work; a missing or corrupt checkpoint
+must not authorize an external action.
+
 ## Modular, atomic files
 
 Files must be modular and atomic. This is a hard requirement, not a
