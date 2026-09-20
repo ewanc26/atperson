@@ -16,11 +16,17 @@ namespace atperson {
  * state; the caller checkpoints only after this method returns successfully. */
 class JetstreamReplayClient {
   public:
+    struct WindowResult {
+        std::uint64_t planned_through_seq{};
+        std::uint64_t sealed_tip_seq{};
+    };
+
     explicit JetstreamReplayClient(wf_agent &agent) noexcept : agent_(agent) {}
 
-    void fetch_window(std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,
-                      std::string_view self_did,
-                      const std::function<void(const JetstreamEvent &)> &on_event);
+    [[nodiscard]] WindowResult fetch_window(
+        std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,
+        std::string_view self_did,
+        const std::function<void(const JetstreamEvent &)> &on_event);
 
   private:
     wf_agent &agent_;
