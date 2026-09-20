@@ -95,7 +95,16 @@ int main() {
     EvidenceLedger ledger(path);
     assert(ledger.append(fact));
     assert(!ledger.append(fact));
+    assert(append_firehose_event(ledger, "wss://relay.example", "#sync",
+                                 "did:plc:abc", "rev-a", 2, 11));
+    assert(append_firehose_event(ledger, "wss://relay.example", "#identity",
+                                 "did:plc:abc", "alice.example", 3, 12));
+    assert(append_firehose_event(ledger, "wss://relay.example", "#account",
+                                 "did:plc:abc", "active", 4, 13));
+    assert(append_firehose_event(ledger, "wss://relay.example", "#unknown",
+                                 "did:plc:abc", "future", 5, 14));
     const auto restored = ledger.entries();
-    assert(restored.size() == 1 && restored[0].subject == "did:plc:abc");
+    assert(restored.size() == 5 && restored[1].event_type == "#sync" &&
+           restored[4].event_type == "#unknown");
     std::filesystem::remove(path, error);
 }

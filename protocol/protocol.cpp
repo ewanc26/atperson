@@ -251,6 +251,17 @@ std::vector<ProtocolEvidence> EvidenceLedger::entries() const {
     return result;
 }
 
+bool append_firehose_event(EvidenceLedger &ledger, std::string_view source,
+                           std::string_view event_type, std::string_view subject,
+                           std::string_view payload, std::uint64_t sequence,
+                           std::uint64_t observed_at, Verification verification) {
+    ProtocolEvidence evidence{EvidenceKind::Sync, std::string(source),
+                               std::string(event_type), std::string(subject),
+                               std::string(payload), sequence, observed_at,
+                               verification, verification == Verification::Verified ? 1.0 : 0.0};
+    return ledger.append(std::move(evidence));
+}
+
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
                             std::string_view repo, std::string_view revision) {
     if (state.last_sequence == 0) {

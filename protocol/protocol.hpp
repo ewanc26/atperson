@@ -141,6 +141,15 @@ class EvidenceLedger {
     std::filesystem::path path_;
 };
 
+/* Record any firehose event family without requiring the social-content
+ * reducer to understand it. Unknown families are retained as unverified
+ * evidence so newer protocol events remain inspectable. */
+bool append_firehose_event(EvidenceLedger &ledger, std::string_view source,
+                           std::string_view event_type, std::string_view subject,
+                           std::string_view payload, std::uint64_t sequence,
+                           std::uint64_t observed_at,
+                           Verification verification = Verification::Unverified);
+
 struct CursorState {
     std::uint64_t last_sequence{};
     std::string repo;
