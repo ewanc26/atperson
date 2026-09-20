@@ -34,6 +34,11 @@ int main() {
     assert(identity->rotation_keys.size() == 1);
     assert(!accept_identity("alice.example", "alice.example", "source", "key",
                             "https://pds.example", Verification::Verified));
+    assert(!accept_identity("did:plc:abc", "alice.example", "source", "not-a-key",
+                            "https://pds.example", Verification::Verified));
+    assert(!accept_identity("did:plc:abc", "alice.example", "source",
+                            "did:key:z6Mksigning", "https://pds.example",
+                            Verification::Verified, {"did:plc:not-a-key"}));
     assert(is_nsid("app.bsky.feed.post"));
     assert(!is_nsid("App.Bsky.feed.post"));
     assert(is_cid("bafyreib valid-ish" ) == false);

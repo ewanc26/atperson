@@ -249,9 +249,13 @@ std::optional<IdentityFact> accept_identity(std::string_view did,
                                             std::string_view pds_endpoint,
                                             Verification verification,
                                             std::vector<std::string> rotation_keys) {
-    if (!is_did(did) || !is_handle(handle) || source.empty() || signing_key.empty() ||
+    if (!is_did(did) || !is_handle(handle) || source.empty() ||
+        !is_did(signing_key) || !signing_key.starts_with("did:key:") ||
         pds_endpoint.empty() || pds_endpoint.find("https://") != 0) {
         return std::nullopt;
+    }
+    for (const auto &rotation : rotation_keys) {
+        if (!is_did(rotation) || !rotation.starts_with("did:key:")) return std::nullopt;
     }
     IdentityFact fact;
     fact.did = did;
