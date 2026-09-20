@@ -414,6 +414,29 @@ void test_non_record_embed_is_ignored() {
     std::printf("ok non-record embed ignored\n");
 }
 
+void test_normalized_v2_commit_is_extractable() {
+    const std::string normalized = R"({
+        "did": "did:plc:author",
+        "cursor": 12345,
+        "kind": "commit",
+        "commit": {
+            "operation": "create",
+            "collection": "app.bsky.feed.post",
+            "rkey": "3knormalized",
+            "record": {
+                "$type": "app.bsky.feed.post",
+                "text": "normalized v2 post",
+                "createdAt": "2026-09-20T00:00:00.000Z"
+            }
+        }
+    })";
+    SyncObservation out;
+    if (!extract(normalized, out) || out.text != "normalized v2 post") {
+        fail("normalized v2 commit extraction");
+    }
+    std::printf("ok normalized v2 commit extracted\n");
+}
+
 void test_polling_and_jetstream_converge() {
     const std::string record = post("same public observation");
     SyncObservation js;
@@ -525,6 +548,7 @@ int main() {
     test_malformed_reply_context_is_graceful();
     test_quote_context_preserved();
     test_non_record_embed_is_ignored();
+    test_normalized_v2_commit_is_extractable();
     test_polling_and_jetstream_converge();
     test_record_not_an_object_is_rejected();
 
