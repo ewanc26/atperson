@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -18,6 +19,24 @@ namespace atperson {
  * Keeping this cap in the replay boundary prevents a missing/incorrect upper
  * bound from turning a bounded ingestion command into an archive sweep. */
 inline constexpr std::uint64_t kJetstreamArchiveMaxSequenceSpan = 10'000'000u;
+
+/* Return the exclusive upper bound for a replay request, or nullopt when the
+ * requested window is invalid or cannot be represented safely. */
+inline std::optional<std::uint64_t> bounded_jetstream_replay_before(
+    std::uint64_t after_seq, std::optional<std::uint64_t> before_seq) {
+    const std::uint64_t max_before =
+        after_seq > std::numeric_limits<std::uint64_t>::max() -
+                       kJetstreamArchiveMaxSequenceSpan
+            ? std::numeric_limits<std::uint64_t>::max()
+            : after_seq + kJetstreamArchiveMaxSequenceSpan;
+    if (before_seq) {
+        if (*before_seq <= after_seq || *before_seq > max_before) {
+            return std::nullopt;
+        }
+        return before_seq;
+    }
+    return max_before;
+}
 
 struct JetstreamReplayWindow {
     std::uint64_t planned_through_seq{};

@@ -1,15 +1,29 @@
 #include "atproto/jetstream_replay.hpp"
+#include "atproto/jetstream_replay_client.hpp"
 
 #include "wolfram/jetstream_replay.h"
 
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 
 using namespace atperson;
 
 int main() {
+    assert(bounded_jetstream_replay_before(41u, std::nullopt) ==
+           std::optional<std::uint64_t>(41u + kJetstreamArchiveMaxSequenceSpan));
+    assert(bounded_jetstream_replay_before(41u, 99u) ==
+           std::optional<std::uint64_t>(99u));
+    assert(!bounded_jetstream_replay_before(41u, 41u));
+    assert(!bounded_jetstream_replay_before(
+        41u, 41u + kJetstreamArchiveMaxSequenceSpan + 1u));
+    assert(bounded_jetstream_replay_before(
+        std::numeric_limits<std::uint64_t>::max() -
+            kJetstreamArchiveMaxSequenceSpan + 1u,
+        std::nullopt) ==
+           std::optional<std::uint64_t>(std::numeric_limits<std::uint64_t>::max()));
     const char payload[] =
         "{\"$type\":\"app.bsky.feed.post\",\"text\":\"archive post\","
         "\"createdAt\":\"2026-09-20T12:00:00Z\"}";

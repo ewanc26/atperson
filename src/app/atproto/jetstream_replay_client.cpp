@@ -6,7 +6,6 @@
 #include "wolfram/jetstream_replay.h"
 #include "wolfram/xrpc.h"
 
-#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -35,18 +34,11 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
     filter.collections_count = collection_values.size();
     filter.dids = did_values.data();
     filter.dids_count = did_values.size();
-    const std::uint64_t max_before =
-        after_seq > std::numeric_limits<std::uint64_t>::max() -
-                       kJetstreamArchiveMaxSequenceSpan
-            ? std::numeric_limits<std::uint64_t>::max()
-            : after_seq + kJetstreamArchiveMaxSequenceSpan;
-    if (before_seq) {
-        if (*before_seq <= after_seq || *before_seq > max_before) {
-            throw std::invalid_argument("Jetstream replay window exceeds the hard sequence cap");
-        }
-    } else {
-        before_seq = max_before;
+    const auto bounded_before = bounded_jetstream_replay_before(after_seq, before_seq);
+    if (!bounded_before) {
+        throw std::invalid_argument("Jetstream replay window exceeds the hard sequence cap");
     }
+    before_seq = bounded_before;
     filter.after_seq = after_seq;
     filter.before_seq = *before_seq;
     filter.has_before_seq = 1;
