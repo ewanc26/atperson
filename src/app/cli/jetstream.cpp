@@ -54,7 +54,7 @@ int run_jetstream_status(
 
     out << "jetstream endpoint: " << endpoint << '\n'
         << "self DID: " << (configured_self.empty() ? "missing (live ingestion will refuse)" : configured_self) << '\n'
-        << "phase: live-only (network replay not configured)\n"
+        << "phase: live-only (archive replay core available; operator replay not configured)\n"
         << "state: " << state_file.string() << '\n'
         << "cursor: ";
     if (state.catchup.active && state.catchup.cursor) {

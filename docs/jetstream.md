@@ -28,7 +28,7 @@ atperson jetstream status [--collections <file>] [--dids <file>]
 
 This command is read-only and runs before the learned model is loaded. It reports the effective Jetstream endpoint, current runtime phase, dedicated state-file path, persisted cursor/checkpoint generation, and the collection/DID filters that would be used by a live run.
 
-The phase currently reports `live-only`. Once Wolfram #36 exposes Jetstream v2 archive replay, this surface is where the replay/backfill phase and archive-to-live cutover state should become visible rather than being hidden inside the transport.
+The phase currently reports `live-only (archive replay core available; operator replay not configured)`. The replay planner, sealed-segment decoder, bounded-window fetcher, and archive-to-live checkpoint integration are now implemented in the sync layer. The remaining operator work is to expose a bounded replay command and daemon scheduling, then report the active window and phase here.
 
 ## Entity identity and policy parity
 
@@ -55,7 +55,7 @@ The Jetstream cursor is operational metadata only. It is never written into the 
 
 The checkpoint is also bound to the exact Jetstream WebSocket endpoint. If `ATPERSON_JETSTREAM_ENDPOINT` changes, atperson deliberately starts that stream from a fresh cursor instead of assuming two servers share one cursor namespace. Any overlapping records are still suppressed by the shared observation ledger.
 
-The current live client stores Jetstream's envelope microsecond timestamp because that is the cursor exposed by the pinned Wolfram live API. Jetstream v2 deliberately accepts this legacy timestamp form on the live tail, so it remains restart-compatible on the v2 host. Native v2 replay is sequence-based; once Wolfram #36 lands, archive planning/cutover must persist and expose the v2 `seq` cursor rather than pretending the timestamp cursor is an archive position.
+The current live client stores Jetstream's envelope microsecond timestamp because that is the cursor exposed by the pinned Wolfram live API. Jetstream v2 deliberately accepts this legacy timestamp form on the live tail, so it remains restart-compatible on the v2 host. Native v2 replay is sequence-based. The archive integration persists the sealed replay `seq` as the live resume point after a successful cutover; the operator command still needs to select and launch that path.
 
 ## Collection filter
 
@@ -125,13 +125,13 @@ The learning policy still accepts only public post records. Private-message/conv
 
 ## What remains for #60
 
-This is not the complete #60 implementation.
+The durable replay core and archive-to-live boundary are implemented, but this is not the complete #60 operator surface.
 
-Jetstream v2 now provides archive replay that can backfill a historical slice and cut over to the live tail without a gap. atperson does not yet drive that archive API. The remaining work is to add:
+Jetstream v2 now provides archive replay that can backfill a historical slice and cut over to the live tail without a gap. atperson can now plan/fetch/translate those windows and checkpoint the boundary. The remaining work is to add:
 
 - an operator-selected bounded relative backfill window;
-- Jetstream v2 archive planning/segment retrieval through Wolfram;
-- a deterministic archive-to-live cutover;
+- an operator command that invokes Jetstream v2 archive planning/segment retrieval through Wolfram;
+- daemon scheduling and restart handling for the archive phase;
 - inspection/status for the active collection filter, replay window and phase;
 - tests for replay-window truncation and restart across the archive/live boundary.
 
