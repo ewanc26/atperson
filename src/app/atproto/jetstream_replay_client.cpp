@@ -10,7 +10,7 @@
 
 namespace atperson {
 
-void JetstreamReplayClient::fetch_window(
+JetstreamReplayClient::WindowResult JetstreamReplayClient::fetch_window(
     std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,
     std::string_view self_did,
     const std::function<void(const JetstreamEvent &)> &on_event) {
@@ -34,6 +34,7 @@ void JetstreamReplayClient::fetch_window(
         throw std::runtime_error("Jetstream replay requires an authenticated agent client");
     }
 
+    WindowResult result;
     for (;;) {
         wf_jetstream_replay_plan_page page{};
         if (wf_jetstream_replay_plan(client, &filter, &page) != WF_OK) {
@@ -43,6 +44,7 @@ void JetstreamReplayClient::fetch_window(
         if (!before_seq) {
             before_seq = page.sealed_tip_seq;
         }
+        result.sealed_tip_seq = *before_seq;
         try {
             for (std::size_t i = 0u; i < page.segments_count; ++i) {
                 const auto &segment = page.segments[i];
@@ -96,7 +98,11 @@ void JetstreamReplayClient::fetch_window(
         const std::uint64_t planned = page.planned_through_seq;
         const std::uint64_t sealed = page.sealed_tip_seq;
         wf_jetstream_replay_plan_page_free(&page);
-        if (planned >= sealed || planned >= *before_seq) return;
+        result.planned_through_seq = planned;
+        if (planned >= sealed || planned >= *before_seq) return result;
+        if (planned <= filter.after_seq) {
+            throw std::runtime_error("Jetstream replay plan did not advance");
+        }
         filter.after_seq = planned;
         filter.before_seq = *before_seq;
         filter.has_before_seq = 1;
