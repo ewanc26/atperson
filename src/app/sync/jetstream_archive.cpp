@@ -8,6 +8,8 @@ JetstreamRunResult run_jetstream_archive(
     LanguageGraph &graph, Ledger &ledger, IngestionState &state,
     JetstreamReplayClient &client, std::uint64_t after_seq,
     std::optional<std::uint64_t> before_seq, std::string_view self_did,
+    const std::vector<std::string> &collections,
+    const std::vector<std::string> &dids,
     const SyncLinker &link) {
     JetstreamRunResult result;
     const auto on_event = [&](const JetstreamEvent &event) {
@@ -39,7 +41,8 @@ JetstreamRunResult run_jetstream_archive(
         }
     };
 
-    const auto window = client.fetch_window(after_seq, before_seq, self_did, on_event);
+    const auto window = client.fetch_window(
+        after_seq, before_seq, self_did, collections, dids, on_event);
     result.exhausted = window.planned_through_seq >= window.sealed_tip_seq;
     if (result.exhausted) {
         /* Jetstream's live cursor uses the same monotonic sequence space. */

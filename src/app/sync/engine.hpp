@@ -142,6 +142,8 @@ JetstreamRunResult run_jetstream_archive(LanguageGraph &graph, Ledger &ledger,
                                          std::uint64_t after_seq,
                                          std::optional<std::uint64_t> before_seq,
                                          std::string_view self_did,
+                                         const std::vector<std::string> &collections,
+                                         const std::vector<std::string> &dids,
                                          const SyncLinker &link = nullptr);
 
 } // namespace atperson

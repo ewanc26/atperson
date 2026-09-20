@@ -7,6 +7,7 @@
 #include <functional>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 typedef struct wf_agent wf_agent;
 
@@ -30,7 +31,8 @@ class JetstreamReplayClient {
 
     [[nodiscard]] WindowResult fetch_window(
         std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,
-        std::string_view self_did,
+        std::string_view self_did, const std::vector<std::string> &collections,
+        const std::vector<std::string> &dids,
         const std::function<void(const JetstreamEvent &)> &on_event);
 
   private:
