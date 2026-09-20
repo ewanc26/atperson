@@ -65,7 +65,7 @@ std::optional<RepositoryFact> accept_repository_fact(
     std::string_view repo_did, std::string_view revision,
     std::string_view signed_root_cid, std::string_view car_source,
     Verification verification) {
-    if (!is_did(repo_did) || revision.empty() || !is_cid(signed_root_cid) ||
+    if (!is_did(repo_did) || !is_tid(revision) || !is_cid(signed_root_cid) ||
         car_source.empty()) {
         return std::nullopt;
     }

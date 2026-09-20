@@ -49,14 +49,16 @@ int main() {
     assert(authority_for_service(ServiceRole::AppView) == RecordAuthority::AppViewDerived);
     assert(authority_for_service(ServiceRole::Relay) == RecordAuthority::Unknown);
     const auto repository = accept_repository_fact(
-        "did:plc:abc", "bafyrev1", "bafyreiabcdef", "https://pds.example/repo.car",
+        "did:plc:abc", "3jui3s7xq2m2a", "bafyreiabcdef", "https://pds.example/repo.car",
         Verification::Verified);
     assert(repository && repository->signed_root_cid == "bafyreiabcdef" &&
            repository->verification == Verification::Verified);
-    assert(!accept_repository_fact("alice.example", "bafyrev1", "bafyreiabcdef",
+    assert(!accept_repository_fact("alice.example", "3jui3s7xq2m2a", "bafyreiabcdef",
                                    "car", Verification::Verified));
-    assert(!accept_repository_fact("did:plc:abc", "bafyrev1", "bad", "car",
+    assert(!accept_repository_fact("did:plc:abc", "3jui3s7xq2m2a", "bad", "car",
                                    Verification::Rejected));
+    assert(!accept_repository_fact("did:plc:abc", "bafyrev1", "bafyreiabcdef", "car",
+                                   Verification::Verified));
     const auto session = accept_oauth_session(
         "https://issuer.example", "did:plc:abc", "repo:* dpop", true,
         Verification::Verified);
