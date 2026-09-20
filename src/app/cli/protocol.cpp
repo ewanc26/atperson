@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <ostream>
+#include <vector>
 
 namespace atperson::cli {
 
@@ -36,9 +37,22 @@ int run_protocol_resolve(std::ostream &out, std::ostream &err,
         wf_did_document_free(&document);
         return 1;
     }
+    char **rotation_keys = nullptr;
+    size_t rotation_key_count = 0;
+    const wf_status rotation_status = wf_did_resolve_rotation_keys(
+        client, did, &rotation_keys, &rotation_key_count);
+    std::vector<std::string> rotation_key_values;
+    if (rotation_status == WF_OK) {
+        rotation_key_values.reserve(rotation_key_count);
+        for (size_t i = 0; i < rotation_key_count; ++i) {
+            rotation_key_values.emplace_back(rotation_keys[i]);
+        }
+    }
+    wf_did_rotation_keys_free(rotation_keys, rotation_key_count);
     const auto identity = protocol::accept_identity(
         did, handle, "wolfram:identity", document.signing_key,
-        document.pds_endpoint, protocol::Verification::Verified);
+        document.pds_endpoint, protocol::Verification::Verified,
+        std::move(rotation_key_values));
     if (!identity) {
         err << "protocol resolve: Wolfram returned invalid identity data\n";
         free(did);
