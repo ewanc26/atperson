@@ -26,6 +26,8 @@
 #include "engine.hpp"
 #include "atproto/jetstream_client.hpp"
 
+#include <charconv>
+
 namespace atperson {
 
 namespace {
@@ -54,6 +56,16 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                                           const SyncLinker &link,
                                           protocol::EvidenceLedger *protocol_ledger) {
     JetstreamRunResult result;
+    protocol::CursorState protocol_cursor;
+    if (state.catchup.cursor) {
+        std::uint64_t persisted = 0;
+        const auto parsed = std::from_chars(
+            state.catchup.cursor->data(),
+            state.catchup.cursor->data() + state.catchup.cursor->size(), persisted);
+        if (parsed.ec == std::errc{} &&
+            parsed.ptr == state.catchup.cursor->data() + state.catchup.cursor->size())
+            protocol_cursor.last_sequence = persisted;
+    }
     const bool fresh_traversal = !state.catchup.active;
 
     if (fresh_traversal) {
@@ -62,6 +74,27 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     }
 
     const auto on_event = [&](const JetstreamEvent &event) {
+        const auto cursor_result = event.protocol_only
+            ? protocol::CursorResult::Advanced
+            : protocol::observe_stream(
+                  protocol_cursor,
+                  event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u,
+                  event.author_did, event.repo_revision);
+        if (cursor_result == protocol::CursorResult::Gap ||
+            cursor_result == protocol::CursorResult::Rewind ||
+            cursor_result == protocol::CursorResult::Rejected) {
+            result.protocol_resync_required = true;
+            if (protocol_ledger != nullptr) {
+                (void)protocol::append_firehose_event(
+                    *protocol_ledger, "jetstream", "#cursor-gap", event.author_did,
+                    event.repo_revision,
+                    event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u, 0u,
+                    cursor_result == protocol::CursorResult::Rejected
+                        ? protocol::Verification::Rejected
+                        : protocol::Verification::Unverified);
+            }
+            return;
+        }
         if (protocol_ledger != nullptr) {
             (void)protocol::append_firehose_event(
                 *protocol_ledger, "jetstream",

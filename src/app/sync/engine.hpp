@@ -123,6 +123,7 @@ struct JetstreamRunResult {
     std::size_t duplicates{};
     std::size_t withdrawn{};
     bool reconciled{};
+    bool protocol_resync_required{};
     bool exhausted{}; /* feed closed cleanly at the head */
 };
 
