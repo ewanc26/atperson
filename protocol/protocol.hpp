@@ -30,6 +30,19 @@ struct StrongRef {
     std::string cid;
 };
 
+struct BlobRef {
+    std::string cid;
+    std::string mime_type;
+    std::uint64_t size{};
+};
+
+struct LexiconFact {
+    std::string nsid;
+    XrpcKind operation{XrpcKind::Unknown};
+    std::string schema_source;
+    Verification verification{Verification::Unverified};
+};
+
 /* Service identity is supplied by a DID document or Lexicon/service
  * configuration; never infer authority from an endpoint hostname. */
 ServiceRole classify_service_role(std::string_view type) noexcept;
@@ -125,6 +138,11 @@ std::optional<RepositoryFact> accept_repository_fact(
 std::optional<AtUri> parse_at_uri(std::string_view value);
 std::optional<StrongRef> parse_strong_ref(std::string_view uri,
                                           std::string_view cid);
+std::optional<BlobRef> parse_blob_ref(std::string_view cid, std::string_view mime_type,
+                                      std::uint64_t size);
+std::optional<LexiconFact> accept_lexicon_fact(std::string_view nsid, XrpcKind operation,
+                                               std::string_view schema_source,
+                                               Verification verification);
 bool is_nsid(std::string_view value) noexcept;
 bool is_cid(std::string_view value) noexcept;
 bool is_tid(std::string_view value) noexcept;

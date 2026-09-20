@@ -134,6 +134,23 @@ std::optional<StrongRef> parse_strong_ref(std::string_view uri,
     return StrongRef{*parsed, std::string(cid)};
 }
 
+std::optional<BlobRef> parse_blob_ref(std::string_view cid, std::string_view mime_type,
+                                      std::uint64_t size) {
+    if (!is_cid(cid) || mime_type.empty() || mime_type.find('/') == std::string_view::npos) {
+        return std::nullopt;
+    }
+    return BlobRef{std::string(cid), std::string(mime_type), size};
+}
+
+std::optional<LexiconFact> accept_lexicon_fact(std::string_view nsid, XrpcKind operation,
+                                               std::string_view schema_source,
+                                               Verification verification) {
+    if (!is_nsid(nsid) || operation == XrpcKind::Unknown || schema_source.empty()) {
+        return std::nullopt;
+    }
+    return LexiconFact{std::string(nsid), operation, std::string(schema_source), verification};
+}
+
 bool is_did(std::string_view value) noexcept {
     return value.starts_with("did:") && value.size() > 4 &&
            value.find_first_of(" /?#") == std::string_view::npos;

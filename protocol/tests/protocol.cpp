@@ -16,6 +16,9 @@ int main() {
                                          "bafyreiabcdef");
     assert(strong && strong->cid == "bafyreiabcdef");
     assert(!parse_strong_ref("at://did:plc:abc/app.bsky.feed.post/3k1", "bad"));
+    const auto blob = parse_blob_ref("bafyreiabcdef", "image/png", 42);
+    assert(blob && blob->mime_type == "image/png" && blob->size == 42u);
+    assert(!parse_blob_ref("bad", "image/png", 42));
     assert(is_did("did:plc:abc"));
     assert(!is_did("alice.example"));
     assert(is_handle("alice.example"));
@@ -95,6 +98,10 @@ int main() {
     assert(classify_xrpc(false, true) == XrpcKind::Procedure);
     assert(classify_xrpc(false, false, true) == XrpcKind::Subscription);
     assert(classify_xrpc(true, true) == XrpcKind::Unknown);
+    const auto lexicon = accept_lexicon_fact(
+        "app.bsky.feed.post", XrpcKind::Query, "https://pds.example/lexicon", Verification::Verified);
+    assert(lexicon && lexicon->operation == XrpcKind::Query);
+    assert(!accept_lexicon_fact("Not.NSID", XrpcKind::Query, "source", Verification::Verified));
 
     EvidenceStore store;
     ProtocolEvidence fact{EvidenceKind::Identity, "https://pds.example/.well-known",
