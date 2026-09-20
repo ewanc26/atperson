@@ -3,6 +3,7 @@
 #include "atproto/jetstream_replay_client.hpp"
 #include "engine.hpp"
 #include "ingestion/state.hpp"
+#include "protocol.hpp"
 
 #include <cassert>
 #include <filesystem>
@@ -85,9 +86,11 @@ int main() {
     const auto state_path = root / "state.json";
     const auto model_path = root / "model.bin";
     const auto ledger_path = root / "ledger.bin";
+    const auto protocol_path = root / "protocol.bin";
 
     atperson::LanguageGraph graph;
     atperson::Ledger ledger(ledger_path);
+    atperson::protocol::EvidenceLedger protocol_ledger(protocol_path);
     auto state = atperson::initial_ingestion_state(
         "wss://jetstream.example/subscribe", "", atperson::kSourceKindJetstream);
     ScriptedReplay replay;
@@ -95,7 +98,8 @@ int main() {
     const std::vector<std::string> dids;
 
     const auto first = atperson::run_jetstream_archive(
-        graph, ledger, state, replay, 0u, 100u, "did:plc:self", collections, dids);
+        graph, ledger, state, replay, 0u, 100u, "did:plc:self", collections, dids,
+        nullptr, &protocol_ledger);
     assert(!first.exhausted);
     assert(state.catchup.active);
     assert(state.catchup.cursor == std::optional<std::string>("50"));
@@ -106,13 +110,18 @@ int main() {
     state = atperson::load_ingestion_state(
         state_path, "wss://jetstream.example/subscribe", "", atperson::kSourceKindJetstream);
     const auto second = atperson::run_jetstream_archive(
-        graph, ledger, state, replay, 50u, 100u, "did:plc:self", collections, dids);
+        graph, ledger, state, replay, 50u, 100u, "did:plc:self", collections, dids,
+        nullptr, &protocol_ledger);
     assert(second.exhausted);
     assert(state.catchup.active);
     assert(state.catchup.cursor == std::optional<std::string>("100"));
     assert(replay.after_values == std::vector<std::uint64_t>({0u, 50u}));
     assert(replay.before_values[0] == std::optional<std::uint64_t>(100u));
     assert(replay.before_values[1] == std::optional<std::uint64_t>(100u));
+    const auto protocol_entries = protocol_ledger.entries();
+    assert(protocol_entries.size() == 1u);
+    assert(protocol_entries.front().event_type == "#commit");
+    assert(protocol_entries.front().source == "jetstream-archive");
 
     const auto withdrawal_root =
         std::filesystem::temp_directory_path() / "atperson-archive-withdrawal-test";
