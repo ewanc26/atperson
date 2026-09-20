@@ -14,6 +14,7 @@
 #include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
+#include "cli/protocol.hpp"
 #include "cli/sync.hpp"
 #include "cli/usage.hpp"
 #include "control/state.hpp"
@@ -161,6 +162,15 @@ int main(int argc, char **argv) {
 
         if (command == "protocol") {
             const std::string_view subcommand = argc >= 3 ? argv[2] : "status";
+            if (subcommand == "resolve") {
+                if (argc < 4) {
+                    usage(std::cerr);
+                    return 2;
+                }
+                return atperson::cli::run_protocol_resolve(
+                    std::cout, std::cerr, argv[3],
+                    atperson::cli::env_or("ATPERSON_SERVICE", "https://bsky.social").c_str());
+            }
             if (subcommand != "status") {
                 usage(std::cerr);
                 return 2;

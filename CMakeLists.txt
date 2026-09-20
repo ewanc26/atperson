@@ -206,6 +206,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/jetstream.cpp
     src/app/cli/outbound.cpp
     src/app/cli/publish.cpp
+    src/app/cli/protocol.cpp
     src/app/cli/sync.cpp
     src/app/atproto/client.cpp
     src/app/atproto/extract.cpp

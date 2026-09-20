@@ -37,7 +37,7 @@ void print_usage(std::ostream &out) {
         << "  atperson publish <action-file>\n"
         << "  atperson journal <actions|events|valence [limit]|apply <token> <kind> <signal> <source-id>|\n"
         << "                    map <rule-file>>\n\n"
-        << "  atperson protocol [status]\n\n"
+        << "  atperson protocol [status|resolve <handle>]\n\n"
         << "environment:\n"
         << "  ATPERSON_STATE            model snapshot path "
            "(default ~/.ewanc26/atperson/model.bin)\n"
