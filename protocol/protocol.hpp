@@ -76,6 +76,18 @@ struct AuthorizationFact {
     Verification verification{Verification::Unverified};
 };
 
+struct OAuthSessionFact {
+    std::string issuer;
+    std::string subject_did;
+    std::string scope;
+    bool dpop_bound{};
+    Verification verification{Verification::Unverified};
+};
+
+std::optional<OAuthSessionFact> accept_oauth_session(
+    std::string_view issuer, std::string_view subject_did,
+    std::string_view scope, bool dpop_bound, Verification verification);
+
 struct RepositoryFact {
     std::string repo_did;
     std::string revision;

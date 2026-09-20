@@ -53,6 +53,12 @@ int main() {
                                    "car", Verification::Verified));
     assert(!accept_repository_fact("did:plc:abc", "bafyrev1", "bad", "car",
                                    Verification::Rejected));
+    const auto session = accept_oauth_session(
+        "https://issuer.example", "did:plc:abc", "repo:* dpop", true,
+        Verification::Verified);
+    assert(session && session->dpop_bound && session->scope == "repo:* dpop");
+    assert(!accept_oauth_session("https://issuer.example", "did:plc:abc", "repo:*",
+                                false, Verification::Verified));
     const AtUri record_uri{"did:plc:abc", "app.bsky.feed.post", "3k1"};
     assert(reduce_record_observation(record_uri, "bafyreiabcdef", false, false, true).state ==
            RecordState::Present);

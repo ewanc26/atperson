@@ -69,6 +69,16 @@ std::optional<RepositoryFact> accept_repository_fact(
                           verification};
 }
 
+std::optional<OAuthSessionFact> accept_oauth_session(
+    std::string_view issuer, std::string_view subject_did,
+    std::string_view scope, bool dpop_bound, Verification verification) {
+    if (issuer.empty() || !is_did(subject_did) || scope.empty() || !dpop_bound) {
+        return std::nullopt;
+    }
+    return OAuthSessionFact{std::string(issuer), std::string(subject_did),
+                            std::string(scope), dpop_bound, verification};
+}
+
 std::optional<AtUri> parse_at_uri(std::string_view value) {
     if (!value.starts_with("at://") || value.find_first_of("?#") != std::string_view::npos) {
         return std::nullopt;
