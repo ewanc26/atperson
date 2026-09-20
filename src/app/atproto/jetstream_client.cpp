@@ -235,6 +235,28 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
                 if (typed.commit.rev != nullptr) js.repo_revision = typed.commit.rev;
                 on_event(js);
             }
+        } else if (event.did != nullptr && event.json != nullptr) {
+            JetstreamEvent protocol_event;
+            protocol_event.author_did = event.did;
+            protocol_event.seq = protocol_v2_ ? event.seq : event.time_us;
+            protocol_event.protocol_only = true;
+            protocol_event.protocol_payload.assign(event.json, event.json_len);
+            switch (event.kind) {
+            case WF_JETSTREAM_EVENT_SYNC:
+                protocol_event.event_type = "#sync";
+                break;
+            case WF_JETSTREAM_EVENT_IDENTITY:
+                protocol_event.event_type = "#identity";
+                break;
+            case WF_JETSTREAM_EVENT_ACCOUNT:
+            case WF_JETSTREAM_EVENT_ACCOUNT_DELETE:
+                protocol_event.event_type = "#account";
+                break;
+            default:
+                protocol_event.event_type = "#unknown";
+                break;
+            }
+            on_event(protocol_event);
         }
 
         const std::int64_t cursor = protocol_v2_ ? event.seq : event.time_us;

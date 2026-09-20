@@ -60,6 +60,8 @@ struct JetstreamEvent {
     PolicyReason policy_reason{PolicyReason::Eligible};
     std::int64_t seq{0};
     std::string repo_revision; /* repository commit revision/TID, separate from seq */
+    bool protocol_only{false}; /* non-commit protocol frame; never social learning */
+    std::string protocol_payload;
     bool deleted{false};
     /* Firehose event family; commit is the default for legacy fixtures. */
     std::string event_type{"#commit"};
