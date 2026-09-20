@@ -321,6 +321,8 @@ void test_jetstream_kind_round_trip_with_empty_did() {
         "https://bsky.social", "", atperson::kSourceKindJetstream);
     state.catchup.active = true;
     state.catchup.cursor = std::string("the-jetstream-cursor-is-opaque");
+    state.catchup.protocol_repo = std::string("did:plc:repo");
+    state.catchup.protocol_revision = std::string("3jui3s7xq2m2a");
     state.checkpoint.generation = 3u;
     state.checkpoint.pages_completed = 9u;
     state.checkpoint.observations_seen = 541u;
@@ -336,6 +338,9 @@ void test_jetstream_kind_round_trip_with_empty_did() {
     assert(loaded.catchup.active);
     assert(loaded.catchup.cursor ==
            std::optional<std::string>("the-jetstream-cursor-is-opaque"));
+    assert(loaded.catchup.protocol_repo == std::optional<std::string>("did:plc:repo"));
+    assert(loaded.catchup.protocol_revision ==
+           std::optional<std::string>("3jui3s7xq2m2a"));
     assert(loaded.checkpoint.pages_completed == 9u);
     assert(loaded.checkpoint.observations_seen == 541u);
 }

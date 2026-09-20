@@ -66,6 +66,12 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
             parsed.ptr == state.catchup.cursor->data() + state.catchup.cursor->size())
             protocol_cursor.last_sequence = persisted;
     }
+    if (state.catchup.protocol_repo && state.catchup.protocol_revision) {
+        protocol_cursor.repo = *state.catchup.protocol_repo;
+        protocol_cursor.repo_revision = *state.catchup.protocol_revision;
+        protocol_cursor.repository_revisions.push_back(
+            {protocol_cursor.repo, protocol_cursor.repo_revision});
+    }
     const bool fresh_traversal = !state.catchup.active;
 
     if (fresh_traversal) {
@@ -96,6 +102,10 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                         : protocol::Verification::Unverified);
             }
             return;
+        }
+        if (!event.protocol_only && !protocol_cursor.repo.empty()) {
+            state.catchup.protocol_repo = protocol_cursor.repo;
+            state.catchup.protocol_revision = protocol_cursor.repo_revision;
         }
         if (protocol_ledger != nullptr) {
             (void)protocol::append_firehose_event(
