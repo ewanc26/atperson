@@ -50,7 +50,8 @@ const char *outbound_execution_outcome_name(OutboundExecutionOutcome outcome) no
 OutboundExecutionResult
 execute_outbound_action(const ControlState &control, const OutboundPolicy &policy,
                         OutboundBudgetState &budget, const OutboundAction &action,
-                        const OutboundWriterFactory &writer_for, std::int64_t now) {
+                        const OutboundWriterFactory &writer_for, std::int64_t now,
+                        const OutboundAttestationFactory &attest) {
     const auto proposal = outbound_action_proposal(action);
     const OutboundBudgetStatus budget_status =
         outbound_budget_status(policy, budget, action.kind, now);
@@ -98,6 +99,15 @@ execute_outbound_action(const ControlState &control, const OutboundPolicy &polic
             parent_cid = writer.resolve_record_cid(action.reply_parent);
         }
         const std::string record_json = build_outbound_record_json(action, root_cid, parent_cid);
+        std::optional<OutboundAttestation> attestation;
+        if (attest) {
+            try {
+                attestation = attest(record_json, action);
+            } catch (const std::exception &error) {
+                return denied(OutboundExecutionOutcome::Failed, "attestation_failed", error.what(),
+                              decision.budget);
+            }
+        }
         OutboundWriteResult written =
             writer.put_record(kOutboundPostCollection, action.rkey, record_json);
         record_outbound_action(budget, proposal, budget_for(policy, action.kind), now);
@@ -107,6 +117,7 @@ execute_outbound_action(const ControlState &control, const OutboundPolicy &polic
         result.reason_code = "allow";
         result.detail = "action written";
         result.written = std::move(written);
+        result.attestation = std::move(attestation);
         result.budget_recorded = true;
         result.budget = decision.budget;
         return result;
@@ -127,7 +138,8 @@ std::string describe_outbound_execution(const OutboundExecutionResult &result) {
     case OutboundExecutionOutcome::Deferred:
         return "deferred: " + result.detail;
     case OutboundExecutionOutcome::Failed:
-        return "write failed: " + result.detail;
+        return result.reason_code == "attestation_failed" ? "attestation failed: " + result.detail
+                                                            : "write failed: " + result.detail;
     }
     return result.detail;
 }

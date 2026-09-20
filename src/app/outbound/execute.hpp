@@ -34,6 +34,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace atperson {
@@ -63,6 +64,18 @@ class OutboundWriter {
  * actually reached. Must return a reference valid for the call. */
 using OutboundWriterFactory = std::function<OutboundWriter &()>;
 
+struct OutboundAttestation {
+    std::string payload_cid;
+    std::string signature_hex;
+    std::string public_key_did;
+    std::string key_id;
+    std::string algorithm;
+};
+
+using OutboundAttestationFactory =
+    std::function<std::optional<OutboundAttestation>(const std::string &record_json,
+                                                      const OutboundAction &action)>;
+
 enum class OutboundExecutionOutcome { Executed, DryRun, Denied, Deferred, Failed };
 
 [[nodiscard]] const char *
@@ -76,6 +89,7 @@ struct OutboundExecutionResult {
     std::string detail;
     /* Populated only when outcome == Executed. */
     OutboundWriteResult written{};
+    std::optional<OutboundAttestation> attestation;
     /* True only when the write was confirmed and the budget consumed. */
     bool budget_recorded{false};
     /* Budget state measured before any recording. */
@@ -87,7 +101,8 @@ struct OutboundExecutionResult {
 [[nodiscard]] OutboundExecutionResult
 execute_outbound_action(const ControlState &control, const OutboundPolicy &policy,
                         OutboundBudgetState &budget, const OutboundAction &action,
-                        const OutboundWriterFactory &writer_for, std::int64_t now);
+                        const OutboundWriterFactory &writer_for, std::int64_t now,
+                        const OutboundAttestationFactory &attest = {});
 
 /* One-sentence human explanation of an execution result. */
 [[nodiscard]] std::string describe_outbound_execution(const OutboundExecutionResult &result);
