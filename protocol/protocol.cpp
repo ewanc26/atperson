@@ -202,8 +202,11 @@ bool is_nsid(std::string_view value) noexcept {
 }
 
 bool is_cid(std::string_view value) noexcept {
-    return value.starts_with("b") && value.size() >= 10 &&
-           value.find_first_of(" /?#") == std::string_view::npos;
+    if (!value.starts_with("b") || value.size() < 10) return false;
+    for (const char c : value.substr(1)) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '2' && c <= '7'))) return false;
+    }
+    return true;
 }
 
 bool is_tid(std::string_view value) noexcept {
