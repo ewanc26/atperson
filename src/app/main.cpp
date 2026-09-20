@@ -211,7 +211,13 @@ int main(int argc, char **argv) {
                 const auto entries = ledger.entries();
                 std::size_t matches = 0;
                 for (const auto &entry : entries) {
-                    if (entry.subject != argv[3]) continue;
+                    const std::string handle_prefix = std::string(argv[3]) + "|";
+                    const bool subject_match = entry.subject == argv[3];
+                    const bool handle_match =
+                        entry.kind == atperson::protocol::EvidenceKind::Identity &&
+                        entry.event_type == "#identity" &&
+                        entry.payload.starts_with(handle_prefix);
+                    if (!subject_match && !handle_match) continue;
                     ++matches;
                     std::cout << "subject=" << entry.subject << " source=" << entry.source
                               << " event=" << entry.event_type
