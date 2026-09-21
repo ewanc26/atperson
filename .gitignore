@@ -69,7 +69,6 @@ Testing/
 
 # atperson runtime state and local credentials
 .atperson/
-.atperson-training/
 .env
 
 # macOS metadata
