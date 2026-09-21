@@ -128,7 +128,9 @@ void *JetstreamClient::connect() {
     wf_jetstream *stream = nullptr;
     const wf_status status = wf_jetstream_connect(&options, &stream);
     if (status != WF_OK || stream == nullptr) {
-        throw std::runtime_error("JetstreamClient: wf_jetstream_connect failed");
+        throw std::runtime_error(
+            "JetstreamClient: wf_jetstream_connect failed for " + endpoint_ +
+            " (native status " + std::to_string(static_cast<int>(status)) + ")");
     }
     return stream;
 }
