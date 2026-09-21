@@ -26,6 +26,7 @@ std::string self_did();
 std::string required_self_did();
 
 std::filesystem::path data_dir();
+std::filesystem::path training_dir();
 std::filesystem::path state_path();
 std::filesystem::path ledger_path();
 std::filesystem::path ingestion_state_path();

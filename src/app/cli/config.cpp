@@ -68,22 +68,26 @@ std::filesystem::path data_dir() {
     return ".atperson";
 }
 
+std::filesystem::path training_dir() {
+    return env_or("ATPERSON_TRAINING_HOME", (data_dir() / "training").string());
+}
+
 std::filesystem::path state_path() {
-    return env_or("ATPERSON_STATE", (data_dir() / "model.bin").string());
+    return env_or("ATPERSON_STATE", (training_dir() / "model.bin").string());
 }
 
 std::filesystem::path ledger_path() {
-    return env_or("ATPERSON_LEDGER", (data_dir() / "ledger.bin").string());
+    return env_or("ATPERSON_LEDGER", (training_dir() / "ledger.bin").string());
 }
 
 std::filesystem::path ingestion_state_path() {
     return env_or("ATPERSON_INGESTION_STATE",
-                  (data_dir() / "ingestion-state.json").string());
+                  (training_dir() / "ingestion-state.json").string());
 }
 
 std::filesystem::path jetstream_state_path() {
     return env_or("ATPERSON_JETSTREAM_STATE",
-                  (data_dir() / "jetstream-state.json").string());
+                  (training_dir() / "jetstream-state.json").string());
 }
 
 std::filesystem::path jetstream_collections_path() {
@@ -134,7 +138,7 @@ std::filesystem::path autonomy_run_state_path() {
 }
 
 std::vector<std::filesystem::path> durable_paths() {
-    return {data_dir(), state_path(), ledger_path(), ingestion_state_path(),
+    return {data_dir(), training_dir(), state_path(), ledger_path(), ingestion_state_path(),
             jetstream_state_path(), control_state_path(), outbound_policy_path(),
             outbound_budget_path(), outbound_audit_path(), action_journal_path(),
             protocol_ledger_path(), autonomy_run_state_path()};
