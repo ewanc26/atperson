@@ -50,6 +50,13 @@ The memory footprint check is deliberately an estimate: it includes values plus 
 
 Durable neural architecture and current execution policy are separate things. A model's persisted embedding/layer topology does not change merely because it restarts on a faster or slower machine. Instead, the runtime derives an execution-only policy from the CPU and memory the process can use now.
 
+The `large` and `expansive` recommendations are production-scale profiles:
+each has at least 10 million shared learned parameters. They are chosen only
+when the existing memory and CPU headroom rules permit them; lower-capacity
+machines retain a smaller, safe topology rather than allocating an unsafe
+model. Existing generations still require the explicit `atperson neural
+expand` migration command before their topology changes.
+
 Policy v1 is deliberately conservative:
 
 - the only selectable backend is `portable-cpu`;

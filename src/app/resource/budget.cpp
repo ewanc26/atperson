@@ -132,15 +132,22 @@ void apply_class_shape(NeuralCapacityRecommendation &profile, NeuralCapacityClas
     profile.capacity_class = capacity_class;
     switch (capacity_class) {
     case NeuralCapacityClass::expansive:
-        profile.embedding_dim = 384u;
+        /* The production-scale profiles deliberately clear the minimum
+         * 10-million shared-parameter floor.  Keep all widths aligned to
+         * accelerator-friendly multiples while the portable C23 owner
+         * remains the authoritative trainer. */
+        profile.embedding_dim = 1024u;
         profile.hidden_layer_count = 3u;
-        profile.hidden_widths = {768u, 384u, 192u};
+        profile.hidden_widths = {3072u, 2560u, 1280u};
         profile.runtime_batch_observations = 256u;
         break;
     case NeuralCapacityClass::large:
-        profile.embedding_dim = 256u;
-        profile.hidden_layer_count = 2u;
-        profile.hidden_widths = {512u, 256u, 0u};
+        /* 10,361,089 shared parameters.  This is the normal desktop/server
+         * target, selected only after the existing resource budget has
+         * established sufficient headroom. */
+        profile.embedding_dim = 768u;
+        profile.hidden_layer_count = 3u;
+        profile.hidden_widths = {2304u, 2048u, 1024u};
         profile.runtime_batch_observations = 128u;
         break;
     case NeuralCapacityClass::capable:
