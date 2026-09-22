@@ -202,6 +202,21 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
             wf_jetstream_event_typed typed{};
             const wf_status typed_status = wf_jetstream_event_parse_typed(
                 event.json, event.json_len, &typed);
+            /* Retain every public repository commit as protocol evidence,
+             * including collections that are not social-learning inputs. */
+            JetstreamEvent protocol_commit;
+            protocol_commit.author_did = event.did;
+            protocol_commit.seq = protocol_v2_ ? event.seq : event.time_us;
+            protocol_commit.protocol_only = true;
+            protocol_commit.event_type = "#commit";
+            protocol_commit.protocol_payload.assign(event.json, event.json_len);
+            if (typed_status == WF_OK && typed.commit.rev != nullptr) {
+                protocol_commit.repo_revision = typed.commit.rev;
+                if (!protocol::is_tid(protocol_commit.repo_revision)) {
+                    protocol_commit.verification = protocol::Verification::Rejected;
+                }
+            }
+            on_event(protocol_commit);
             const bool typed_delete =
                 typed_status == WF_OK &&
                 typed.commit.operation == WF_JETSTREAM_COMMIT_DELETE &&
