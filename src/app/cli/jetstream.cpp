@@ -246,10 +246,11 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
             break;
         }
         const std::uint32_t delay_ms = client.reconnect_after_ms();
-        if (delay_ms == 0) {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+        /* A zero delay means the socket is still healthy but has no frame
+         * ready yet. Keep the requested session alive and avoid busy-spinning
+         * while waiting for its next readable frame. */
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(delay_ms == 0 ? 25u : delay_ms));
     }
 
     graph.save(model_path);
