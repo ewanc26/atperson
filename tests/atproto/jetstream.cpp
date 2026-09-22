@@ -118,7 +118,7 @@ void test_collection_filter_file() {
     std::filesystem::remove(path);
 
     const auto defaults = atperson::default_jetstream_collections();
-    if (defaults.size() != 1u || defaults[0] != "app.bsky.feed.post") {
+    if (!defaults.empty()) {
         fail("default collection filter");
     }
     std::printf("ok collection filter file\n");

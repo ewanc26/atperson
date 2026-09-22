@@ -76,9 +76,14 @@ int run_jetstream_status(
     }
     out << '\n'
         << "checkpoint generation: " << state.checkpoint.generation << '\n'
-        << "collections (" << collections.size() << "):";
-    for (const std::string &collection : collections) {
-        out << "\n  " << collection;
+        << "collections: ";
+    if (collections.empty()) {
+        out << "all public collections";
+    } else {
+        out << collections.size() << ':';
+        for (const std::string &collection : collections) {
+            out << "\n  " << collection;
+        }
     }
     out << "\nDID filters (" << dids.size() << "):";
     if (dids.empty()) {
