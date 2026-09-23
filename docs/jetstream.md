@@ -7,7 +7,7 @@ Jetstream is derived from the AT Protocol repository firehose, but it is not the
 ## Current command
 
 ```sh
-atperson jetstream [max-events] [max-ms] [--collections <file>] [--dids <file>]
+atperson jetstream [max-events] [max-ms] [--collections <file>] [--dids <file>] [--kinds <file>]
 atperson jetstream archive [after-seq] [before-seq] [--span <sequences>] [--collections <file>] [--dids <file>]
 atperson jetstream status [--collections <file>] [--dids <file>]
 ```
@@ -123,6 +123,40 @@ accepted as social-learning input.
 DID filtering is optional. Pass `--dids <file>` or set `ATPERSON_JETSTREAM_DIDS_FILE`. The file uses the same blank/comment/dedup rules, requires every entry to begin with `did:`, and accepts at most 10,000 unique values. With no DID file, the subscription is not restricted by repository DID.
 
 Both collection and DID files are transport policy only. They are not model state and are not persisted into the learned snapshot.
+
+## Event-kind filter
+
+The v2 `subscribeEvents` endpoint accepts a `kinds` predicate. Without one,
+atperson retains commits plus `#sync`, `#identity` and `#account` events for
+the protocol-evidence ledger. Pass `--kinds <file>` or set
+`ATPERSON_JETSTREAM_KINDS_FILE` to restrict the subscription:
+
+```text
+# repository commits only
+commit
+```
+
+The file uses the same blank/comment/dedup rules and accepts only the four
+Jetstream v2 kinds (`commit`, `identity`, `account`, `sync`), at most four
+unique values. The kind filter is transport policy only; it never changes what
+a delivered event teaches.
+
+## Compression and throughput
+
+Live ingestion requests dictionary-compressed binary frames by default. The
+official Jetstream zstd dictionary is fetched from the public
+`network.bsky.jetstream.getZstdDictionary` query on the configured endpoint's
+service host before connecting, and passed to Wolfram's connect options. Set
+`ATPERSON_JETSTREAM_COMPRESS=0` to stay on uncompressed JSON frames.
+
+If the dictionary fetch fails (offline, non-200, empty body) or the Wolfram
+build lacks libzstd, the run continues with uncompressed JSON rather than
+failing.
+
+The live loop drains readable frames inside one batch instead of returning to
+the caller on every idle poll: a busy feed is consumed continuously, and the
+caller only sleeps for advertised reconnect backoff. `max-events` is accounted
+across batches, so an event-bounded run stops at the operator's bound.
 
 ## Durability order
 
