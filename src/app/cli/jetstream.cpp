@@ -258,8 +258,15 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     const std::string compress_env = env_or("ATPERSON_JETSTREAM_COMPRESS", "1");
     if (compress_env != "0") {
         try {
-            const std::string service = endpoint.substr(
-                0u, endpoint.find("/xrpc/"));
+            /* The dictionary query runs on the endpoint's service host over
+             * plain HTTPS; derive it from the wss subscribe URL. */
+            const std::string service = [&]() {
+                std::string base = endpoint.substr(0u, endpoint.find("/xrpc/"));
+                if (base.rfind("wss://", 0u) == 0u) {
+                    base = "https://" + base.substr(6u);
+                }
+                return base;
+            }();
             zstd_dictionary =
                 atperson::fetch_jetstream_zstd_dictionary(service);
         } catch (const std::exception &error) {
@@ -276,6 +283,12 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
 
     atperson::JetstreamRunResult result;
     std::uint64_t total_events = 0u;
+    std::uint64_t total_malformed = 0u;
+    std::uint64_t total_observations = 0u;
+    std::uint64_t total_withdrawn = 0u;
+    std::uint64_t total_learned = 0u;
+    std::uint64_t total_skipped = 0u;
+    std::uint64_t total_duplicates = 0u;
     for (;;) {
         JetstreamLimits batch_limits = limits;
         if (limits.max_events > 0) {
@@ -298,6 +311,12 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         result = atperson::run_jetstream_backfill(graph, ledger, ingestion, client,
                                                   batch_limits, linker, &protocol_ledger);
         total_events += result.events_consumed;
+        total_malformed += result.malformed_frames;
+        total_observations += result.observations_seen;
+        total_withdrawn += result.withdrawn;
+        total_learned += result.learned;
+        total_skipped += result.skipped;
+        total_duplicates += result.duplicates;
         if (result.exhausted) {
             break;
         }
@@ -317,14 +336,14 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     control.last_sync_at = atperson::control_now_rfc3339();
     atperson::save_control_state(control, control_file);
 
-    out << "jetstream: " << result.events_consumed << " frame(s), "
-        << result.malformed_frames << " malformed skipped, "
-        << result.observations_seen << " observation(s)"
-        << ", " << result.withdrawn << " withdrawal(s)"
+    out << "jetstream: " << total_events << " frame(s), "
+        << total_malformed << " malformed skipped, "
+        << total_observations << " observation(s)"
+        << ", " << total_withdrawn << " withdrawal(s)"
         << (result.reconciled ? ", reconciled" : ", no reconciliation")
         << (result.exhausted ? ", feed exhausted" : ", catch-up pending")
-        << "; learned from " << result.learned << " (skipped " << result.skipped
-        << ", duplicate " << result.duplicates << "); collections "
+        << "; learned from " << total_learned << " (skipped " << total_skipped
+        << ", duplicate " << total_duplicates << "); collections "
         << collections.size() << ", DID filters " << dids.size() << "\n";
     if (!zstd_dictionary.empty()) {
         out << "transport: zstd dictionary compression"
