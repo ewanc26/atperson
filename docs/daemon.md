@@ -71,6 +71,11 @@ The outbound write gate, dry-run mode and approval state are also operator contr
 | `ATPERSON_DAEMON_BACKOFF_MAX_MS` | `300000` | Maximum retry delay |
 | `ATPERSON_DAEMON_BACKOFF_FACTOR` | `2.0` | Exponential multiplier |
 | `ATPERSON_DAEMON_BACKOFF_JITTER` | `0.2` | Jitter fraction in `[0, 1]` |
+| `ATPERSON_DAEMON_ARCHIVE_AFTER` | unset | Run a Jetstream archive phase before timeline cycles, starting at this sequence |
+| `ATPERSON_DAEMON_ARCHIVE_BEFORE` | unset | Optional upper bound for the daemon archive window |
+| `ATPERSON_DAEMON_ARCHIVE_SPAN` | unset | Relative trailing window for the archive phase (mutually exclusive with `AFTER`) |
+
+The Jetstream archive startup phase is opt-in and covered in [`jetstream.md`](jetstream.md). When one of the `ATPERSON_DAEMON_ARCHIVE_*` variables is set, the daemon runs a bounded sealed-archive replay over the configured window before the first timeline cycle, checkpoints the replay tip and model, then continues normally. The window is always hard-capped at 10,000,000 sequences (`kJetstreamArchiveMaxSequenceSpan`); `ATORSPAN`/`AFTER` combinations that exceed it fail at startup.
 
 Sync page size and observation limits continue to come from the resource-budget layer. Invalid or self-contradictory daemon settings fail at startup.
 
