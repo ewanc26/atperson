@@ -11,6 +11,34 @@
 
 namespace atperson {
 
+std::optional<std::uint64_t> JetstreamReplayClient::probe_sealed_tip() {
+    wf_xrpc_client *const client = wf_agent_get_xrpc_client(&agent_);
+    if (client == nullptr) {
+        throw std::runtime_error("Jetstream replay requires an authenticated agent client");
+    }
+    if (archive_token_.empty()) {
+        throw std::runtime_error("Jetstream replay requires ATPERSON_JETSTREAM_ARCHIVE_TOKEN");
+    }
+    wf_xrpc_client_set_auth(client, archive_token_.c_str());
+    /* A minimal window still reports the archive's global sealed tip; no
+     * segments are downloaded. */
+    wf_jetstream_replay_filter filter{};
+    filter.after_seq = 0u;
+    filter.before_seq = 1u;
+    filter.has_before_seq = 1;
+    wf_jetstream_replay_plan_page page{};
+    if (wf_jetstream_replay_plan(client, &filter, &page) != WF_OK) {
+        wf_jetstream_replay_plan_page_free(&page);
+        throw std::runtime_error("Jetstream replay tip probe failed");
+    }
+    const std::uint64_t tip = page.sealed_tip_seq;
+    wf_jetstream_replay_plan_page_free(&page);
+    if (tip == 0u) {
+        return std::nullopt;
+    }
+    return tip;
+}
+
 JetstreamReplayWindow JetstreamReplayClient::fetch_window(
     std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,
     std::string_view self_did, const std::vector<std::string> &collections,

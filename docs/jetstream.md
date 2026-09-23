@@ -153,21 +153,36 @@ The learning policy still accepts only public post records. Private-message/conv
 
 ## What remains for #60
 
-The durable replay core and archive-to-live boundary are implemented, but this is not the complete #60 operator surface.
+The durable replay core, the archive-to-live boundary, the operator archive
+command and daemon scheduling are implemented. The last piece of the operator
+surface is the bounded relative backfill window, which lets the operator
+request a trailing slice of history without knowing absolute sequence numbers:
 
-Jetstream v2 now provides archive replay that can backfill a historical slice and cut over to the live tail without a gap. atperson can now plan/fetch/translate those windows and checkpoint the boundary. The remaining work is to add:
+```sh
+atperson jetstream archive --span 2000000
+```
 
-- an operator-selected bounded relative backfill window;
-- an operator command that invokes Jetstream v2 archive planning/segment retrieval through Wolfram;
-- daemon scheduling and restart handling for the archive phase;
-- inspection/status for the active collection filter, replay window and phase;
-- tests for replay-window truncation and restart across the archive/live boundary.
+With `--span`, atperson probes the archive's sealed tip first, then plans the
+trailing `<span>` sequences ending at that tip (or at an explicit `before-seq`).
+The span is bounded by the same 10,000,000-sequence cap as absolute windows;
+`--span` cannot be combined with a positional `after-seq`. The command still
+runs the same plan/fetch/translate/checkpoint path and can cut over to the live
+tail without a gap.
+
+`atperson jetstream archive [after-seq] [before-seq] [--span <sequences>]`
+through Wolfram; the daemon accepts the equivalent
+`ATPERSON_DAEMON_ARCHIVE_SPAN` (mutually exclusive with
+`ATPERSON_DAEMON_ARCHIVE_AFTER`) for its startup replay phase. Replay-window
+truncation, restart and relative-span behavior are covered by scripted tests
+that exercise the replay source seam without credentials or network I/O.
 
 The live command remains a bounded cursor consumer with independent restart state and explicit collection filtering. Archive replay requires `ATPERSON_SERVICE`, `ATPERSON_IDENTIFIER`, `ATPERSON_APP_PASSWORD`, and `ATPERSON_SELF_DID`; credentials are used only for the session and are never persisted.
 
 The daemon can run the same archive phase while it already holds its single-writer
 lock by setting `ATPERSON_DAEMON_ARCHIVE_AFTER` and optionally
-`ATPERSON_DAEMON_ARCHIVE_BEFORE`. This phase runs once at startup, persists the
+`ATPERSON_DAEMON_ARCHIVE_BEFORE`, or with a relative trailing window via
+`ATPERSON_DAEMON_ARCHIVE_SPAN` (which cannot be combined with AFTER). This phase
+runs once at startup, persists the
 archive checkpoint and model before timeline cycles begin, and is opt-in; leaving
 the variables unset preserves the normal timeline-only daemon behaviour. The same
 10,000,000-sequence cap applies to daemon startup windows.

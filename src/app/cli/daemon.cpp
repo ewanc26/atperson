@@ -62,26 +62,47 @@ void run_startup_archive_if_configured(
     const std::filesystem::path &model_path, Ledger &ledger,
     const SyncLinker &linker, protocol::EvidenceLedger *protocol_ledger) {
     const std::string after_value = env_or("ATPERSON_DAEMON_ARCHIVE_AFTER");
-    if (after_value.empty()) return;
-    const std::uint64_t after = daemon_archive_sequence("ATPERSON_DAEMON_ARCHIVE_AFTER");
+    const std::string span_value = env_or("ATPERSON_DAEMON_ARCHIVE_SPAN");
+    if (after_value.empty() && span_value.empty()) return;
+    if (!after_value.empty() && !span_value.empty()) {
+        throw std::runtime_error(
+            "ATPERSON_DAEMON_ARCHIVE_SPAN cannot be combined with "
+            "ATPERSON_DAEMON_ARCHIVE_AFTER");
+    }
+    std::optional<std::uint64_t> relative_span;
+    std::uint64_t after = 0u;
+    if (!span_value.empty()) {
+        const std::uint64_t span = daemon_archive_sequence(
+            "ATPERSON_DAEMON_ARCHIVE_SPAN");
+        if (span == 0u || span > kJetstreamArchiveMaxSequenceSpan) {
+            throw std::runtime_error(
+                "ATPERSON_DAEMON_ARCHIVE_SPAN must be between 1 and the "
+                "10,000,000 sequence cap");
+        }
+        relative_span = span;
+    } else {
+        after = daemon_archive_sequence("ATPERSON_DAEMON_ARCHIVE_AFTER");
+    }
     const std::string before_value = env_or("ATPERSON_DAEMON_ARCHIVE_BEFORE");
     std::optional<std::uint64_t> before;
     if (!before_value.empty()) before = daemon_archive_sequence("ATPERSON_DAEMON_ARCHIVE_BEFORE");
-    if (!before) {
-        if (after > std::numeric_limits<std::uint64_t>::max() -
-                       kJetstreamArchiveMaxSequenceSpan) {
-            throw std::runtime_error(
-                "ATPERSON_DAEMON_ARCHIVE_AFTER is too large for the default window");
+    if (!relative_span) {
+        if (!before) {
+            if (after > std::numeric_limits<std::uint64_t>::max() -
+                           kJetstreamArchiveMaxSequenceSpan) {
+                throw std::runtime_error(
+                    "ATPERSON_DAEMON_ARCHIVE_AFTER is too large for the default window");
+            }
+            before = after + kJetstreamArchiveMaxSequenceSpan;
         }
-        before = after + kJetstreamArchiveMaxSequenceSpan;
-    }
-    if (before && *before <= after) {
-        throw std::runtime_error(
-            "ATPERSON_DAEMON_ARCHIVE_BEFORE must be greater than AFTER");
-    }
-    if (*before - after > kJetstreamArchiveMaxSequenceSpan) {
-        throw std::runtime_error(
-            "daemon archive window exceeds the 10,000,000 sequence cap");
+        if (before && *before <= after) {
+            throw std::runtime_error(
+                "ATPERSON_DAEMON_ARCHIVE_BEFORE must be greater than AFTER");
+        }
+        if (*before - after > kJetstreamArchiveMaxSequenceSpan) {
+            throw std::runtime_error(
+                "daemon archive window exceeds the 10,000,000 sequence cap");
+        }
     }
     require_runtime_write_headroom(resource_status);
     const std::string endpoint = env_or(
@@ -94,7 +115,8 @@ void run_startup_archive_if_configured(
     JetstreamReplayClient replay(
         *session.agent(), required_env("ATPERSON_JETSTREAM_ARCHIVE_TOKEN"));
     const auto result = atperson::run_jetstream_archive(
-        graph, ledger, archive_state, replay, after, before, required_self_did(),
+        graph, ledger, archive_state, replay, after, before, relative_span,
+        required_self_did(),
         jetstream_collections_path().empty()
             ? default_jetstream_collections()
             : load_jetstream_collections(jetstream_collections_path()),

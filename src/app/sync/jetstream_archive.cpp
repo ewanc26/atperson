@@ -7,10 +7,34 @@ namespace atperson {
 JetstreamRunResult run_jetstream_archive(
     LanguageGraph &graph, Ledger &ledger, IngestionState &state,
     JetstreamReplaySource &client, std::uint64_t after_seq,
-    std::optional<std::uint64_t> before_seq, std::string_view self_did,
+    std::optional<std::uint64_t> before_seq,
+    std::optional<std::uint64_t> relative_span, std::string_view self_did,
     const std::vector<std::string> &collections,
     const std::vector<std::string> &dids,
     const SyncLinker &link, protocol::EvidenceLedger *protocol_ledger) {
+    if (relative_span) {
+        if (*relative_span == 0u ||
+            *relative_span > kJetstreamArchiveMaxSequenceSpan) {
+            throw std::runtime_error(
+                "jetstream archive: relative span must be between 1 and the "
+                "10,000,000 sequence cap");
+        }
+        if (!before_seq) {
+            const auto tip = client.probe_sealed_tip();
+            if (!tip) {
+                throw std::runtime_error(
+                    "jetstream archive: cannot resolve a relative window against an "
+                    "empty sealed archive");
+            }
+            before_seq = *tip;
+        }
+        if (*before_seq == 0u) {
+            throw std::runtime_error(
+                "jetstream archive: cannot resolve a relative window against an "
+                "empty sealed archive");
+        }
+        after_seq = *before_seq > *relative_span ? *before_seq - *relative_span : 0u;
+    }
     JetstreamRunResult result;
     const auto on_event = [&](const JetstreamEvent &event) {
         ++result.events_consumed;
