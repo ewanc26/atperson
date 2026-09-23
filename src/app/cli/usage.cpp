@@ -25,7 +25,7 @@ void print_usage(std::ostream &out) {
         << "  atperson recall <query> [limit] [min-overlap] [max-prefilter] [on|off]\n"
         << "  atperson groups\n"
         << "  atperson sync [max-pages]\n"
-        << "  atperson jetstream [max-events] [max-ms] [--collections <file>] [--dids <file>]\n"
+        << "  atperson jetstream [max-events] [max-ms] [--collections <file>] [--dids <file>] [--kinds <file>]\n"
         << "  atperson jetstream status [--collections <file>] [--dids <file>]\n"
         << "  atperson jetstream archive [after-seq] [before-seq] [--span <sequences>] [--collections <file>] [--dids <file>]\n"
         << "  atperson daemon [max-cycles]\n"

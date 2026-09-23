@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <string_view>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -103,6 +104,25 @@ load_jetstream_collections(const std::filesystem::path &path) {
 std::vector<std::string>
 load_jetstream_dids(const std::filesystem::path &path) {
     return load_filter_file(path, kJetstreamDidFilterLimit, "DIDs", true);
+}
+
+std::vector<std::string>
+load_jetstream_kinds(const std::filesystem::path &path) {
+    static constexpr std::string_view kValidKinds[] = {
+        "commit", "identity", "account", "sync"};
+    std::vector<std::string> result =
+        load_filter_file(path, kJetstreamKindFilterLimit, "kinds", false);
+    for (const std::string &kind : result) {
+        const bool valid = std::any_of(
+            std::begin(kValidKinds), std::end(kValidKinds),
+            [&kind](std::string_view candidate) { return kind == candidate; });
+        if (!valid) {
+            throw std::runtime_error(
+                "jetstream kinds: unknown event kind '" + kind +
+                "' (expected one of: commit, identity, account, sync)");
+        }
+    }
+    return result;
 }
 
 } // namespace atperson

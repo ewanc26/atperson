@@ -233,6 +233,58 @@ void test_collection_filter_rejects_invalid_input() {
     std::printf("ok invalid collection filters rejected\n");
 }
 
+void test_kind_filter_file() {
+    const auto path = filter_path("kinds-valid");
+    write_filter(path,
+                 "# protocol evidence only\n"
+                 " commit \n"
+                 "commit\n"
+                 "sync\n");
+
+    const auto kinds = atperson::load_jetstream_kinds(path);
+    if (kinds.size() != 2u || kinds[0] != "commit" || kinds[1] != "sync") {
+        fail("kind filter parse/order/dedup");
+    }
+    std::filesystem::remove(path);
+    std::printf("ok kind filter file\n");
+}
+
+void test_kind_filter_rejects_invalid_input() {
+    {
+        const auto path = filter_path("kinds-unknown");
+        write_filter(path, "commit\nfirehose\n");
+        bool rejected = false;
+        try {
+            (void)atperson::load_jetstream_kinds(path);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        std::filesystem::remove(path);
+        if (!rejected) {
+            fail("unknown event kind must reject");
+        }
+    }
+
+    {
+        const auto path = filter_path("kinds-too-many");
+        /* The loader's unique-entry limit fires before kind validation,
+         * so a fifth distinct (invalid) token exercises the bound. */
+        write_filter(path, "commit\nidentity\naccount\nsync\ninfo\n");
+        bool rejected = false;
+        try {
+            (void)atperson::load_jetstream_kinds(path);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        std::filesystem::remove(path);
+        if (!rejected) {
+            fail("kind filter limit must reject");
+        }
+    }
+
+    std::printf("ok invalid kind filters rejected\n");
+}
+
 void test_create_top_level_post() {
     SyncObservation out;
     if (!extract(commit("create", "app.bsky.feed.post", "3kcz9", post("hello public world")),
@@ -536,6 +588,8 @@ int main() {
     test_collection_filter_rejects_invalid_input();
     test_did_filter_file();
     test_did_filter_rejects_invalid_input();
+    test_kind_filter_file();
+    test_kind_filter_rejects_invalid_input();
     test_create_top_level_post();
     test_self_authored_post_is_skipped();
     test_update_post();
