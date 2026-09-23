@@ -1,5 +1,7 @@
 #include "atperson/bootstrap.h"
+#include "protocol.hpp"
 #include "atperson/graph.hpp"
+#include "autonomy/run_state.hpp"
 #include "inspection.hpp"
 #include "audit/command.hpp"
 #include "cli/config.hpp"
@@ -13,6 +15,7 @@
 #include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
+#include "cli/protocol_command.hpp"
 #include "cli/sync.hpp"
 #include "cli/usage.hpp"
 #include "control/state.hpp"
@@ -48,6 +51,18 @@ void usage(std::ostream &out) {
     atperson::cli::print_usage(out);
 }
 
+const char *verification_name(atperson::protocol::Verification verification) {
+    switch (verification) {
+    case atperson::protocol::Verification::Verified:
+        return "verified";
+    case atperson::protocol::Verification::Rejected:
+        return "rejected";
+    case atperson::protocol::Verification::Unverified:
+        return "unverified";
+    }
+    return "unknown";
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -57,8 +72,10 @@ int main(int argc, char **argv) {
             return 2;
         }
 
+        const std::string_view command = argv[1];
         char home_buffer[4096];
-        if (atp_default_home_directory(home_buffer, sizeof(home_buffer), nullptr) != nullptr) {
+        if (command != "protocol" &&
+            atp_default_home_directory(home_buffer, sizeof(home_buffer), nullptr) != nullptr) {
             char notice[ATP_BOOTSTRAP_NOTICE_BYTES];
             if (atp_bootstrap_home(home_buffer, notice, sizeof(notice)) == ATP_OK &&
                 notice[0] != '\0') {
@@ -66,7 +83,6 @@ int main(int argc, char **argv) {
             }
         }
 
-        const std::string_view command = argv[1];
         const auto path = atperson::cli::state_path();
         const auto resource_paths = atperson::cli::durable_paths();
         const auto resource_overrides = atperson::resource_overrides_from_environment();
@@ -132,6 +148,22 @@ int main(int argc, char **argv) {
                                               argument);
         }
 
+        if (command == "autonomy") {
+            const std::string sub = argc >= 3 ? argv[2] : "status";
+            if (sub != "status") {
+                usage(std::cerr);
+                return 2;
+            }
+            const auto state = atperson::load_autonomy_run_state(
+                atperson::cli::autonomy_run_state_path());
+            std::cout << "run id: " << state.run_id << '\n'
+                      << "phase: " << atperson::autonomy_phase_name(state.phase) << '\n'
+                      << "checkpoint: " << state.checkpoint << '\n'
+                      << "last at: " << state.last_at << '\n'
+                      << "detail: " << state.detail << '\n';
+            return 0;
+        }
+
         if (command == "outbound") {
             const std::string sub = argc >= 3 ? argv[2] : "status";
             std::vector<std::string_view> arguments;
@@ -156,6 +188,109 @@ int main(int argc, char **argv) {
                 atperson::cli::control_state_path(), atperson::cli::outbound_audit_path(),
                 atperson::cli::action_journal_path(),
                 argv[2], static_cast<std::int64_t>(std::time(nullptr)));
+        }
+
+        if (command == "protocol") {
+            const std::string_view subcommand = argc >= 3 ? argv[2] : "status";
+            if (subcommand == "resolve") {
+                if (argc < 4) {
+                    usage(std::cerr);
+                    return 2;
+                }
+                return atperson::cli::run_protocol_resolve(
+                    std::cout, std::cerr, argv[3],
+                    atperson::cli::env_or("ATPERSON_SERVICE", "https://bsky.social").c_str());
+            }
+            if (subcommand == "explain") {
+                if (argc < 4) {
+                    usage(std::cerr);
+                    return 2;
+                }
+                const atperson::protocol::EvidenceLedger ledger(
+                    atperson::cli::protocol_ledger_path());
+                const auto entries = ledger.entries();
+                std::size_t matches = 0;
+                for (const auto &entry : entries) {
+                    const std::string handle_prefix = std::string(argv[3]) + "|";
+                    const bool subject_match = entry.subject == argv[3];
+                    const bool handle_match =
+                        entry.kind == atperson::protocol::EvidenceKind::Identity &&
+                        entry.event_type == "#identity" &&
+                        entry.payload.starts_with(handle_prefix);
+                    if (!subject_match && !handle_match) continue;
+                    ++matches;
+                    std::cout << "subject=" << entry.subject << " source=" << entry.source
+                              << " event=" << entry.event_type
+                              << " payload=" << entry.payload
+                              << " sequence=" << entry.sequence
+                              << " observed_at=" << entry.observed_at
+                              << " verification=" << verification_name(entry.verification)
+                              << " confidence=" << entry.confidence << '\n';
+                }
+                if (matches == 0) {
+                    std::cout << "no protocol evidence for " << argv[3] << '\n';
+                    return 1;
+                }
+                return 0;
+            }
+            if (subcommand == "oauth-plan") {
+                if (argc < 4) {
+                    usage(std::cerr);
+                    return 2;
+                }
+                const auto plan = atperson::protocol::make_loopback_oauth_plan(
+                    atperson::cli::env_or("ATPERSON_OAUTH_REDIRECT",
+                                          "http://127.0.0.1:43127/callback"),
+                    argv[3]);
+                if (!plan) {
+                    std::cerr << "protocol oauth-plan: redirect must be a valid loopback URI\n";
+                    return 1;
+                }
+                std::cout << "redirect=" << plan->redirect_uri << " scope=" << plan->scope
+                          << " permission=" << static_cast<int>(plan->permission)
+                          << " loopback-only=" << (plan->loopback_only ? "yes" : "no")
+                          << '\n';
+                return 0;
+            }
+            if (subcommand == "oauth-metadata") {
+                if (argc < 4) {
+                    usage(std::cerr);
+                    return 2;
+                }
+                const auto metadata = atperson::protocol::localhost_oauth_client_metadata(
+                    atperson::cli::env_or("ATPERSON_OAUTH_REDIRECT",
+                                          "http://127.0.0.1:43127/callback"),
+                    argv[3]);
+                if (!metadata) {
+                    std::cerr << "protocol oauth-metadata: invalid loopback redirect\n";
+                    return 1;
+                }
+                std::cout << "{\"client_id\":\"" << metadata->client_id
+                          << "\",\"redirect_uris\":[\"" << metadata->redirect_uri
+                          << "\"],\"grant_types\":[\"authorization_code\",\"refresh_token\"]"
+                          << ",\"response_types\":[\"code\"],\"scope\":\""
+                          << metadata->scope
+                          << "\",\"token_endpoint_auth_method\":\"none\""
+                          << ",\"application_type\":\"native\",\"dpop_bound_access_tokens\":true}\n";
+                return 0;
+            }
+            if (subcommand != "status") {
+                usage(std::cerr);
+                return 2;
+            }
+            const atperson::protocol::EvidenceLedger ledger(
+                atperson::cli::protocol_ledger_path());
+            const auto entries = ledger.entries();
+            std::cout << "protocol evidence: " << entries.size() << " entries\n";
+            for (const auto &entry : entries) {
+                std::cout << "source=" << entry.source << " event=" << entry.event_type
+                          << " subject=" << entry.subject << " sequence=" << entry.sequence
+                          << " observed_at=" << entry.observed_at
+                          << " payload=" << entry.payload
+                          << " verification=" << verification_name(entry.verification)
+                          << " confidence=" << entry.confidence << '\n';
+            }
+            return 0;
         }
 
         if (command == "jetstream" && argc >= 3 &&
@@ -346,6 +481,44 @@ int main(int argc, char **argv) {
 
         if (command == "jetstream") {
             /* "status" is handled above before the model is loaded. */
+            if (argc >= 3 && std::string_view(argv[2]) == "archive") {
+                const auto parse_sequence = [](const char *value,
+                                               const char *name) -> std::uint64_t {
+                    try {
+                        std::size_t consumed = 0;
+                        const std::string text(value);
+                        const auto parsed = std::stoull(text, &consumed, 10);
+                        if (consumed != text.size()) throw std::invalid_argument("trailing");
+                        return parsed;
+                    } catch (const std::exception &) {
+                        throw std::runtime_error(std::string("jetstream archive: ") +
+                                                 name + " must be a decimal sequence");
+                    }
+                };
+                std::optional<std::uint64_t> after;
+                std::optional<std::uint64_t> before;
+                std::filesystem::path collections_file =
+                    atperson::cli::jetstream_collections_path();
+                std::filesystem::path dids_file = atperson::cli::jetstream_dids_path();
+                if (argc >= 4) after = parse_sequence(argv[3], "after-seq");
+                if (argc >= 5) before = parse_sequence(argv[4], "before-seq");
+                for (int i = 5; i < argc; ++i) {
+                    const std::string_view argument = argv[i];
+                    if (argument == "--collections" && i + 1 < argc) {
+                        collections_file = argv[++i];
+                    } else if (argument == "--dids" && i + 1 < argc) {
+                        dids_file = argv[++i];
+                    } else {
+                        std::cerr << "jetstream archive: unknown or incomplete option "
+                                  << argument << '\n';
+                        return 2;
+                    }
+                }
+                return atperson::cli::run_jetstream_archive(
+                    std::cout, resource_status, atperson::cli::data_dir(), graph, path,
+                    atperson::cli::ledger_path(), atperson::cli::jetstream_state_path(),
+                    after, before, collections_file, dids_file, print_stats);
+            }
             int max_events = 0;
             int max_ms = 0;
             int positional = 0;

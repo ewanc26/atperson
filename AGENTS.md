@@ -15,6 +15,14 @@ The project has a strict C23/C++23 boundary:
 - **C++23 owns runtime and application concerns.** This includes configuration,
   filesystem/state-directory handling, process locking, scheduling, ingestion
   cursors, operator policy and orchestration.
+- **`protocol/` owns AT Protocol knowledge.** Protocol facts, identifier
+  validation, evidence replay/reduction and protocol-specific durable storage
+  belong under the dedicated `./protocol/` subsystem. C++ may adapt it for
+  networking and CLI inspection but must not make it part of social learning.
+- **Filtered JetStream is not a contiguous repository stream.** Its global
+  sequence gaps are reconciliation signals, not permission to discard valid
+  collection events. Missing repository revisions must stay explicitly
+  unverified; they must never be fabricated from a firehose cursor.
 - **`ewanc26/wolfram` owns AT Protocol mechanics.** Use Wolfram for sessions,
   XRPC/protocol operations and eventual repository writes. Do not copy or
   reimplement Wolfram protocol APIs inside atperson.
@@ -153,6 +161,21 @@ lifetime in memory.
 
 AT Protocol policy belongs in the C++ runtime; learned scoring/state belongs in
 C23; protocol mechanics belong in Wolfram.
+
+The autonomous runtime is strictly AT Protocol-scoped. It may ingest public AT
+Protocol data, learn locally, propose bounded actions, and reach AT Protocol
+endpoints only through the existing Wolfram-backed adapters. Do not add generic
+web browsing, arbitrary shell/tool execution, email, cloud storage, or a
+second external-agent control plane to the autonomous layer.
+
+All autonomy metadata must remain in the configured central data directory
+(`ATPERSON_HOME`): lifecycle checkpoints, approval state, event traces, retry
+state, and recovery markers are local runtime metadata and must never be sent
+to the PDS, added to the learned graph, or scattered beside the repository.
+The lifecycle is resumable and fail-closed: recover → learn → propose →
+approval → execute → verify → stopped/failed. Every restart must load or
+reconstruct its checkpoint before doing work; a missing or corrupt checkpoint
+must not authorize an external action.
 
 ## Modular, atomic files
 

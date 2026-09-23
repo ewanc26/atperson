@@ -31,6 +31,7 @@
 #include <filesystem>
 #include <functional>
 #include <iosfwd>
+#include <optional>
 
 namespace atperson {
 namespace cli {
@@ -49,6 +50,19 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
                   const std::filesystem::path &dids_file,
                   int max_events, int max_ms,
                   const std::function<void(const LanguageGraph &)> &print_stats);
+
+int run_jetstream_archive(std::ostream &out,
+                          const RuntimeResourceStatus &resource_status,
+                          const std::filesystem::path &data_dir,
+                          LanguageGraph &graph,
+                          const std::filesystem::path &model_path,
+                          const std::filesystem::path &ledger_file,
+                          const std::filesystem::path &state_file,
+                          std::optional<std::uint64_t> after_seq,
+                          std::optional<std::uint64_t> before_seq,
+                          const std::filesystem::path &collections_file,
+                          const std::filesystem::path &dids_file,
+                          const std::function<void(const LanguageGraph &)> &print_stats);
 
 } // namespace cli
 } // namespace atperson

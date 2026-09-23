@@ -100,6 +100,8 @@ add_library(
   src/app/resource/neural_runtime.cpp
   src/app/resource/runtime.cpp
   src/app/worker/pool.cpp)
+target_sources(atperson-cpp PRIVATE protocol/protocol.cpp)
+target_include_directories(atperson-cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/protocol)
 target_include_directories(
   atperson-cpp
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -177,7 +179,7 @@ if(ATPERSON_BUILD_NETWORK)
   FetchContent_Declare(
     wolfram
     GIT_REPOSITORY https://github.com/ewanc26/wolfram.git
-    GIT_TAG e75adb9970bd36477f03f46fec93707a38163a56
+    GIT_TAG 383a689
     # wolfram-src/cpp/CMakeLists.txt uses ${CMAKE_SOURCE_DIR} (the top-level
     # project) to locate Wolfram's public headers. Under FetchContent that is
     # atperson, so the generated_owners.hpp codegen step would scan a
@@ -204,13 +206,18 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/jetstream.cpp
     src/app/cli/outbound.cpp
     src/app/cli/publish.cpp
+    src/app/cli/protocol.cpp
     src/app/cli/sync.cpp
     src/app/atproto/client.cpp
     src/app/atproto/extract.cpp
-    src/app/atproto/jetstream.cpp
-    src/app/atproto/jetstream_client.cpp
+    src/app/atproto/repository_verifier.cpp
+  src/app/atproto/jetstream.cpp
+  src/app/atproto/jetstream_client.cpp
+  src/app/atproto/jetstream_replay.cpp
+  src/app/atproto/jetstream_replay_client.cpp
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
+    src/app/autonomy/run_state.cpp
     src/app/attestation/signer.cpp
     src/app/attestation/proof.cpp
     src/app/audit/command.cpp
@@ -233,7 +240,8 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/execute.cpp
     src/app/state/lock.cpp
     src/app/sync/engine.cpp
-    src/app/sync/jetstream_backfill.cpp
+  src/app/sync/jetstream_backfill.cpp
+  src/app/sync/jetstream_archive.cpp
     src/app/state/time.cpp
     src/app/sync/linkage.cpp
     src/app/sync/parallel.cpp
@@ -428,6 +436,11 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(atperson-cpp-test tests/cpp/graph.cpp)
   target_link_libraries(atperson-cpp-test PRIVATE atperson-cpp)
   add_test(NAME atperson-cpp COMMAND atperson-cpp-test)
+
+  add_executable(atperson-protocol-test protocol/tests/protocol.cpp)
+  target_link_libraries(atperson-protocol-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-protocol-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/protocol)
+  add_test(NAME atperson-protocol COMMAND atperson-protocol-test)
 
   # Read-only rendering of authoritative C23 plan/context/decision traces.
   add_executable(atperson-action-inspection-test tests/action/inspection.cpp)
@@ -689,6 +702,42 @@ if(ATPERSON_BUILD_TESTS)
     target_include_directories(
       atperson-jetstream-client-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
     add_test(NAME atperson-jetstream-client COMMAND atperson-jetstream-client-test)
+
+    add_executable(
+      atperson-jetstream-replay-test
+      tests/atproto/jetstream_replay.cpp
+      src/app/atproto/jetstream_replay.cpp
+      src/app/atproto/jetstream.cpp
+      src/app/ingestion/policy.cpp
+      src/app/sync/engine.cpp
+      src/app/state/time.cpp)
+    target_compile_features(atperson-jetstream-replay-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-jetstream-replay-test PRIVATE atperson-cpp wolfram-cpp cjson)
+    target_include_directories(atperson-jetstream-replay-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-jetstream-replay COMMAND atperson-jetstream-replay-test)
+
+    add_executable(
+      atperson-jetstream-archive-test
+      tests/sync/jetstream_archive.cpp
+      src/app/sync/jetstream_archive.cpp
+      src/app/sync/engine.cpp
+      src/app/ingestion/policy.cpp
+      src/app/ingestion/state.cpp
+      src/app/state/time.cpp)
+    target_compile_features(atperson-jetstream-archive-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-jetstream-archive-test PRIVATE atperson-cpp wolfram-cpp cjson)
+    target_include_directories(
+      atperson-jetstream-archive-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-jetstream-archive COMMAND atperson-jetstream-archive-test)
+
+    add_executable(atperson-repository-verifier-test
+                   tests/atproto/repository_verifier.cpp
+                   src/app/atproto/repository_verifier.cpp)
+    target_compile_features(atperson-repository-verifier-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-repository-verifier-test PRIVATE atperson-cpp wolfram)
+    target_include_directories(
+      atperson-repository-verifier-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-repository-verifier COMMAND atperson-repository-verifier-test)
   endif()
 
   if(ATPERSON_BUILD_NETWORK)

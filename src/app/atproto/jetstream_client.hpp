@@ -12,12 +12,11 @@
  * resume from its own last-delivered cursor without losing the budget
  * enjoyed in a single custom-reconnect gap.
  *
- * The cursor is the Jetstream envelope microsecond timestamp, an opaque
- * sequence number stored as a decimal string in the ingestion state. It is
- * passed to `wf_jetstream_connect` verbatim and never parsed, compared as
- * meaning, or treated as proof that an observation was learned. An empty
- * cursor means "start at the feed head"; the engine persists the cursor only
- * while it is non-empty.
+ * The cursor is the v1 envelope timestamp or v2 envelope sequence, stored as
+ * a decimal string in the ingestion state. It is passed to
+ * `wf_jetstream_connect` verbatim and never treated as proof that an
+ * observation was learned. An empty cursor means "start at the feed head";
+ * the engine persists the cursor only while it is non-empty.
  *
  * Bounded work: each cycle processes at most `max_events` commit frames and
  * stops after `max_ms` of wall time, so a misbehaving feed cannot starve the
@@ -60,7 +59,13 @@ struct JetstreamEvent {
     std::string quote_uri;
     PolicyReason policy_reason{PolicyReason::Eligible};
     std::int64_t seq{0};
+    std::string repo_revision; /* repository commit revision/TID, separate from seq */
+    bool protocol_only{false}; /* non-commit protocol frame; never social learning */
+    std::string protocol_payload;
+    protocol::Verification verification{protocol::Verification::Unverified};
     bool deleted{false};
+    /* Firehose event family; commit is the default for legacy fixtures. */
+    std::string event_type{"#commit"};
 };
 
 /* A Jetstream feed: connect, fetch a bounded batch, checkpoint the cursor.
@@ -69,8 +74,8 @@ struct JetstreamEvent {
  * reconnects internally on transport failure, surfacing the delay through
  * `reconnect_after_ms`.
  *
- * The cursor is the Jetstream envelope microsecond timestamp, as a decimal
- * string. An empty string means "start at the feed head". */
+ * The cursor is the Jetstream envelope timestamp (v1) or sequence (v2), as a
+ * decimal string. An empty string means "start at the feed head". */
 class JetstreamClient {
   public:
     explicit JetstreamClient(
@@ -118,6 +123,7 @@ class JetstreamClient {
     std::string self_did_;
     std::vector<std::string> collections_;
     std::vector<std::string> dids_;
+    bool protocol_v2_{false};
     std::string cursor_;
     void *impl_{nullptr};
 };

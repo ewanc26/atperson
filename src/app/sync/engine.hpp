@@ -3,6 +3,7 @@
 
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
+#include "protocol.hpp"
 #include "policy.hpp"
 #include "ingestion/state.hpp"
 #include "linkage.hpp"
@@ -17,6 +18,8 @@
 namespace atperson {
 
 class JetstreamClient; /* defined in atproto/jetstream_client.hpp */
+class JetstreamReplaySource;
+class JetstreamReplayClient;
 
 /* One fetched feed item, already reduced to what the learning core needs.
  * Produced by Wolfram-backed AtprotoClient in the network build and by test
@@ -120,8 +123,19 @@ struct JetstreamRunResult {
     std::size_t duplicates{};
     std::size_t withdrawn{};
     bool reconciled{};
+    bool protocol_resync_required{};
     bool exhausted{}; /* feed closed cleanly at the head */
 };
+
+struct JetstreamResyncResult {
+    std::uint64_t sequence{};
+    std::string repo;
+    std::string revision;
+    protocol::Verification verification{protocol::Verification::Unverified};
+};
+
+using JetstreamResyncExecutor = std::function<std::optional<JetstreamResyncResult>(
+    const protocol::ResyncPlan &plan)>;
 
 /* Implemented in sync/jetstream_backfill.cpp, which is compiled only into
  * the network runtime (it drives the Wolfram-backed JetstreamClient). The
@@ -130,7 +144,23 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                                           IngestionState &state,
                                           JetstreamClient &client,
                                           const JetstreamLimits &limits,
-                                          const SyncLinker &link = nullptr);
+                                          const SyncLinker &link = nullptr,
+                                          protocol::EvidenceLedger *protocol_ledger = nullptr,
+                                          const JetstreamResyncExecutor &resync = nullptr);
+
+/* Process one bounded sealed-archive window through the same durable pipeline
+ * as live Jetstream. On success, the persisted Jetstream cursor is set to the
+ * sealed tip so the next live cycle resumes after the archive without a gap. */
+JetstreamRunResult run_jetstream_archive(LanguageGraph &graph, Ledger &ledger,
+                                         IngestionState &state,
+                                         JetstreamReplaySource &client,
+                                         std::uint64_t after_seq,
+                                         std::optional<std::uint64_t> before_seq,
+                                         std::string_view self_did,
+                                         const std::vector<std::string> &collections,
+                                         const std::vector<std::string> &dids,
+                                         const SyncLinker &link = nullptr,
+                                         protocol::EvidenceLedger *protocol_ledger = nullptr);
 
 } // namespace atperson
 

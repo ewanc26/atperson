@@ -51,7 +51,8 @@ OutboundExecutionResult
 execute_outbound_action(const ControlState &control, const OutboundPolicy &policy,
                         OutboundBudgetState &budget, const OutboundAction &action,
                         const OutboundWriterFactory &writer_for, std::int64_t now,
-                        const OutboundAttestationFactory &attest) {
+                        const OutboundAttestationFactory &attest,
+                        bool external_publishing_allowed) {
     const auto proposal = outbound_action_proposal(action);
     const OutboundBudgetStatus budget_status =
         outbound_budget_status(policy, budget, action.kind, now);
@@ -86,6 +87,16 @@ execute_outbound_action(const ControlState &control, const OutboundPolicy &polic
     } catch (const std::exception &error) {
         return denied(OutboundExecutionOutcome::Denied, control_denial_code(control, action),
                       error.what(), decision.budget);
+    }
+
+    /* Environment permission is an independent master switch. It cannot
+     * bypass policy, dry-run, pause, or digest approval; it only prevents a
+     * process from reaching the network when publishing was not explicitly
+     * enabled by the operator. */
+    if (!external_publishing_allowed) {
+        return denied(OutboundExecutionOutcome::Denied, "external_publishing_disabled",
+                      "external publishing is disabled; set ATPERSON_ALLOW_EXTERNAL_PUBLISHING=true",
+                      decision.budget);
     }
 
     /* 5. Network write, only now. Resolve reply parent/root CIDs from the

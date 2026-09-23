@@ -1,4 +1,5 @@
 #include "state.hpp"
+#include "protocol.hpp"
 
 #include <cJSON.h>
 
@@ -162,6 +163,15 @@ void validate(const IngestionState &state) {
     } else if (state.catchup.cursor) {
         invalid("inactive catch-up must not carry a cursor");
     }
+    if (state.catchup.protocol_repo.has_value() !=
+        state.catchup.protocol_revision.has_value()) {
+        invalid("protocol repository and revision must be paired");
+    }
+    if (state.catchup.protocol_repo &&
+        (!protocol::is_did(*state.catchup.protocol_repo) ||
+         !protocol::is_tid(*state.catchup.protocol_revision))) {
+        invalid("protocol repository checkpoint has invalid identifiers");
+    }
 }
 
 } // namespace
@@ -231,6 +241,12 @@ std::string serialise_ingestion_state(const IngestionState &state) {
     out.append(state.catchup.active ? "true" : "false");
     out.append(",\"cursor\":");
     out.append(json_nullable_string(state.catchup.cursor));
+    if (state.catchup.protocol_repo || state.catchup.protocol_revision) {
+        out.append(",\"protocol_repo\":");
+        out.append(json_nullable_string(state.catchup.protocol_repo));
+        out.append(",\"protocol_revision\":");
+        out.append(json_nullable_string(state.catchup.protocol_revision));
+    }
     out.append("},\"checkpoint\":{\"generation\":");
     out.append(std::to_string(state.checkpoint.generation));
     out.append(",\"saved_at\":");
@@ -299,6 +315,8 @@ IngestionState load_ingestion_state(const std::filesystem::path &path,
     }
     state.catchup.active = cJSON_IsTrue(active);
     state.catchup.cursor = optional_string(catchup, "cursor");
+    state.catchup.protocol_repo = optional_string(catchup, "protocol_repo");
+    state.catchup.protocol_revision = optional_string(catchup, "protocol_revision");
 
     cJSON *checkpoint = cJSON_GetObjectItemCaseSensitive(root.get(), "checkpoint");
     if (!cJSON_IsObject(checkpoint)) {

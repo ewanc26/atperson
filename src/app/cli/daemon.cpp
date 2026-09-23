@@ -1,6 +1,10 @@
 #include "daemon.hpp"
+#include "autonomy/run_state.hpp"
 
 #include "client.hpp"
+#include "atproto/jetstream_replay_client.hpp"
+#include "atproto/session.hpp"
+#include "atproto/jetstream_filter.hpp"
 #include "config.hpp"
 #include "control/state.hpp"
 #include "daemon/config.hpp"
@@ -17,6 +21,7 @@
 #include <algorithm>
 #include <chrono>
 #include <optional>
+#include <limits>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -36,6 +41,77 @@ bool parallel_sync_enabled() {
     return value != nullptr && value[0] != '\0' && value[0] != '0';
 }
 
+std::uint64_t daemon_archive_sequence(const char *name) {
+    const std::string value = env_or(name);
+    if (value.empty()) {
+        throw std::runtime_error(std::string("missing ") + name);
+    }
+    try {
+        std::size_t consumed = 0;
+        const auto parsed = std::stoull(value, &consumed, 10);
+        if (consumed != value.size()) throw std::invalid_argument("trailing");
+        return parsed;
+    } catch (const std::exception &) {
+        throw std::runtime_error(std::string(name) + " must be a decimal sequence");
+    }
+}
+
+void run_startup_archive_if_configured(
+    std::ostream &out, const RuntimeResourceStatus &resource_status,
+    LanguageGraph &graph,
+    const std::filesystem::path &model_path, Ledger &ledger,
+    const SyncLinker &linker, protocol::EvidenceLedger *protocol_ledger) {
+    const std::string after_value = env_or("ATPERSON_DAEMON_ARCHIVE_AFTER");
+    if (after_value.empty()) return;
+    const std::uint64_t after = daemon_archive_sequence("ATPERSON_DAEMON_ARCHIVE_AFTER");
+    const std::string before_value = env_or("ATPERSON_DAEMON_ARCHIVE_BEFORE");
+    std::optional<std::uint64_t> before;
+    if (!before_value.empty()) before = daemon_archive_sequence("ATPERSON_DAEMON_ARCHIVE_BEFORE");
+    if (!before) {
+        if (after > std::numeric_limits<std::uint64_t>::max() -
+                       kJetstreamArchiveMaxSequenceSpan) {
+            throw std::runtime_error(
+                "ATPERSON_DAEMON_ARCHIVE_AFTER is too large for the default window");
+        }
+        before = after + kJetstreamArchiveMaxSequenceSpan;
+    }
+    if (before && *before <= after) {
+        throw std::runtime_error(
+            "ATPERSON_DAEMON_ARCHIVE_BEFORE must be greater than AFTER");
+    }
+    if (*before - after > kJetstreamArchiveMaxSequenceSpan) {
+        throw std::runtime_error(
+            "daemon archive window exceeds the 10,000,000 sequence cap");
+    }
+    require_runtime_write_headroom(resource_status);
+    const std::string endpoint = env_or(
+        "ATPERSON_JETSTREAM_ENDPOINT",
+        "wss://jetstream.us-east.bsky.network/subscribe");
+    auto archive_state = load_ingestion_state(
+        jetstream_state_path(), endpoint, "", kSourceKindJetstream);
+    const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
+    WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
+                           required_env("ATPERSON_APP_PASSWORD"));
+    JetstreamReplayClient replay(
+        *session.agent(), required_env("ATPERSON_JETSTREAM_ARCHIVE_TOKEN"));
+    const auto result = atperson::run_jetstream_archive(
+        graph, ledger, archive_state, replay, after, before, required_self_did(),
+        jetstream_collections_path().empty()
+            ? default_jetstream_collections()
+            : load_jetstream_collections(jetstream_collections_path()),
+        jetstream_dids_path().empty()
+            ? std::vector<std::string>{}
+            : load_jetstream_dids(jetstream_dids_path()),
+        linker, protocol_ledger);
+    graph.save(model_path);
+    archive_state.checkpoint.generation++;
+    save_ingestion_state(archive_state, jetstream_state_path());
+    out << "daemon: archive startup phase consumed " << result.events_consumed
+        << " event(s), learned " << result.learned << " (skipped " << result.skipped
+        << ", duplicate " << result.duplicates << ")"
+        << (result.exhausted ? ", sealed archive exhausted" : ", window incomplete") << '\n';
+}
+
 } // namespace
 
 int run_daemon_command(std::ostream &out, std::ostream &err,
@@ -45,6 +121,14 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                        const std::filesystem::path &ledger_file,
                        const std::filesystem::path &state_file, int max_cycles_override,
                        const std::function<void(const LanguageGraph &)> &print_stats) {
+    const auto run_state_file = autonomy_run_state_path();
+    auto run_state = load_autonomy_run_state(run_state_file);
+    run_state.run_id = control_now_rfc3339();
+    run_state.phase = AutonomyPhase::Recovering;
+    run_state.checkpoint++;
+    run_state.last_at = run_state.run_id;
+    run_state.detail = "daemon recovery started; AT Protocol timeline only";
+    save_autonomy_run_state(run_state, run_state_file);
     DaemonConfig config = daemon_config_from_environment();
     if (max_cycles_override > 0) {
         config.max_cycles = static_cast<std::uint64_t>(max_cycles_override);
@@ -69,6 +153,15 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
     AtprotoClient client(service, required_env("ATPERSON_IDENTIFIER"),
                          required_env("ATPERSON_APP_PASSWORD"));
     Ledger ledger(ledger_file);
+    const auto linker = make_journal_linker(action_journal_path());
+    protocol::EvidenceLedger protocol_ledger_file(protocol_ledger_path());
+    run_startup_archive_if_configured(
+        out, resource_status, graph, model_path, ledger, linker, &protocol_ledger_file);
+    run_state.phase = AutonomyPhase::Learning;
+    run_state.checkpoint++;
+    run_state.last_at = control_now_rfc3339();
+    run_state.detail = "bounded AT Protocol perception cycle ready";
+    save_autonomy_run_state(run_state, run_state_file);
     auto ingestion = load_ingestion_state(state_file, service, client.account_did());
 
     auto mutable_status = resource_status;
@@ -121,8 +214,6 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
             mutable_status.neural_runtime.surrounding_worker_threads);
         pool = new atperson::WorkerPool(pool_config);
     }
-
-    const auto linker = make_journal_linker(action_journal_path());
 
     /* The loop is sync-runner-agnostic: it does not know whether a cycle
      * fetches sequentially or in parallel. The runner captures the fetcher,
@@ -209,6 +300,11 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         << ", duplicate " << report.duplicates << "); transient failures "
         << report.transient_failures << ", snapshots " << report.snapshots_saved << '\n';
     print_stats(graph);
+    run_state.phase = AutonomyPhase::Stopped;
+    run_state.checkpoint++;
+    run_state.last_at = control_now_rfc3339();
+    run_state.detail = "daemon stopped after local checkpoint";
+    save_autonomy_run_state(run_state, run_state_file);
     return 0;
 }
 

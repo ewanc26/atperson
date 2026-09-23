@@ -45,6 +45,9 @@ inline constexpr std::string_view kJetstreamEndpoint = "com.atproto.sync.subscri
 struct CatchupCursor {
     bool active{};
     std::optional<std::string> cursor;
+    /* Protocol provenance checkpoint; independent from the opaque sequence. */
+    std::optional<std::string> protocol_repo;
+    std::optional<std::string> protocol_revision;
 };
 
 /* Operational telemetry only. Never influences learned state. */

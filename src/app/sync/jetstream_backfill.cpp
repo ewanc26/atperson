@@ -26,6 +26,8 @@
 #include "engine.hpp"
 #include "atproto/jetstream_client.hpp"
 
+#include <charconv>
+
 namespace atperson {
 
 namespace {
@@ -51,8 +53,26 @@ SyncObservation jetstream_to_observation(const JetstreamEvent &event) {
 JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                                           IngestionState &state, JetstreamClient &client,
                                           const JetstreamLimits &limits,
-                                          const SyncLinker &link) {
+                                          const SyncLinker &link,
+                                          protocol::EvidenceLedger *protocol_ledger,
+                                          const JetstreamResyncExecutor &resync) {
     JetstreamRunResult result;
+    protocol::CursorState protocol_cursor;
+    if (state.catchup.cursor) {
+        std::uint64_t persisted = 0;
+        const auto parsed = std::from_chars(
+            state.catchup.cursor->data(),
+            state.catchup.cursor->data() + state.catchup.cursor->size(), persisted);
+        if (parsed.ec == std::errc{} &&
+            parsed.ptr == state.catchup.cursor->data() + state.catchup.cursor->size())
+            protocol_cursor.last_sequence = persisted;
+    }
+    if (state.catchup.protocol_repo && state.catchup.protocol_revision) {
+        protocol_cursor.repo = *state.catchup.protocol_repo;
+        protocol_cursor.repo_revision = *state.catchup.protocol_revision;
+        protocol_cursor.repository_revisions.push_back(
+            {protocol_cursor.repo, protocol_cursor.repo_revision});
+    }
     const bool fresh_traversal = !state.catchup.active;
 
     if (fresh_traversal) {
@@ -61,6 +81,55 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     }
 
     const auto on_event = [&](const JetstreamEvent &event) {
+        const auto cursor_result = event.protocol_only
+            ? protocol::observe_sequence(
+                  protocol_cursor,
+                  event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u)
+            : event.repo_revision.empty()
+                  ? protocol::observe_sequence(
+                        protocol_cursor,
+                        event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u)
+                  : protocol::observe_stream(
+                  protocol_cursor,
+                  event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u,
+                  event.author_did, event.repo_revision);
+        if (cursor_result == protocol::CursorResult::Gap) {
+            /* Jetstream seq is global. A collection-filtered subscription
+             * necessarily skips unrelated commits, so a gap requests
+             * reconciliation but must not discard the valid event. */
+            result.protocol_resync_required = true;
+        }
+        if (cursor_result == protocol::CursorResult::Rewind ||
+            cursor_result == protocol::CursorResult::Rejected) {
+            result.protocol_resync_required = true;
+            if (protocol_ledger != nullptr) {
+                (void)protocol::append_firehose_event(
+                    *protocol_ledger, "jetstream", "#cursor-gap", event.author_did,
+                    event.repo_revision,
+                    event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u, 0u,
+                    cursor_result == protocol::CursorResult::Rejected
+                        ? protocol::Verification::Rejected
+                        : protocol::Verification::Unverified);
+            }
+            return;
+        }
+        if (!event.protocol_only && !protocol_cursor.repo.empty()) {
+            state.catchup.protocol_repo = protocol_cursor.repo;
+            state.catchup.protocol_revision = protocol_cursor.repo_revision;
+        }
+        if (protocol_ledger != nullptr) {
+            (void)protocol::append_firehose_event(
+                *protocol_ledger, "jetstream",
+                event.deleted ? "#commit/delete" : event.event_type,
+                event.author_did,
+                event.protocol_only
+                    ? event.protocol_payload
+                    : event.source_uri + "|" + std::to_string(event.seq) +
+                          "|" + event.repo_revision,
+                event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u, 0u,
+                event.verification);
+        }
+        if (event.protocol_only) return;
         if (event.deleted) {
             result.withdrawn += ledger.withdraw_source(event.source_uri);
             return;
@@ -89,12 +158,33 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     result.malformed_frames = batch.malformed_frames;
     result.exhausted = batch.exhausted;
 
+    if (result.protocol_resync_required && resync) {
+        const auto plan = protocol::plan_resync(protocol_cursor, 0u);
+        if (plan.required) {
+            const auto recovered = resync(plan);
+            if (recovered && protocol::complete_resync(
+                                 protocol_cursor, recovered->sequence,
+                                 recovered->repo, recovered->revision,
+                                 recovered->verification)) {
+                result.protocol_resync_required = false;
+                state.catchup.active = true;
+                state.catchup.cursor = std::to_string(recovered->sequence);
+                state.catchup.protocol_repo = recovered->repo;
+                state.catchup.protocol_revision = recovered->revision;
+            }
+        }
+    }
+
     if (result.withdrawn > 0u) {
         (void)graph.rebuild_from_ledger(ledger);
         result.reconciled = true;
     }
 
-    if (result.exhausted) {
+    if (result.protocol_resync_required) {
+        /* Never checkpoint past a protocol gap. The persisted cursor remains
+         * the last known-good boundary until a validated CAR resync clears it. */
+        state.catchup.active = true;
+    } else if (result.exhausted) {
         state.catchup.active = false;
         state.catchup.cursor = std::nullopt;
     } else {

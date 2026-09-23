@@ -14,7 +14,8 @@ The planned command is a local interactive authorization flow:
 3. the callback is accepted only once, with the state, issuer, PKCE and DPoP
    checks performed by Wolfram;
 4. the resulting OAuth session is stored in the runtime data directory with
-   owner-only permissions, separately from the learned model and ledger;
+   owner-only permissions, separately from the learned model, social observation
+   ledger and protocol evidence ledger;
 5. sync and explicitly approved publishing reuse that session and refresh it
    through Wolfram.
 
@@ -38,11 +39,34 @@ scope. It authorizes whole-repository CAR import/migration and is materially
 different from ordinary record reads and writes. It should require a separate,
 purpose-specific command and confirmation if it is ever implemented.
 
+## Learning and evidence boundary
+
+OAuth proves authorization for the scopes the authorization server granted; it
+does not prove that protocol data is correct, verified or safe to learn.
+
+OAuth session state therefore has no authority in the protocol-learning model:
+
+- authorization codes, tokens, refresh state and DPoP private keys are runtime
+  credentials only and must never be copied into either durable learning ledger;
+- a successful login must not satisfy a protocol capability gate or change
+  verification state;
+- data acquired through an authenticated Wolfram session must still cross the
+  normal protocol evidence boundary with its source, event type, provenance and
+  verification result;
+- requested or granted scopes are operator/runtime policy, not learned
+  preference and not permission for the social model to publish.
+
+The protocol evidence and capability contract is defined in
+[`docs/protocol-learning.md`](protocol-learning.md).
+
 ## Current status
 
 Wolfram already provides OAuth metadata discovery, PKCE, PAR, DPoP, callback
-validation, token exchange and session serialization. atperson still uses the
-Wolfram app-password agent wrapper, so the next implementation slice is the
-loopback callback/session adapter and a session-backed `WolframSession` path.
+validation, token exchange and session serialization. atperson exposes
+read-only OAuth planning/metadata inspection through the `protocol` command
+family, but the runtime still uses the Wolfram app-password agent wrapper for
+authenticated sync/publishing. The next implementation slice is the loopback
+callback/session adapter and a session-backed `WolframSession` path.
+
 Until that adapter lands, `ATPERSON_APP_PASSWORD` remains the supported
 runtime credential and OAuth tokens must not be copied into that variable.

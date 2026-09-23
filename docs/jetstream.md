@@ -15,10 +15,13 @@ The positional limits bound one invocation by event count and wall-clock millise
 The default public endpoint is:
 
 ```text
-wss://jetstream.us-east.bsky.network/subscribe
+wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents
 ```
 
-Override it with `ATPERSON_JETSTREAM_ENDPOINT` for another public or self-hosted Jetstream service.
+Override it with `ATPERSON_JETSTREAM_ENDPOINT` for another public or self-hosted
+Jetstream service. The canonical `subscribeEvents` endpoint enables v2 sequence
+cursors and is required for archive-to-live cutover; the legacy `/subscribe`
+endpoint remains available for explicitly configured live-only consumers.
 
 ## Status inspection
 
@@ -28,11 +31,33 @@ atperson jetstream status [--collections <file>] [--dids <file>]
 
 This command is read-only and runs before the learned model is loaded. It reports the effective Jetstream endpoint, current runtime phase, dedicated state-file path, persisted cursor/checkpoint generation, and the collection/DID filters that would be used by a live run.
 
-The phase currently reports `live-only`. Once Wolfram #36 exposes Jetstream v2 archive replay, this surface is where the replay/backfill phase and archive-to-live cutover state should become visible rather than being hidden inside the transport.
+The phase currently reports `live-only (archive replay core available; operator replay not configured)`. The replay planner, sealed-segment decoder, bounded-window fetcher, archive command, and archive-to-live checkpoint integration are now implemented. The remaining operator work is daemon scheduling and richer active-window reporting.
+
+The bounded operator command is now available:
+
+```sh
+atperson jetstream archive [after-seq] [before-seq]
+```
+
+The archive command also accepts `--collections <file>` and `--dids <file>`;
+when omitted it uses the same configured filter files as live Jetstream. These
+filters are passed to the replay planner and are never inferred from records.
+
+It authenticates the archive API with `ATPERSON_JETSTREAM_ARCHIVE_TOKEN` (a raw
+Jetstream archive token; it is never persisted or logged) and uses the configured
+Wolfram session for service setup. It defaults `after-seq` to the
+persisted Jetstream checkpoint (or zero), and optionally caps the window at an
+inclusive `before-seq`. Every invocation is hard-capped to a 10,000,000-sequence
+window; when no upper bound is supplied, that cap is applied automatically.
+Successful completion checkpoints the sealed replay tip
+through the same durable ingestion path. The daemon does not invoke archive replay
+automatically yet; operators should run this command before starting live catch-up.
+The same token is required when `ATPERSON_DAEMON_ARCHIVE_AFTER` enables the
+daemon startup archive phase.
 
 ## Entity identity and policy parity
 
-Live Jetstream ingestion requires `ATPERSON_SELF_DID`, a non-secret DID such as `did:plc:...`. Jetstream itself remains unauthenticated; the DID is used only to apply the same self-authored exclusion as authenticated timeline polling.
+Live Jetstream ingestion is unauthenticated and can bootstrap without credentials. If `ATPERSON_SELF_DID` is set to a non-secret DID such as `did:plc:...`, it is used only to apply the same self-authored exclusion as authenticated timeline polling; when unset, the public tail remains available but that exclusion cannot be applied.
 
 If the DID is missing, `atperson jetstream` refuses before connecting or mutating learned state. `atperson jetstream status` remains available and reports that the self DID is missing.
 
@@ -55,7 +80,7 @@ The Jetstream cursor is operational metadata only. It is never written into the 
 
 The checkpoint is also bound to the exact Jetstream WebSocket endpoint. If `ATPERSON_JETSTREAM_ENDPOINT` changes, atperson deliberately starts that stream from a fresh cursor instead of assuming two servers share one cursor namespace. Any overlapping records are still suppressed by the shared observation ledger.
 
-The current live client stores Jetstream's envelope microsecond timestamp because that is the cursor exposed by the pinned Wolfram live API. Jetstream v2 deliberately accepts this legacy timestamp form on the live tail, so it remains restart-compatible on the v2 host. Native v2 replay is sequence-based; once Wolfram #36 lands, archive planning/cutover must persist and expose the v2 `seq` cursor rather than pretending the timestamp cursor is an archive position.
+The current live client stores Jetstream's envelope microsecond timestamp because that is the cursor exposed by the pinned Wolfram live API. Jetstream v2 deliberately accepts this legacy timestamp form on the live tail, so it remains restart-compatible on the v2 host. Native v2 replay is sequence-based. The archive integration persists the sealed replay `seq` as the live resume point after a successful cutover; the operator command still needs to select and launch that path.
 
 ## Collection filter
 
@@ -125,14 +150,21 @@ The learning policy still accepts only public post records. Private-message/conv
 
 ## What remains for #60
 
-This is not the complete #60 implementation.
+The durable replay core and archive-to-live boundary are implemented, but this is not the complete #60 operator surface.
 
-Jetstream v2 now provides archive replay that can backfill a historical slice and cut over to the live tail without a gap. atperson does not yet drive that archive API. The remaining work is to add:
+Jetstream v2 now provides archive replay that can backfill a historical slice and cut over to the live tail without a gap. atperson can now plan/fetch/translate those windows and checkpoint the boundary. The remaining work is to add:
 
 - an operator-selected bounded relative backfill window;
-- Jetstream v2 archive planning/segment retrieval through Wolfram;
-- a deterministic archive-to-live cutover;
+- an operator command that invokes Jetstream v2 archive planning/segment retrieval through Wolfram;
+- daemon scheduling and restart handling for the archive phase;
 - inspection/status for the active collection filter, replay window and phase;
 - tests for replay-window truncation and restart across the archive/live boundary.
 
-Until then, `atperson jetstream` is a bounded live/cursor consumer with independent restart state and explicit collection filtering.
+The live command remains a bounded cursor consumer with independent restart state and explicit collection filtering. Archive replay requires `ATPERSON_SERVICE`, `ATPERSON_IDENTIFIER`, `ATPERSON_APP_PASSWORD`, and `ATPERSON_SELF_DID`; credentials are used only for the session and are never persisted.
+
+The daemon can run the same archive phase while it already holds its single-writer
+lock by setting `ATPERSON_DAEMON_ARCHIVE_AFTER` and optionally
+`ATPERSON_DAEMON_ARCHIVE_BEFORE`. This phase runs once at startup, persists the
+archive checkpoint and model before timeline cycles begin, and is opt-in; leaving
+the variables unset preserves the normal timeline-only daemon behaviour. The same
+10,000,000-sequence cap applies to daemon startup windows.
