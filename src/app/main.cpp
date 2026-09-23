@@ -547,6 +547,8 @@ int main(int argc, char **argv) {
                 atperson::cli::jetstream_collections_path();
             std::filesystem::path dids_file =
                 atperson::cli::jetstream_dids_path();
+            std::filesystem::path kinds_file =
+                atperson::cli::jetstream_kinds_path();
 
             for (int i = 2; i < argc; ++i) {
                 const std::string_view argument = argv[i];
@@ -564,6 +566,14 @@ int main(int argc, char **argv) {
                         return 2;
                     }
                     dids_file = argv[++i];
+                    continue;
+                }
+                if (argument == "--kinds") {
+                    if (i + 1 >= argc) {
+                        std::cerr << "jetstream: --kinds requires a file path\n";
+                        return 2;
+                    }
+                    kinds_file = argv[++i];
                     continue;
                 }
                 if (argument.starts_with("--")) {
@@ -584,7 +594,8 @@ int main(int argc, char **argv) {
             return atperson::cli::run_jetstream(
                 std::cout, resource_status, atperson::cli::data_dir(), graph, path,
                 atperson::cli::ledger_path(), atperson::cli::jetstream_state_path(),
-                collections_file, dids_file, max_events, max_ms, print_stats);
+                collections_file, dids_file, kinds_file, max_events, max_ms,
+                print_stats);
         }
 
         usage(std::cerr);

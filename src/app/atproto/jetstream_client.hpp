@@ -82,7 +82,9 @@ class JetstreamClient {
         std::string endpoint, std::string self_did,
         std::vector<std::string> collections = {},
         std::vector<std::string> dids = {},
-        std::string initial_cursor = {});
+        std::string initial_cursor = {},
+        std::vector<std::string> kinds = {},
+        std::string zstd_dictionary = {});
     ~JetstreamClient();
     JetstreamClient(const JetstreamClient &) = delete;
     JetstreamClient &operator=(const JetstreamClient &) = delete;
@@ -111,6 +113,11 @@ class JetstreamClient {
      * connected and due. Call this after a WOULD_BLOCK fetch_batch to sleep. */
     std::uint32_t reconnect_after_ms() const;
 
+    /* True when this client negotiated zstd-compressed binary frames. False
+     * when compression was not requested, the Wolfram build lacks libzstd,
+     * or the connection has not been established yet. */
+    [[nodiscard]] bool compressed() const noexcept { return compressed_; }
+
     /* The cursor to persist: the decimal Jetstream sequence number reached
      * after this batch, or empty when nothing has been delivered yet. */
     [[nodiscard]] std::string cursor() const noexcept { return cursor_; }
@@ -123,8 +130,11 @@ class JetstreamClient {
     std::string self_did_;
     std::vector<std::string> collections_;
     std::vector<std::string> dids_;
+    std::vector<std::string> kinds_;
+    std::string zstd_dictionary_;
     bool protocol_v2_{false};
     std::string cursor_;
+    bool compressed_{false};
     void *impl_{nullptr};
 };
 

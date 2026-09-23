@@ -55,9 +55,12 @@ std::int64_t seq_from_cursor(std::string_view cursor) {
 JetstreamClient::JetstreamClient(
     std::string endpoint, std::string self_did,
     std::vector<std::string> collections, std::vector<std::string> dids,
-    std::string initial_cursor)
+    std::string initial_cursor, std::vector<std::string> kinds,
+    std::string zstd_dictionary)
     : endpoint_(std::move(endpoint)), self_did_(std::move(self_did)),
       collections_(std::move(collections)), dids_(std::move(dids)),
+      kinds_(std::move(kinds)),
+      zstd_dictionary_(std::move(zstd_dictionary)),
       protocol_v2_(endpoint_.find("/xrpc/network.bsky.jetstream.subscribeEvents") !=
                    std::string::npos),
       cursor_(std::move(initial_cursor)) {
@@ -72,6 +75,15 @@ JetstreamClient::JetstreamClient(
     if (dids_.size() > 10000u) {
         throw std::runtime_error(
             "JetstreamClient: more than 10000 DID filters are not supported");
+    }
+    if (kinds_.size() > 4u) {
+        throw std::runtime_error(
+            "JetstreamClient: more than 4 event-kind filters are not supported");
+    }
+    if (!zstd_dictionary_.empty() && !wf_jetstream_zstd_supported()) {
+        throw std::runtime_error(
+            "JetstreamClient: zstd compression requested but this Wolfram "
+            "build lacks libzstd");
     }
     if (!cursor_.empty()) {
         static_cast<void>(seq_from_cursor(cursor_));
@@ -105,19 +117,29 @@ void *JetstreamClient::connect() {
     }
     options.wanted_dids = did_ptrs.empty() ? nullptr : did_ptrs.data();
     options.wanted_dids_count = did_ptrs.size();
-    /* No kind predicate retains commits plus #sync, #identity, and #account
-     * events for the protocol-evidence ledger. */
-    options.kinds = nullptr;
-    options.kinds_count = 0u;
+    /* An empty kind predicate retains commits plus #sync, #identity, and
+     * #account events for the protocol-evidence ledger. */
+    std::vector<const char *> kind_ptrs;
+    kind_ptrs.reserve(kinds_.size());
+    for (const std::string &kind : kinds_) {
+        kind_ptrs.push_back(kind.c_str());
+    }
+    options.kinds = kind_ptrs.empty() ? nullptr : kind_ptrs.data();
+    options.kinds_count = kind_ptrs.size();
     /* Cursor 0 omits the query parameter entirely; Jetstream starts at the
      * head. A persisted cursor resumes exactly after the last processed frame,
      * which is fine for a public backfill and deduplicated by the ledger. */
     options.cursor = seq_from_cursor(cursor_);
     options.max_message_size_bytes = 0u;
     options.require_hello = 0;
-    options.compress = 0;
-    options.zstd_dictionary = nullptr;
-    options.zstd_dictionary_len = 0u;
+    /* Dictionary-compressed binary frames cut live-firehose bandwidth roughly
+     * in half. Compression is only requested when the operator supplied a
+     * dictionary and the Wolfram build can decode it. */
+    compressed_ = !zstd_dictionary_.empty() && wf_jetstream_zstd_supported();
+    options.compress = compressed_ ? 1 : 0;
+    options.zstd_dictionary = compressed_ ? zstd_dictionary_.data() : nullptr;
+    options.zstd_dictionary_len =
+        compressed_ ? zstd_dictionary_.size() : 0u;
     options.reconnect_initial_delay_ms = 250u;
     options.reconnect_max_delay_ms = 30000u;
     options.ping_interval_ms = 0u;
@@ -168,9 +190,18 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
         const wf_status status = wf_jetstream_next(stream, &event);
         if (status == WF_ERR_WOULD_BLOCK) {
             /*
-             * Idle socket or reconnect backoff: not a failure. The caller may
-             * sleep for reconnect_after_ms() and retry this batch.
+             * Idle socket or reconnect backoff: not a failure. Wolfram's
+             * receive path already waits briefly for readable data, so a
+             * WOULD_BLOCK here means the socket is genuinely idle or the
+             * stream is in reconnect backoff. A busy feed must not bounce
+             * through the caller's sleep between frames: keep draining until
+             * the batch budget is spent, and only surface the block once the
+             * feed goes quiet. The caller may sleep for
+             * reconnect_after_ms() and retry this batch.
              */
+            if (reconnect_after_ms() == 0u) {
+                continue;
+            }
             return result;
         }
         if (status == WF_ERR_PARSE) {

@@ -9,6 +9,7 @@ namespace atperson {
 
 inline constexpr std::size_t kJetstreamCollectionFilterLimit = 100u;
 inline constexpr std::size_t kJetstreamDidFilterLimit = 10000u;
+inline constexpr std::size_t kJetstreamKindFilterLimit = 4u;
 
 /*
  * The default learning slice remains public Bluesky posts. Transport filters
@@ -36,6 +37,28 @@ load_jetstream_collections(const std::filesystem::path &path);
  */
 [[nodiscard]] std::vector<std::string>
 load_jetstream_dids(const std::filesystem::path &path);
+
+/*
+ * Load one v2 event kind per line with the same comment/blank/dedup rules.
+ * Only the Jetstream v2 kinds are accepted: commit, identity, account, sync.
+ * At least one and at most 4 unique entries are required, matching
+ * Wolfram/Jetstream's subscription bound. An empty kind predicate retains
+ * commits plus #sync, #identity and #account events for the protocol-evidence
+ * ledger; kinds are a transport filter, never learned state.
+ */
+[[nodiscard]] std::vector<std::string>
+load_jetstream_kinds(const std::filesystem::path &path);
+
+/*
+ * Load one v2 event kind per line with the same comment/blank/dedup rules.
+ * Only the Jetstream v2 kinds are accepted: commit, identity, account, sync.
+ * At least one and at most 4 unique entries are required, matching
+ * Wolfram/Jetstream's subscription bound. An empty kind predicate retains
+ * commits plus #sync, #identity and #account events for the protocol-evidence
+ * ledger; kinds are a transport filter, never learned state.
+ */
+[[nodiscard]] std::vector<std::string>
+load_jetstream_kinds(const std::filesystem::path &path);
 
 } // namespace atperson
 

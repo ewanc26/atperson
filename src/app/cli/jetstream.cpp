@@ -3,6 +3,7 @@
 #include "jetstream.hpp"
 
 #include "atproto/jetstream_client.hpp"
+#include "atproto/jetstream_dictionary.hpp"
 #include "atproto/jetstream_filter.hpp"
 #include "atproto/jetstream_replay_client.hpp"
 #include "atproto/session.hpp"
@@ -201,6 +202,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
                   const std::filesystem::path &state_file,
                   const std::filesystem::path &collections_file,
                   const std::filesystem::path &dids_file,
+                  const std::filesystem::path &kinds_file,
                   int max_events, int max_ms,
                   const std::function<void(const LanguageGraph &)> &print_stats) {
     /* Operator pause gate (#22): refuse new ingestion work while paused. */
@@ -242,16 +244,48 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     const std::vector<std::string> dids =
         dids_file.empty() ? std::vector<std::string>{}
                           : atperson::load_jetstream_dids(dids_file);
+    const std::vector<std::string> kinds =
+        kinds_file.empty() ? std::vector<std::string>{}
+                           : atperson::load_jetstream_kinds(kinds_file);
     const std::string initial_cursor =
         ingestion.catchup.cursor.value_or(std::string{});
+
+    /* Dictionary-compressed binary frames are the full-firehose transport:
+     * roughly half the bandwidth of uncompressed JSON. Compression is
+     * opt-out via ATPERSON_JETSTREAM_COMPRESS=0. A dictionary fetch failure
+     * degrades to uncompressed JSON rather than failing the run. */
+    std::string zstd_dictionary;
+    const std::string compress_env = env_or("ATPERSON_JETSTREAM_COMPRESS", "1");
+    if (compress_env != "0") {
+        try {
+            const std::string service = endpoint.substr(
+                0u, endpoint.find("/xrpc/"));
+            zstd_dictionary =
+                atperson::fetch_jetstream_zstd_dictionary(service);
+        } catch (const std::exception &error) {
+            out << "jetstream: " << error.what()
+                << "; continuing with uncompressed JSON frames\n";
+        }
+    }
+
     atperson::JetstreamClient client(
-        endpoint, configured_self, collections, dids, initial_cursor);
+        endpoint, configured_self, collections, dids, initial_cursor, kinds,
+        zstd_dictionary);
 
     const auto linker = atperson::make_journal_linker(cli::action_journal_path());
 
     atperson::JetstreamRunResult result;
+    std::uint64_t total_events = 0u;
     for (;;) {
         JetstreamLimits batch_limits = limits;
+        if (limits.max_events > 0) {
+            /* Account consumed frames across batches so an event-bounded
+             * run stops at the operator's bound, not per-batch. */
+            if (total_events >= limits.max_events) {
+                break;
+            }
+            batch_limits.max_events = limits.max_events - total_events;
+        }
         if (limits.max_ms > 0) {
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - budget_start).count();
@@ -263,15 +297,18 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         }
         result = atperson::run_jetstream_backfill(graph, ledger, ingestion, client,
                                                   batch_limits, linker, &protocol_ledger);
+        total_events += result.events_consumed;
         if (result.exhausted) {
             break;
         }
         const std::uint32_t delay_ms = client.reconnect_after_ms();
-        /* A zero delay means the socket is still healthy but has no frame
-         * ready yet. Keep the requested session alive and avoid busy-spinning
-         * while waiting for its next readable frame. */
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(delay_ms == 0 ? 25u : delay_ms));
+        /* A zero delay means the socket is healthy but idle; the transport
+         * already waited for readable data inside the receive call, so retry
+         * immediately and keep draining. A positive delay is reconnect
+         * backoff: sleep it before retrying the same batch. */
+        if (delay_ms > 0u) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+        }
     }
 
     graph.save(model_path);
@@ -289,6 +326,10 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         << "; learned from " << result.learned << " (skipped " << result.skipped
         << ", duplicate " << result.duplicates << "); collections "
         << collections.size() << ", DID filters " << dids.size() << "\n";
+    if (!zstd_dictionary.empty()) {
+        out << "transport: zstd dictionary compression"
+            << (client.compressed() ? "" : " (requested, unavailable)") << "\n";
+    }
     print_stats(graph);
     return 0;
 }
