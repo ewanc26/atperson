@@ -85,8 +85,7 @@ void run_startup_archive_if_configured(
     }
     require_runtime_write_headroom(resource_status);
     const std::string endpoint = env_or(
-        "ATPERSON_JETSTREAM_ENDPOINT",
-        "wss://jetstream.us-east.bsky.network/subscribe");
+        "ATPERSON_JETSTREAM_ENDPOINT", kDefaultJetstreamEndpoint);
     auto archive_state = load_ingestion_state(
         jetstream_state_path(), endpoint, "", kSourceKindJetstream);
     const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");

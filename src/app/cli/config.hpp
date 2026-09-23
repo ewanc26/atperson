@@ -16,6 +16,12 @@
 namespace atperson {
 namespace cli {
 
+/* Canonical public Jetstream endpoint (#60). The subscribeEvents RPC enables
+ * v2 sequence cursors and is required for archive-to-live cutover; the legacy
+ * /subscribe endpoint is for explicitly configured live-only consumers. */
+inline constexpr const char *kDefaultJetstreamEndpoint =
+    "wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents";
+
 std::string env_or(const char *name, std::string fallback = {});
 std::string required_env(const char *name);
 bool external_publishing_enabled();
