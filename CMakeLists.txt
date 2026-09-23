@@ -182,7 +182,7 @@ if(ATPERSON_BUILD_NETWORK)
     # wolfram-cpp now resolves its own public-header root via WOLFRAM_CPP_ROOT
     # (set to the checkout root in cpp/CMakeLists.txt), so no source-dir patch
     # is needed; the previous CMAKE_SOURCE_DIR rewrite was upstreamed away.
-    GIT_TAG 216ac35)  # v0.22.0, includes the native wss upgrade
+    GIT_TAG 135cbd7)  # fix(jetstream): compress=1 + parse TEXT when compression requested
   FetchContent_MakeAvailable(wolfram)
 
   add_executable(
