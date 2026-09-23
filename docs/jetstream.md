@@ -84,11 +84,10 @@ The current live client stores Jetstream's envelope microsecond timestamp becaus
 
 ## Collection filter
 
-Without an explicit filter file, atperson subscribes only to:
-
-```text
-app.bsky.feed.post
-```
+Without an explicit filter file, atperson subscribes to every public
+collection and accepts every public Jetstream event kind. This provides a
+complete protocol-evidence stream; the social-learning policy still trains
+only supported public text records.
 
 Pass a file directly:
 
@@ -114,7 +113,11 @@ app.bsky.graph.*
 
 Blank lines and `#` comments are ignored. Duplicate filters are removed while preserving first occurrence order. More than 100 unique filters, an empty file, or a token containing whitespace is rejected before connecting.
 
-A transport filter does not automatically make a new record kind learnable. The existing extraction/ingestion policy remains authoritative; today only public `app.bsky.feed.post` records become post observations.
+A transport filter does not automatically make a new record kind learnable.
+The existing extraction/ingestion policy remains authoritative; today only
+public `app.bsky.feed.post` records become post observations. Other public
+records remain protocol evidence, while private-message payloads are never
+accepted as social-learning input.
 
 DID filtering is optional. Pass `--dids <file>` or set `ATPERSON_JETSTREAM_DIDS_FILE`. The file uses the same blank/comment/dedup rules, requires every entry to begin with `did:`, and accepts at most 10,000 unique values. With no DID file, the subscription is not restricted by repository DID.
 

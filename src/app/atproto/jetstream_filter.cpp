@@ -32,7 +32,8 @@ bool has_ascii_whitespace(const std::string &value) {
 } // namespace
 
 std::vector<std::string> default_jetstream_collections() {
-    return {"app.bsky.feed.post"};
+    /* No collection predicate asks Jetstream for every public collection. */
+    return {};
 }
 
 namespace {

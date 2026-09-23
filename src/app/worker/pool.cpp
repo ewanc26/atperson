@@ -192,6 +192,24 @@ void WorkerPool::wait() { static_cast<worker_pool::Impl *>(impl_)->wait(); }
 
 void WorkerPool::shutdown() { static_cast<worker_pool::Impl *>(impl_)->shutdown(); }
 
+void WorkerPool::resize(Config config) {
+    if (config.thread_count == 0u) {
+        config.thread_count = 1u;
+    }
+    if (config.max_queue == 0u) {
+        config.max_queue = 1u;
+    }
+    auto *current = static_cast<worker_pool::Impl *>(impl_);
+    if (current->thread_count() == config.thread_count) {
+        return;
+    }
+    /* The owner drains before replacing workers, preserving the staged
+     * boundary between concurrent fetches and ordered core learning. */
+    current->wait();
+    delete current;
+    impl_ = new worker_pool::Impl(std::move(config));
+}
+
 std::size_t WorkerPool::thread_count() const noexcept {
     return static_cast<worker_pool::Impl *>(impl_)->thread_count();
 }

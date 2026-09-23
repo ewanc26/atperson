@@ -65,10 +65,6 @@ JetstreamClient::JetstreamClient(
         throw std::runtime_error(
             "JetstreamClient: self DID must be empty or begin with 'did:'");
     }
-    if (collections_.empty()) {
-        throw std::runtime_error(
-            "JetstreamClient: at least one collection filter is required");
-    }
     if (collections_.size() > 100u) {
         throw std::runtime_error(
             "JetstreamClient: more than 100 collection filters are not supported");
@@ -99,7 +95,7 @@ void *JetstreamClient::connect() {
     for (const std::string &collection : collections_) {
         collection_ptrs.push_back(collection.c_str());
     }
-    options.wanted_collections = collection_ptrs.data();
+    options.wanted_collections = collection_ptrs.empty() ? nullptr : collection_ptrs.data();
     options.wanted_collections_count = collection_ptrs.size();
 
     std::vector<const char *> did_ptrs;
@@ -109,9 +105,10 @@ void *JetstreamClient::connect() {
     }
     options.wanted_dids = did_ptrs.empty() ? nullptr : did_ptrs.data();
     options.wanted_dids_count = did_ptrs.size();
-    static const char *const v2_kinds[] = {"commit"};
-    options.kinds = protocol_v2_ ? v2_kinds : nullptr;
-    options.kinds_count = protocol_v2_ ? 1u : 0u;
+    /* No kind predicate retains commits plus #sync, #identity, and #account
+     * events for the protocol-evidence ledger. */
+    options.kinds = nullptr;
+    options.kinds_count = 0u;
     /* Cursor 0 omits the query parameter entirely; Jetstream starts at the
      * head. A persisted cursor resumes exactly after the last processed frame,
      * which is fine for a public backfill and deduplicated by the ledger. */
@@ -205,6 +202,21 @@ JetstreamClient::BatchResult JetstreamClient::fetch_batch(
             wf_jetstream_event_typed typed{};
             const wf_status typed_status = wf_jetstream_event_parse_typed(
                 event.json, event.json_len, &typed);
+            /* Retain every public repository commit as protocol evidence,
+             * including collections that are not social-learning inputs. */
+            JetstreamEvent protocol_commit;
+            protocol_commit.author_did = event.did;
+            protocol_commit.seq = protocol_v2_ ? event.seq : event.time_us;
+            protocol_commit.protocol_only = true;
+            protocol_commit.event_type = "#commit";
+            protocol_commit.protocol_payload.assign(event.json, event.json_len);
+            if (typed_status == WF_OK && typed.commit.rev != nullptr) {
+                protocol_commit.repo_revision = typed.commit.rev;
+                if (!protocol::is_tid(protocol_commit.repo_revision)) {
+                    protocol_commit.verification = protocol::Verification::Rejected;
+                }
+            }
+            on_event(protocol_commit);
             const bool typed_delete =
                 typed_status == WF_OK &&
                 typed.commit.operation == WF_JETSTREAM_COMMIT_DELETE &&

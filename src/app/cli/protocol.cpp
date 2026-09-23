@@ -3,9 +3,13 @@
 #include "cli/config.hpp"
 #include "protocol.hpp"
 #include "wolfram/identity.h"
+#include "wolfram/plc.h"
 #include "wolfram/xrpc.h"
 
+#include <cJSON.h>
+
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <ostream>
 #include <vector>
@@ -37,18 +41,35 @@ int run_protocol_resolve(std::ostream &out, std::ostream &err,
         wf_did_document_free(&document);
         return 1;
     }
-    char **rotation_keys = nullptr;
-    size_t rotation_key_count = 0;
-    const wf_status rotation_status = wf_did_resolve_rotation_keys(
-        client, did, &rotation_keys, &rotation_key_count);
+    /* PLC rotation keys are not part of the trimmed DID document; recover
+     * them from the directory's current published operation (Wolfram owns
+     * the fetch, protocol semantics stay in ./protocol). did:web DIDs have
+     * no PLC directory and therefore no PLC rotation keys. */
     std::vector<std::string> rotation_key_values;
-    if (rotation_status == WF_OK) {
-        rotation_key_values.reserve(rotation_key_count);
-        for (size_t i = 0; i < rotation_key_count; ++i) {
-            rotation_key_values.emplace_back(rotation_keys[i]);
+    if (did != nullptr && strncmp(did, "did:plc:", 8) == 0) {
+        char *last_cid = nullptr;
+        char *last_op_json = nullptr;
+        const wf_status op_status = wf_plc_get_last_op(
+            client, "https://plc.directory", did, &last_cid, &last_op_json);
+        if (op_status == WF_OK && last_cid != nullptr && last_op_json != nullptr) {
+            cJSON *op = cJSON_Parse(last_op_json);
+            const cJSON *rotation_keys = op != nullptr
+                                             ? cJSON_GetObjectItemCaseSensitive(op, "rotationKeys")
+                                             : nullptr;
+            if (cJSON_IsArray(rotation_keys)) {
+                rotation_key_values.reserve(static_cast<std::size_t>(cJSON_GetArraySize(rotation_keys)));
+                cJSON *item = nullptr;
+                cJSON_ArrayForEach(item, rotation_keys) {
+                    if (cJSON_IsString(item) && item->valuestring != nullptr) {
+                        rotation_key_values.emplace_back(item->valuestring);
+                    }
+                }
+            }
+            cJSON_Delete(op);
         }
+        free(last_cid);
+        free(last_op_json);
     }
-    wf_did_rotation_keys_free(rotation_keys, rotation_key_count);
     const auto identity = protocol::accept_identity(
         did, handle, "wolfram:identity", document.signing_key,
         document.pds_endpoint, protocol::Verification::Verified,

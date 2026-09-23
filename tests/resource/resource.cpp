@@ -337,7 +337,7 @@ void test_first_creation_profiles_differ() {
     assert(atp_snapshot_neural_architecture(
                large_path.string().c_str(), &large_arch) == ATP_OK);
     assert(constrained_arch.embedding_dim == 32u);
-    assert(large_arch.embedding_dim == 256u);
+    assert(large_arch.embedding_dim == 768u);
     assert(constrained_arch.embedding_dim != large_arch.embedding_dim);
 
     std::filesystem::remove(constrained_path);
@@ -402,14 +402,14 @@ void test_memory_refusal_on_smaller_host() {
      * exceeds 2 MiB of available memory. */
     atp_neural_architecture expansive{};
     expansive.version = ATPERSON_NEURAL_ARCHITECTURE_VERSION;
-    expansive.embedding_dim = 384u;
-    expansive.input_dim = 768u;
+    expansive.embedding_dim = 1024u;
+    expansive.input_dim = 2048u;
     expansive.output_dim = 1u;
     expansive.hidden_layer_count = 3u;
-    expansive.hidden_widths[0] = 768u;
-    expansive.hidden_widths[1] = 384u;
-    expansive.hidden_widths[2] = 192u;
-    assert(atp_neural_parameter_count(&expansive) > 100000u);
+    expansive.hidden_widths[0] = 3072u;
+    expansive.hidden_widths[1] = 2560u;
+    expansive.hidden_widths[2] = 1280u;
+    assert(atp_neural_parameter_count(&expansive) >= 10000000u);
 
     const auto model_path = resource_test_model("refusal");
     std::filesystem::remove(model_path);
@@ -631,9 +631,9 @@ void test_neural_expansion_preflight() {
     const auto expansion = atperson::plan_neural_expansion(graph, expansive);
     assert(expansion.status == atperson::NeuralExpansionStatus::available);
     assert(expansion.active.embedding_dim == 128u);
-    assert(expansion.proposed.embedding_dim == 384u);
+    assert(expansion.proposed.embedding_dim == 1024u);
     assert(expansion.proposed.hidden_layer_count == 3u);
-    assert(expansion.proposed_parameter_count > expansion.active_parameter_count);
+    assert(expansion.proposed_parameter_count >= 10000000u);
     assert(expansion.proposed_footprint_bytes > expansion.active_footprint_bytes);
     assert(expansion.additional_footprint_bytes ==
            expansion.proposed_footprint_bytes - expansion.active_footprint_bytes);

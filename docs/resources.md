@@ -50,6 +50,13 @@ The memory footprint check is deliberately an estimate: it includes values plus 
 
 Durable neural architecture and current execution policy are separate things. A model's persisted embedding/layer topology does not change merely because it restarts on a faster or slower machine. Instead, the runtime derives an execution-only policy from the CPU and memory the process can use now.
 
+The `large` and `expansive` recommendations are production-scale profiles:
+each has at least 10 million shared learned parameters. They are chosen only
+when the existing memory and CPU headroom rules permit them; lower-capacity
+machines retain a smaller, safe topology rather than allocating an unsafe
+model. Existing generations still require the explicit `atperson neural
+expand` migration command before their topology changes.
+
 Policy v1 is deliberately conservative:
 
 - the only selectable backend is `portable-cpu`;
@@ -63,6 +70,11 @@ Policy v1 is deliberately conservative:
 `atperson resources` prints the execution backend, execution-policy version, core-owner thread count, surrounding-worker allowance, current work batch, workspace allowance, deterministic flag and portable fallback status.
 
 When opt-in parallel timeline sync is enabled, its fetch pool is capped by the policy's surrounding-worker allowance. If the current host has no whole CPU left after reserving the C23 owner, sync stays on the sequential path. Page size is also capped by the current observation work batch. Observation processing, ledger commits and C23 learning remain owner-thread serial and ordered.
+
+Long-running daemon sync re-probes resources at each bounded cycle. When the
+effective CPU allowance changes, it drains the fetch queue and recreates the
+worker pool at the new size before the next cycle. This adapts to changed
+cgroup quotas and host headroom without changing the ordered learning path.
 
 No SIMD, Metal, CUDA or reduced-precision backend is enabled by policy v1. Any such backend needs an explicit numeric/replay compatibility contract before it can become selectable.
 
@@ -131,4 +143,3 @@ The CLI performs that mutation on a separately loaded candidate generation. The 
 Migrated generations persist ordered history in snapshot v7. Rebuild begins at the first migration's source architecture and applies each recorded migration immediately after its durable ledger boundary. Withdrawn, pending and failed observations still retain their place in ledger chronology, so withdrawal/rebuild cannot shift a topology transition merely because an observation no longer contributes learning.
 
 If the active topology already matches the recommendation, `neural expand` reports a no-op. A weaker recommendation is refused rather than shrinking or rewriting the generation.
-

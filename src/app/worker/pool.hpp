@@ -65,6 +65,10 @@ public:
      * Idempotent. */
     void shutdown();
 
+    /* Apply a new resource-derived configuration after all currently queued
+     * work has completed. Only the owner thread may call this method. */
+    void resize(Config config);
+
     std::size_t thread_count() const noexcept;
     std::size_t pending();
     bool shutting_down();

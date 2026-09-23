@@ -80,7 +80,7 @@ class JetstreamClient {
   public:
     explicit JetstreamClient(
         std::string endpoint, std::string self_did,
-        std::vector<std::string> collections = {"app.bsky.feed.post"},
+        std::vector<std::string> collections = {},
         std::vector<std::string> dids = {},
         std::string initial_cursor = {});
     ~JetstreamClient();

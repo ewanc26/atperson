@@ -86,6 +86,16 @@ void test_pool_shutdown_after_submit_is_idempotent() {
     assert(rejected);
 }
 
+void test_pool_resizes_after_draining() {
+    atperson::WorkerPool pool({1u, 4u});
+    std::atomic<std::size_t> counter{0u};
+    pool.submit(0u, [&]() { counter.fetch_add(1u, std::memory_order_relaxed); });
+    pool.resize({3u, 12u});
+    assert(counter.load(std::memory_order_relaxed) == 1u);
+    assert(pool.thread_count() == 3u);
+    pool.shutdown();
+}
+
 void test_pool_config_from_system() {
     atperson::SystemResources resources;
     resources.host_logical_cpus = 8u;
@@ -114,6 +124,7 @@ int main() {
     test_pool_propagates_worker_error();
     test_pool_backpressure_blocks_submit();
     test_pool_shutdown_after_submit_is_idempotent();
+    test_pool_resizes_after_draining();
     test_pool_config_from_system();
     std::printf("worker pool tests passed\n");
     return 0;

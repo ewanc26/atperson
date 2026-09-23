@@ -223,6 +223,15 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                                          const atperson::SyncLimits &cl,
                                          const atperson::SyncLinker &ln) -> atperson::SyncResult {
         if (pool != nullptr) {
+            /* Re-sample before each bounded cycle. `run_sync_parallel` drains
+             * the pool before returning, so this resize cannot reorder a
+             * fetched page or race the single C23 learning owner. */
+            mutable_status = refresh_runtime_resources(g, resource_paths, resource_overrides);
+            const auto pool_config = atperson::WorkerPool::config_from_system(
+                mutable_status.system,
+                std::max<std::size_t>(
+                    1u, mutable_status.neural_runtime.surrounding_worker_threads));
+            pool->resize(pool_config);
             return atperson::run_sync_parallel(g, l, s, fetch_page, cl, *pool, ln);
         }
         return atperson::run_sync(g, l, s, fetch_page, cl, ln);
