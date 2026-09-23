@@ -60,6 +60,7 @@ int run_jetstream_archive(std::ostream &out,
                           const std::filesystem::path &state_file,
                           std::optional<std::uint64_t> after_seq,
                           std::optional<std::uint64_t> before_seq,
+                          std::optional<std::uint64_t> relative_span,
                           const std::filesystem::path &collections_file,
                           const std::filesystem::path &dids_file,
                           const std::function<void(const LanguageGraph &)> &print_stats);

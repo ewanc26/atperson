@@ -56,16 +56,20 @@ int run_jetstream_status(
         state_file, endpoint, "", kSourceKindJetstream);
     const std::string archive_after = env_or("ATPERSON_DAEMON_ARCHIVE_AFTER");
     const std::string archive_before = env_or("ATPERSON_DAEMON_ARCHIVE_BEFORE");
+    const std::string archive_span = env_or("ATPERSON_DAEMON_ARCHIVE_SPAN");
+    const bool archive_configured =
+        !archive_after.empty() || !archive_span.empty();
 
     out << "jetstream endpoint: " << endpoint << '\n'
         << "self DID: " << (configured_self.empty() ? "unset (public tail; self-filter unavailable)" : configured_self) << '\n'
         << "phase: "
-        << (archive_after.empty()
-                ? "live-only (archive replay available; daemon startup window not configured)"
-                : "archive-startup (daemon will replay before timeline cycles)")
+        << (archive_configured
+                ? "archive-startup (daemon will replay before timeline cycles)"
+                : "live-only (archive replay available; daemon startup window not configured)")
         << '\n'
         << "state: " << state_file.string() << '\n'
         << "archive after: " << (archive_after.empty() ? "none" : archive_after) << '\n'
+        << "archive span: " << (archive_span.empty() ? "none" : archive_span) << '\n'
         << "archive before: " << (archive_before.empty() ? "none" : archive_before) << '\n'
         << "cursor: ";
     if (state.catchup.active && state.catchup.cursor) {
@@ -104,6 +108,7 @@ int run_jetstream_archive(
     const std::filesystem::path &state_file,
     std::optional<std::uint64_t> after_seq,
     std::optional<std::uint64_t> before_seq,
+    std::optional<std::uint64_t> relative_span,
     const std::filesystem::path &collections_file,
     const std::filesystem::path &dids_file,
     const std::function<void(const LanguageGraph &)> &print_stats) {
@@ -118,31 +123,44 @@ int run_jetstream_archive(
     const std::string endpoint = env_or(
         "ATPERSON_JETSTREAM_ENDPOINT", kDefaultJetstreamEndpoint);
     auto state = load_ingestion_state(state_file, endpoint, "", kSourceKindJetstream);
-    if (!after_seq) {
-        if (state.catchup.active && state.catchup.cursor) {
-            try {
-                after_seq = std::stoull(*state.catchup.cursor);
-            } catch (const std::exception &) {
-                throw std::runtime_error(
-                    "jetstream archive: persisted cursor is not a decimal sequence; reset it before replay");
-            }
-        } else {
-            after_seq = 0u;
-        }
-    }
-    if (before_seq && *before_seq <= *after_seq) {
+    if (relative_span && after_seq) {
         throw std::runtime_error(
-            "jetstream archive: before sequence must be greater than after sequence");
+            "jetstream archive: supply either after-seq or --span, not both");
     }
-    if (!before_seq) {
-        if (*after_seq > std::numeric_limits<std::uint64_t>::max() -
-                           kJetstreamArchiveMaxSequenceSpan) {
-            throw std::runtime_error("jetstream archive: after sequence is too large for the default window");
+    if (relative_span) {
+        if (*relative_span == 0u ||
+            *relative_span > kJetstreamArchiveMaxSequenceSpan) {
+            throw std::runtime_error(
+                "jetstream archive: relative span must be between 1 and the "
+                "10,000,000 sequence cap");
         }
-        before_seq = *after_seq + kJetstreamArchiveMaxSequenceSpan;
-    }
-    if (*before_seq - *after_seq > kJetstreamArchiveMaxSequenceSpan) {
-        throw std::runtime_error("jetstream archive: requested window exceeds the 10,000,000 sequence cap");
+    } else {
+        if (!after_seq) {
+            if (state.catchup.active && state.catchup.cursor) {
+                try {
+                    after_seq = std::stoull(*state.catchup.cursor);
+                } catch (const std::exception &) {
+                    throw std::runtime_error(
+                        "jetstream archive: persisted cursor is not a decimal sequence; reset it before replay");
+                }
+            } else {
+                after_seq = 0u;
+            }
+        }
+        if (before_seq && *before_seq <= *after_seq) {
+            throw std::runtime_error(
+                "jetstream archive: before sequence must be greater than after sequence");
+        }
+        if (!before_seq) {
+            if (*after_seq > std::numeric_limits<std::uint64_t>::max() -
+                               kJetstreamArchiveMaxSequenceSpan) {
+                throw std::runtime_error("jetstream archive: after sequence is too large for the default window");
+            }
+            before_seq = *after_seq + kJetstreamArchiveMaxSequenceSpan;
+        }
+        if (*before_seq - *after_seq > kJetstreamArchiveMaxSequenceSpan) {
+            throw std::runtime_error("jetstream archive: requested window exceeds the 10,000,000 sequence cap");
+        }
     }
     const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
     WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
@@ -158,8 +176,9 @@ int run_jetstream_archive(
     const auto linker = make_journal_linker(cli::action_journal_path());
     atperson::protocol::EvidenceLedger protocol_ledger(cli::protocol_ledger_path());
     const auto result = atperson::run_jetstream_archive(
-        graph, ledger, state, client, *after_seq, before_seq, required_self_did(),
-        collections, dids, linker, &protocol_ledger);
+        graph, ledger, state, client, after_seq.value_or(0u), before_seq,
+        relative_span, required_self_did(), collections, dids, linker,
+        &protocol_ledger);
     graph.save(model_path);
     state.checkpoint.generation++;
     save_ingestion_state(state, state_file);

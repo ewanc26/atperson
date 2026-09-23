@@ -50,6 +50,11 @@ class JetstreamReplaySource {
   public:
     virtual ~JetstreamReplaySource() = default;
 
+    /* Resolve the sealed archive tip without downloading any segments. Returns
+     * nullopt when the tip cannot be resolved (unauthenticated, transport
+     * failure, or an empty/unsealed archive). */
+    [[nodiscard]] virtual std::optional<std::uint64_t> probe_sealed_tip() = 0;
+
     [[nodiscard]] virtual JetstreamReplayWindow fetch_window(
         std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,
         std::string_view self_did, const std::vector<std::string> &collections,
@@ -63,6 +68,8 @@ class JetstreamReplayClient final : public JetstreamReplaySource {
   public:
     JetstreamReplayClient(wf_agent &agent, std::string archive_token)
         : agent_(agent), archive_token_(std::move(archive_token)) {}
+
+    [[nodiscard]] std::optional<std::uint64_t> probe_sealed_tip() override;
 
     [[nodiscard]] JetstreamReplayWindow fetch_window(
         std::uint64_t after_seq, std::optional<std::uint64_t> before_seq,

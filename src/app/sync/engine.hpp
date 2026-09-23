@@ -150,12 +150,20 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
 
 /* Process one bounded sealed-archive window through the same durable pipeline
  * as live Jetstream. On success, the persisted Jetstream cursor is set to the
- * sealed tip so the next live cycle resumes after the archive without a gap. */
+ * sealed tip so the next live cycle resumes after the archive without a gap.
+ *
+ * An optional relative_span treats the window as the trailing <span> sequences
+ * ending at before_seq (or, when before_seq is absent, at the sealed archive
+ * tip discovered through client.probe_sealed_tip()). The span is hard-capped
+ * by kJetstreamArchiveMaxSequenceSpan; the caller supplies either an explicit
+ * after_seq or a relative_span, never both.
+ */
 JetstreamRunResult run_jetstream_archive(LanguageGraph &graph, Ledger &ledger,
                                          IngestionState &state,
                                          JetstreamReplaySource &client,
                                          std::uint64_t after_seq,
                                          std::optional<std::uint64_t> before_seq,
+                                         std::optional<std::uint64_t> relative_span,
                                          std::string_view self_did,
                                          const std::vector<std::string> &collections,
                                          const std::vector<std::string> &dids,

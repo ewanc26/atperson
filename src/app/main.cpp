@@ -497,27 +497,48 @@ int main(int argc, char **argv) {
                 };
                 std::optional<std::uint64_t> after;
                 std::optional<std::uint64_t> before;
+                std::optional<std::uint64_t> span;
                 std::filesystem::path collections_file =
                     atperson::cli::jetstream_collections_path();
                 std::filesystem::path dids_file = atperson::cli::jetstream_dids_path();
-                if (argc >= 4) after = parse_sequence(argv[3], "after-seq");
-                if (argc >= 5) before = parse_sequence(argv[4], "before-seq");
-                for (int i = 5; i < argc; ++i) {
+                std::vector<std::uint64_t> positional;
+                positional.reserve(2u);
+                for (int i = 3; i < argc; ++i) {
                     const std::string_view argument = argv[i];
                     if (argument == "--collections" && i + 1 < argc) {
                         collections_file = argv[++i];
                     } else if (argument == "--dids" && i + 1 < argc) {
                         dids_file = argv[++i];
-                    } else {
+                    } else if (argument == "--span" && i + 1 < argc) {
+                        span = parse_sequence(argv[++i], "--span");
+                    } else if (argument.starts_with("--")) {
                         std::cerr << "jetstream archive: unknown or incomplete option "
                                   << argument << '\n';
                         return 2;
+                    } else if (positional.size() < 2u) {
+                        positional.push_back(
+                            parse_sequence(argv[i],
+                                           positional.empty() ? "after-seq" : "before-seq"));
+                    } else {
+                        std::cerr << "jetstream archive: too many positional arguments\n";
+                        return 2;
                     }
+                }
+                if (span) {
+                    if (positional.size() == 1u) before = positional[0];
+                    if (positional.size() == 2u) after = positional[0], before = positional[1];
+                } else {
+                    if (!positional.empty()) after = positional[0];
+                    if (positional.size() == 2u) before = positional[1];
+                }
+                if (after && span) {
+                    std::cerr << "jetstream archive: after-seq and --span cannot be used together\n";
+                    return 2;
                 }
                 return atperson::cli::run_jetstream_archive(
                     std::cout, resource_status, atperson::cli::data_dir(), graph, path,
                     atperson::cli::ledger_path(), atperson::cli::jetstream_state_path(),
-                    after, before, collections_file, dids_file, print_stats);
+                    after, before, span, collections_file, dids_file, print_stats);
             }
             int max_events = 0;
             int max_ms = 0;
