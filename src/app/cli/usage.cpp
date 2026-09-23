@@ -1,5 +1,7 @@
 #include "cli/usage.hpp"
 
+#include "config.hpp"
+
 #include <ostream>
 
 namespace atperson {
@@ -85,7 +87,7 @@ void print_usage(std::ostream &out) {
            "                           repo scope is explicit; CAR management is separate)\n"
         << "  ATPERSON_SELF_DID      entity DID for unauthenticated Jetstream self-filtering\n"
         << "  ATPERSON_JETSTREAM_ENDPOINT  Jetstream ws(s) URL for public ingestion\n"
-        << "                              (default wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents)\n"
+        << "                              (default " << kDefaultJetstreamEndpoint << ")\n"
         << "  ATPERSON_JETSTREAM_COLLECTIONS_FILE  one wantedCollections filter per line\n"
         << "  ATPERSON_JETSTREAM_DIDS_FILE         one wantedDids DID per line\n\n"
         << "  ATPERSON_DAEMON_ARCHIVE_AFTER        optional startup archive lower bound\n"
