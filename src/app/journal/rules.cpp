@@ -1,5 +1,6 @@
 #include "rules.hpp"
 
+#include "resolve.hpp"
 #include "state/time.hpp"
 
 #include <cJSON.h>
@@ -60,6 +61,26 @@ std::optional<std::uint64_t> optional_seconds(const cJSON *object, const char *n
     return static_cast<std::uint64_t>(field->valuedouble);
 }
 
+/* The optional `when.expectation` condition (#149): endorses only the three
+ * terminal resolution states, so a condition can never match an action
+ * without a prediction or one still pending judgement. */
+std::optional<JournalExpectationState> optional_expectation(const cJSON *object) {
+    const cJSON *field = cJSON_GetObjectItemCaseSensitive(object, "expectation");
+    if (field == nullptr) {
+        return std::nullopt;
+    }
+    if (!cJSON_IsString(field) || field->valuestring == nullptr) {
+        invalid("rule field 'when.expectation' must be a string");
+    }
+    const std::optional<JournalExpectationState> state =
+        journal_expectation_state_from_name(field->valuestring);
+    if (!state.has_value() || state.value() == JournalExpectationState::None ||
+        state.value() == JournalExpectationState::Pending) {
+        invalid("rule field 'when.expectation' must be 'met', 'unmet' or 'expired'");
+    }
+    return state;
+}
+
 ValenceRule parse_rule(const cJSON *rule) {
     if (!cJSON_IsObject(rule)) {
         invalid("each entry in 'rules' must be an object");
@@ -84,6 +105,7 @@ ValenceRule parse_rule(const cJSON *rule) {
     parsed.outcome = outcome.value();
     parsed.min_events = optional_count(when, "min_events");
     parsed.within_seconds = optional_seconds(when, "within_seconds");
+    parsed.expectation = optional_expectation(when);
 
     const std::string kind_name = required_string(rule, "kind");
     const std::optional<atp_valence_kind> kind = valence_kind_from_name(kind_name);
@@ -154,7 +176,7 @@ RuleTable load_rule_table(const std::filesystem::path &path) {
 }
 
 const ValenceRule *first_matching_rule(const RuleTable &table, const JournalAction &action,
-                                       const std::vector<JournalEvent> &events) {
+                                       const std::vector<JournalEvent> &events, std::int64_t now) {
     /* Count the later events linked to this action, honouring the optional
      * within-seconds window. An action timestamp that does not parse is
      * unknown time (0), the same convention the sync engine uses; a rule
@@ -182,6 +204,12 @@ const ValenceRule *first_matching_rule(const RuleTable &table, const JournalActi
             if (matched < rule.min_events.value()) {
                 continue;
             }
+        }
+        /* An expectation-conditioned rule (#149) fires only when the action's
+         * derived resolution state is exactly the named terminal state. */
+        if (rule.expectation.has_value() &&
+            derive_expectation_state(action, events, now) != rule.expectation.value()) {
+            continue;
         }
         return &rule;
     }

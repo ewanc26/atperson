@@ -89,6 +89,12 @@ struct SchedulerCycleReport {
     /* Non-zero when drives reordering (#148) was applied to the candidate
      * context list for this cycle. */
     bool ordered_by_drives{false};
+    /* Expectation resolution (#149): how many executed expectations the
+     * cycle's resolution pass evaluated, how many were still pending, and
+     * how many terminal resolution lines it recorded. */
+    std::size_t expectations_evaluated{};
+    std::size_t expectations_pending{};
+    std::size_t resolutions_written{};
 };
 
 /* Paths and injected collaborators for one cycle. `writer_for` is the same

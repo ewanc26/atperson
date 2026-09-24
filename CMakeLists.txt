@@ -214,6 +214,7 @@ if(ATPERSON_BUILD_NETWORK)
   src/app/atproto/jetstream_replay_client.cpp
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
+    src/app/action/tokens.cpp
     src/app/autonomy/run_state.cpp
     src/app/attestation/signer.cpp
     src/app/attestation/proof.cpp
@@ -221,6 +222,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/audit/transport.cpp
     src/app/journal/command.cpp
     src/app/journal/rules.cpp
+    src/app/journal/resolve.cpp
     src/app/control/state.cpp
     src/app/control/envelope.cpp
     src/app/daemon/backoff.cpp
@@ -237,6 +239,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/evaluate.cpp
     src/app/outbound/execute.cpp
     src/app/outbound/attempt.cpp
+    src/app/outbound/expectation.cpp
     src/app/scheduler/cycle.cpp
     src/app/scheduler/drives.cpp
     src/app/state/lock.cpp
@@ -599,6 +602,7 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson-publish-test
     tests/outbound/execute.cpp
+    src/app/action/tokens.cpp
     src/app/control/state.cpp
     src/app/journal/store.cpp
     src/app/outbound/action.cpp
@@ -607,11 +611,29 @@ if(ATPERSON_BUILD_TESTS)
     src/app/outbound/budget.cpp
     src/app/outbound/config.cpp
     src/app/outbound/evaluate.cpp
-    src/app/outbound/execute.cpp)
+    src/app/outbound/execute.cpp
+    src/app/outbound/expectation.cpp)
   target_compile_features(atperson-publish-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-publish-test PRIVATE atperson-cpp)
   target_include_directories(atperson-publish-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-publish COMMAND atperson-publish-test)
+
+  # Expectation derivation (#149): the guarded closed-vocabulary mapping
+  # from an outbound document's decision evidence onto a JournalExpectation,
+  # including the no-evidence (operator-authored) nullopt contract, the
+  # kind floors and the token cap. Offline, no network.
+  add_executable(
+    atperson-expectation-test
+    tests/outbound/expectation.cpp
+    src/app/action/tokens.cpp
+    src/app/journal/store.cpp
+    src/app/outbound/action.cpp
+    src/app/outbound/actions.cpp
+    src/app/outbound/expectation.cpp)
+  target_compile_features(atperson-expectation-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-expectation-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-expectation-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-expectation COMMAND atperson-expectation-test)
 
   # Autonomous scheduler (#140): decision -> frozen proposal -> approved
   # execution through the existing gate chain, composed after perception.
@@ -620,8 +642,10 @@ if(ATPERSON_BUILD_TESTS)
     atperson-scheduler-test
     tests/scheduler/scheduler.cpp
     src/app/action/inspection.cpp
+    src/app/action/tokens.cpp
     src/app/control/envelope.cpp
     src/app/control/state.cpp
+    src/app/journal/resolve.cpp
     src/app/journal/store.cpp
     src/app/ledger.cpp
     src/app/outbound/action.cpp
@@ -632,6 +656,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/outbound/config.cpp
     src/app/outbound/evaluate.cpp
     src/app/outbound/execute.cpp
+    src/app/outbound/expectation.cpp
     src/app/scheduler/cycle.cpp
     src/app/scheduler/drives.cpp
     src/app/state/time.cpp
@@ -647,6 +672,7 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson-envelope-test
     tests/envelope/envelope.cpp
+    src/app/action/tokens.cpp
     src/app/journal/store.cpp
     src/app/control/envelope.cpp
     src/app/control/state.cpp
@@ -658,6 +684,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/outbound/config.cpp
     src/app/outbound/evaluate.cpp
     src/app/outbound/execute.cpp
+    src/app/outbound/expectation.cpp
     src/app/state/time.cpp
     src/app/state/lock.cpp)
   target_compile_features(atperson-envelope-test PRIVATE cxx_std_23)
@@ -701,7 +728,9 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson-journal-rules-test
     tests/journal/rules.cpp
+    src/app/action/tokens.cpp
     src/app/journal/command.cpp
+    src/app/journal/resolve.cpp
     src/app/journal/rules.cpp
     src/app/journal/store.cpp
     src/app/state/lock.cpp
@@ -710,6 +739,21 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-journal-rules-test PRIVATE atperson-cpp cjson)
   target_include_directories(atperson-journal-rules-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-journal-rules COMMAND atperson-journal-rules-test)
+
+  # Pre-action expectations (#149): derivation semantics over the terminal
+  # met/unmet/expired states, window-boundary behaviour, and the idempotent
+  # resolution pass (pending stays unwritten, reruns append nothing new, a
+  # late reference after expiry records the state change). Offline.
+  add_executable(
+    atperson-journal-resolve-test
+    tests/journal/resolve.cpp
+    src/app/journal/resolve.cpp
+    src/app/journal/store.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-journal-resolve-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-journal-resolve-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-journal-resolve-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-journal-resolve COMMAND atperson-journal-resolve-test)
 
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay

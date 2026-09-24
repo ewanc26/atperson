@@ -5,6 +5,7 @@
 #include "config.hpp"
 #include "control/envelope.hpp"
 #include "control/state.hpp"
+#include "expectation.hpp"
 #include "journal/store.hpp"
 
 #include <cstdio>
@@ -120,6 +121,10 @@ OutboundExecutionResult attempt_outbound_action(const OutboundAction &action,
     journal_entry.uri = result.written.uri;
     journal_entry.cid = result.written.cid;
     journal_entry.at = rfc3339_from_unix(now);
+    /* The predicted outcome (#149), derived deterministically from the
+     * frozen document's decision evidence. Autonomous decisions record it;
+     * operator-authored documents record none. */
+    journal_entry.expectation = derive_action_expectation(action);
     if (result.outcome == OutboundExecutionOutcome::Executed && options.mac) {
         journal_entry.mac = options.mac(action);
     }

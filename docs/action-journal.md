@@ -8,13 +8,25 @@ Keeping those streams separate matters. Third-party observations and self-author
 
 The append-only journal lives at `<data>/action-journal.jsonl`, or `ATPERSON_ACTION_JOURNAL` when overridden. Every line is one compact JSON object and each append is flushed durably.
 
-There are three entry kinds.
+There are four entry kinds.
 
 ### `action`
 
 An outbound attempt. The entry keeps the frozen rkey, exact text, approval digest, execution outcome and, after a confirmed write, the resulting AT URI and CID.
 
 The action id is the frozen rkey. It is stable before execution, survives idempotent `putRecord` retries and matches the tail of an executed record's URI.
+
+An autonomous decision may also record its *prediction* of the outcome, derived deterministically at execution time from the frozen action document's decision evidence:
+
+```json
+"expectation": {
+  "kind": "approach",
+  "reply_likelihood": 0.7,
+  "tokens": ["the", "moon", "loyal", "companion"]
+}
+```
+
+`kind` is one of `action`, `interaction` or `approach`; `reply_likelihood` is the judged chance the record draws a reply, clamped to [0, 1]; `tokens` are the exact text's distinct tokens in first-appearance order, capped at 8. Operator-authored actions carry no decision evidence and record no expectation.
 
 ### `event`
 
@@ -25,6 +37,10 @@ A later public record that references an executed action. `via` records whether 
 An explicit experience-derived state update. It records the token, kind, signal, source and optional provenance used to create the update. Hand-applied events have no mapping provenance; `journal map` uses `map:<rule-id>`.
 
 The journal stores the evidence. The C23 valence API applies it, and `rebuild` replays it.
+
+### `resolution`
+
+The recorded lifetime state of one action's expectation, written by the expectation-resolution pass. Only terminal states are ever written: `met` (a linked event landed before the window closed), `unmet` (contact happened, but not in time) or `expired` (the window closed with no contact). A pending expectation has no line.
 
 ## Audit log versus journal
 
@@ -41,11 +57,13 @@ Neither is reconstructed from the other.
 atperson journal actions [limit]
 atperson journal events [limit]
 atperson journal valence [limit]
+atperson journal resolutions [limit]
 atperson journal apply <token> <kind> <signal> <source-id>
 atperson journal map <rule-file>
+atperson journal resolve
 ```
 
-The listing commands are read-only. `apply` and `map` mutate learned state and therefore take the data-directory writer lock.
+The listing commands are read-only. `apply`, `map` and `resolve` mutate persistence and therefore take the data-directory writer lock. `apply` and `map` additionally touch learned state; `resolve` touches only the journal.
 
 ## Applying one valence event
 
@@ -90,6 +108,34 @@ Mapping is idempotent. A derived entry is identified by source, mapping provenan
 
 Malformed format/version data, duplicate rule ids, unknown outcome or valence kinds and out-of-range signals fail before learned state is touched.
 
+## Expectation resolution
+
+An executed action's recorded prediction is judged against the events that later referenced it by the resolution pass (`journal resolve`, or automatically at the start of every enabled scheduler cycle). The judged state is a pure function of the journal and the current clock:
+
+- **met** — at least one linked event landed within the expectation window (one week after the attempt; a reply exactly on the boundary is on time);
+- **unmet** — a linked event exists but none landed in time (a late reference);
+- **expired** — the window closed with no linked event;
+- **pending** — no event yet and the window still open.
+
+Only terminal states are written. Pending expectations never get a line, and replaying the pass never duplicates an already-recorded terminal state. When a recorded state later changes — an expired action gains a late reference, say — an additional resolution line records the knowledge change.
+
+Because each attempt instant is normalised to its Unix epoch, an idle author or a reply that simply cannot be timestamped never counts as an on-time reply.
+
+The scheduler runs the resolution pass before any new decision, so a cycle always first resolves the events that landed since the last cycle. The pass is journal-only and idempotent, so it is safe at the top of every enabled cycle.
+
+A rule table may also condition on the resolved state:
+
+```json
+{
+  "id": "expected-but-unmet",
+  "when": {"outcome": "executed", "expectation": "unmet"},
+  "kind": "approach",
+  "signal": -0.2
+}
+```
+
+Only the three terminal states (`met`, `unmet`, `expired`) are authorable conditions. A condition never fires for an action without a prediction, and never while the expectation is still pending.
+
 ## Replay
 
 `atperson rebuild` replays two evidence streams in a fixed order:
@@ -130,6 +176,7 @@ Verification is standalone: given the entry and the key, the digest mismatch, si
 - A torn final line is reported and truncated during load.
 - Unsupported versions, malformed entries and impossible field combinations fail explicitly.
 - Unknown entry types are not skipped.
+- The current journal format version is 3. v1 action entries and v2 action/event/valence entries load unchanged (absent expectations are exactly nullopt); a v2 resolution line is refused as foreign schema.
 
 The file format is append-only and the caller owns cross-process serialisation through the appropriate runtime lock.
 

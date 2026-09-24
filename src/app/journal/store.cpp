@@ -142,6 +142,78 @@ void add_mac(cJSON *root, const std::optional<JournalMac> &mac) {
     cJSON_AddItemToObject(root, "mac", object);
 }
 
+/* Serialise the optional action expectation (#149). Added only when
+ * present, so v1/v2 action entries (no expectation) stay byte-identical
+ * after the v2->v3 migration pass, the same pattern as the MAC field. */
+void add_expectation(cJSON *root, const std::optional<JournalExpectation> &expectation) {
+    if (!expectation.has_value()) {
+        return;
+    }
+    cJSON *object = cJSON_CreateObject();
+    if (!object) {
+        throw std::runtime_error("failed to allocate journal expectation object");
+    }
+    add_string(object, "kind", expectation->kind);
+    cJSON_AddNumberToObject(object, "reply_likelihood", expectation->reply_likelihood);
+    cJSON *tokens = cJSON_CreateArray();
+    if (!tokens) {
+        cJSON_Delete(object);
+        throw std::runtime_error("failed to allocate journal expectation tokens");
+    }
+    for (const std::string &token : expectation->tokens) {
+        cJSON *item = cJSON_CreateString(token.c_str());
+        if (!item) {
+            cJSON_Delete(tokens);
+            cJSON_Delete(object);
+            throw std::runtime_error("failed to allocate journal expectation token");
+        }
+        cJSON_AddItemToArray(tokens, item);
+    }
+    cJSON_AddItemToObject(object, "tokens", tokens);
+    cJSON_AddItemToObject(root, "expectation", object);
+}
+
+/* Parse the optional `expectation` object (#149). Absent or null yields
+ * nullopt; a present object must carry a closed-vocabulary kind, a
+ * [0, 1] reply likelihood and a capped array of non-empty token strings,
+ * or the entry is rejected. */
+std::optional<JournalExpectation> parse_expectation(const cJSON *root) {
+    cJSON *object = cJSON_GetObjectItemCaseSensitive(root, "expectation");
+    if (object == nullptr || cJSON_IsNull(object)) {
+        return std::nullopt;
+    }
+    if (!cJSON_IsObject(object)) {
+        fail("journal action field 'expectation' is present but not an object");
+    }
+    JournalExpectation parsed;
+    parsed.kind = required_string(object, "kind");
+    if (parsed.kind != "action" && parsed.kind != "interaction" && parsed.kind != "approach") {
+        fail("journal action expectation has unknown kind '" + parsed.kind + "'");
+    }
+    const cJSON *likelihood = cJSON_GetObjectItemCaseSensitive(object, "reply_likelihood");
+    if (!cJSON_IsNumber(likelihood) || likelihood->valuedouble < 0.0 ||
+        likelihood->valuedouble > 1.0) {
+        fail("journal action expectation field 'reply_likelihood' must be a number in [0, 1]");
+    }
+    parsed.reply_likelihood = static_cast<float>(likelihood->valuedouble);
+    const cJSON *tokens = cJSON_GetObjectItemCaseSensitive(object, "tokens");
+    if (!cJSON_IsArray(tokens)) {
+        fail("journal action expectation field 'tokens' is missing or not an array");
+    }
+    const int count = cJSON_GetArraySize(tokens);
+    if (count < 0 || static_cast<std::size_t>(count) > kExpectationMaxTokens) {
+        fail("journal action expectation has too many tokens");
+    }
+    for (int i = 0; i < count; ++i) {
+        const cJSON *item = cJSON_GetArrayItem(tokens, i);
+        if (!cJSON_IsString(item) || item->valuestring == nullptr || item->valuestring[0] == '\0') {
+            fail("journal action expectation 'tokens' entries must be non-empty strings");
+        }
+        parsed.tokens.emplace_back(item->valuestring);
+    }
+    return parsed;
+}
+
 /* Parse the optional `mac` object. Absent or null yields nullopt; a present
  * object must carry the four string fields or the entry is rejected. */
 std::optional<JournalMac> parse_mac(const cJSON *root) {
@@ -191,14 +263,21 @@ void parse_line(const std::string &line, JournalContents &out) {
     }
     const bool is_v1_action =
         version->valuedouble == 1.0 && type == "action";
+    /* v2 predates the action expectation field and the resolution entry
+     * kind (#149): its action/event/valence lines are accepted and parse
+     * under v3 field semantics (absent expectation == nullopt), while a
+     * v2 `resolution` line is foreign schema and refused. */
+    const bool is_v2 = version->valuedouble == 2.0 && type != "resolution";
     const bool is_current =
         version->valuedouble == static_cast<double>(kJournalFormatVersion);
-    if (!is_current && !is_v1_action) {
-        /* v1 action entries predate the journal MAC field (#57). They are
-         * migrated in place: an absent MAC is the same as nullopt, so
-         * the loaded entry is identical to what a v2 writer would have
-         * produced. Any other version or type is refused — the journal never
-         * silently reinterprets foreign schema. */
+    if (!is_current && !is_v2 && !is_v1_action) {
+        /* v1 action entries predate the journal MAC field (#57) and the
+         * expectation field (#149). They are migrated in place: an absent
+         * MAC and an absent expectation are the same as nullopt, so the
+         * loaded entry is identical to what a current writer would have
+         * produced. v2 event/valence lines need no migration. Any other
+         * version or type is refused — the journal never silently
+         * reinterprets foreign schema. */
         fail("journal entry has unsupported version");
     }
     if (type == "action") {
@@ -214,6 +293,7 @@ void parse_line(const std::string &line, JournalContents &out) {
         action.cid = optional_string(root.get(), "cid");
         action.at = required_string(root.get(), "at");
         action.mac = parse_mac(root.get());
+        action.expectation = parse_expectation(root.get());
         out.actions.push_back(std::move(action));
     } else if (type == "event") {
         JournalEvent event;
@@ -233,6 +313,20 @@ void parse_line(const std::string &line, JournalContents &out) {
         valence.at = required_string(root.get(), "at");
         valence.provenance = optional_string(root.get(), "provenance");
         out.valence.push_back(std::move(valence));
+    } else if (type == "resolution") {
+        JournalResolution resolution;
+        resolution.action_id = required_string(root.get(), "action_id");
+        resolution.state =
+            journal_expectation_state_from_name(required_string(root.get(), "state"))
+                .value_or(JournalExpectationState::None);
+        if (resolution.state != JournalExpectationState::Met &&
+            resolution.state != JournalExpectationState::Unmet &&
+            resolution.state != JournalExpectationState::Expired) {
+            fail("journal resolution has a non-terminal state");
+        }
+        resolution.at_epoch = required_u64(root.get(), "at_epoch");
+        resolution.at = required_string(root.get(), "at");
+        out.resolutions.push_back(std::move(resolution));
     } else {
         fail("journal entry has unknown type '" + type + "'");
     }
@@ -271,6 +365,42 @@ std::optional<JournalActionOutcome> journal_action_outcome_from_name(std::string
     }
     if (name == "dry_run") {
         return JournalActionOutcome::DryRun;
+    }
+    return std::nullopt;
+}
+
+const char *journal_expectation_state_name(JournalExpectationState state) noexcept {
+    switch (state) {
+    case JournalExpectationState::None:
+        return "none";
+    case JournalExpectationState::Pending:
+        return "pending";
+    case JournalExpectationState::Met:
+        return "met";
+    case JournalExpectationState::Unmet:
+        return "unmet";
+    case JournalExpectationState::Expired:
+        return "expired";
+    }
+    return "none";
+}
+
+std::optional<JournalExpectationState>
+journal_expectation_state_from_name(std::string_view name) {
+    if (name == "none") {
+        return JournalExpectationState::None;
+    }
+    if (name == "pending") {
+        return JournalExpectationState::Pending;
+    }
+    if (name == "met") {
+        return JournalExpectationState::Met;
+    }
+    if (name == "unmet") {
+        return JournalExpectationState::Unmet;
+    }
+    if (name == "expired") {
+        return JournalExpectationState::Expired;
     }
     return std::nullopt;
 }
@@ -322,6 +452,7 @@ std::string serialise_journal_action(const JournalAction &entry) {
     add_string(root.get(), "cid", entry.cid);
     add_string(root.get(), "at", entry.at);
     add_mac(root.get(), entry.mac);
+    add_expectation(root.get(), entry.expectation);
     return print_json(root.get(), "journal action entry");
 }
 
@@ -359,6 +490,20 @@ std::string serialise_journal_valence(const JournalValence &entry) {
     return print_json(root.get(), "journal valence entry");
 }
 
+std::string serialise_journal_resolution(const JournalResolution &entry) {
+    Json root(cJSON_CreateObject());
+    if (!root) {
+        throw std::runtime_error("failed to allocate journal resolution entry");
+    }
+    add_string(root.get(), "type", "resolution");
+    cJSON_AddNumberToObject(root.get(), "version", kJournalFormatVersion);
+    add_string(root.get(), "action_id", entry.action_id);
+    add_string(root.get(), "state", journal_expectation_state_name(entry.state));
+    cJSON_AddNumberToObject(root.get(), "at_epoch", static_cast<double>(entry.at_epoch));
+    add_string(root.get(), "at", entry.at);
+    return print_json(root.get(), "journal resolution entry");
+}
+
 void append_journal_action(const std::filesystem::path &path, const JournalAction &entry) {
     append_line(path, serialise_journal_action(entry));
 }
@@ -369,6 +514,11 @@ void append_journal_event(const std::filesystem::path &path, const JournalEvent 
 
 void append_journal_valence(const std::filesystem::path &path, const JournalValence &entry) {
     append_line(path, serialise_journal_valence(entry));
+}
+
+void append_journal_resolution(const std::filesystem::path &path,
+                               const JournalResolution &entry) {
+    append_line(path, serialise_journal_resolution(entry));
 }
 
 JournalContents load_journal(const std::filesystem::path &path) {

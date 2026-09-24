@@ -4,6 +4,7 @@
 #include "control/envelope.hpp"
 #include "control/state.hpp"
 #include "drives.hpp"
+#include "journal/resolve.hpp"
 #include "journal/store.hpp"
 #include "outbound/budget.hpp"
 #include "outbound/config.hpp"
@@ -114,6 +115,18 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         report.detail = "scheduler disabled";
         return report;
     }
+
+    /* Expectation resolution (#149): before any new decision, resolve the
+     * recorded predictions against the events that landed since the last
+     * cycle (or never). Idempotent and journal-only; it appends terminal
+     * `met`/`unmet`/`expired` resolution lines and never touches the graph,
+     * so it is safe at the top of every enabled cycle. */
+    const ResolutionReport resolution = resolve_expectations(
+        cycle.attempt.journal_file, cycle.now, rfc3339_from_unix(cycle.now));
+    report.expectations_evaluated = resolution.evaluated;
+    report.expectations_pending = resolution.pending;
+    report.resolutions_written = resolution.met_written + resolution.unmet_written +
+                                 resolution.expired_written + resolution.state_changed;
 
     /* Contexts: the most recent committed ledger payloads, newest first.
      * The ledger is the durable authority for what the entity observed;

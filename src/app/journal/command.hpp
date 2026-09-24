@@ -42,6 +42,7 @@ namespace journal {
  *   journal actions [limit]        list attempted actions (newest last)
  *   journal events [limit]         list linked outcome events
  *   journal valence [limit]        list applied valence updates
+ *   journal resolutions [limit]    list recorded expectation resolutions
  *   journal apply <token> <kind> <signal> <source-id>
  *                                  apply one explicit valence event and
  *                                  journal it (writer lock; saves the model)
@@ -49,6 +50,10 @@ namespace journal {
  *                                  valence rule table to the journal and
  *                                  append the derived valence entries
  *                                  (writer lock; saves the model; #56)
+ *   journal resolve                run the idempotent expectation-resolution
+ *                                  pass over the journal, appending terminal
+ *                                  met/unmet/expired resolution lines
+ *                                  (writer lock; journal only; #149)
  * Returns 0 on success, 2 on bad arguments. `now_unix` stamps the journal
  * entry; `now_rfc3339` stamps the event log.
  */
