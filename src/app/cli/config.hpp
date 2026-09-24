@@ -59,6 +59,10 @@ std::filesystem::path action_journal_path();
 std::filesystem::path protocol_ledger_path();
 std::filesystem::path autonomy_run_state_path();
 
+/* Autonomous scheduler (#140): frozen proposal documents awaiting operator
+ * approval or execution. */
+std::filesystem::path scheduler_proposals_path();
+
 std::vector<std::filesystem::path> durable_paths();
 
 int parse_limit(const char *value, int fallback);

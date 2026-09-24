@@ -161,6 +161,18 @@ int main(int argc, char **argv) {
                       << "checkpoint: " << state.checkpoint << '\n'
                       << "last at: " << state.last_at << '\n'
                       << "detail: " << state.detail << '\n';
+            /* Pending scheduler proposals (#140): frozen documents awaiting
+             * operator approval or execution. */
+            std::error_code ec;
+            std::size_t proposals = 0u;
+            for (std::filesystem::directory_iterator
+                     it(atperson::cli::scheduler_proposals_path(), ec), end;
+                 !ec && it != end; it.increment(ec)) {
+                if (it->is_regular_file(ec) && it->path().extension() == ".json") {
+                    ++proposals;
+                }
+            }
+            std::cout << "pending proposals: " << proposals << '\n';
             return 0;
         }
 

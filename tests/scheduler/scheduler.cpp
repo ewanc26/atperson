@@ -1,0 +1,303 @@
+/* Autonomous scheduler (#140): decision -> proposal -> approved execution,
+ * composed through the existing gate chain. Offline: the network is a fake
+ * OutboundWriter, the clock is injected, the ledger is real. */
+#include "scheduler/cycle.hpp"
+
+#include "action/inspection.hpp"
+#include "atperson/core.h"
+#include "atperson/graph.hpp"
+#include "atperson/ledger.hpp"
+#include "control/state.hpp"
+#include "journal/store.hpp"
+#include "outbound/action.hpp"
+#include "outbound/actions.hpp"
+#include "outbound/audit.hpp"
+#include "outbound/budget.hpp"
+#include "outbound/config.hpp"
+#include "outbound/evaluate.hpp"
+
+#include <cassert>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace {
+
+using atperson::ControlState;
+using atperson::JournalContents;
+using atperson::LanguageGraph;
+using atperson::Ledger;
+using atperson::OutboundAction;
+using atperson::OutboundActionKind;
+using atperson::OutboundPolicy;
+using atperson::OutboundWriteResult;
+using atperson::OutboundWriter;
+using atperson::SchedulerConfig;
+using atperson::SchedulerCycle;
+using atperson::SchedulerCycleReport;
+
+constexpr std::int64_t NOW = 1'700'000'000;
+
+std::filesystem::path scratch_dir(const char *tag) {
+    const auto root = std::filesystem::temp_directory_path() /
+                      std::filesystem::path("atperson-scheduler-" + std::string(tag));
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    return root;
+}
+
+void write_file(const std::filesystem::path &path, std::string_view contents) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << contents;
+}
+
+struct FakeWriter final : OutboundWriter {
+    int put_calls = 0;
+    std::vector<std::string> rkeys;
+
+    std::string resolve_record_cid(const std::string &) override { return "bafycid"; }
+
+    OutboundWriteResult put_record(const std::string &, const std::string &rkey,
+                                   const std::string &) override {
+        ++put_calls;
+        rkeys.push_back(rkey);
+        OutboundWriteResult written;
+        written.uri = "at://did:plc:self/app.bsky.feed.post/" + rkey;
+        written.cid = "bafyrecord";
+        return written;
+    }
+};
+
+/* Gate files: policy allows posts, control has writes enabled with
+ * approval required (the fail-closed default posture). */
+struct GateFiles {
+    std::filesystem::path root;
+    std::filesystem::path policy;
+    std::filesystem::path budget;
+    std::filesystem::path control;
+    std::filesystem::path audit;
+    std::filesystem::path journal;
+
+    GateFiles(const char *tag)
+        : root(scratch_dir(tag)), policy(root / "policy.json"), budget(root / "budget.json"),
+          control(root / "control.json"), audit(root / "audit.log"),
+          journal(root / "journal.jsonl") {
+        atperson::OutboundPolicy policy_state;
+        atperson::ActionBudget post_budget;
+        post_budget.enabled = true;
+        post_budget.max_in_window = 10;
+        post_budget.window_seconds = 3600;
+        post_budget.min_interval_seconds = 0;
+        post_budget.duplicate_cooldown_seconds = 0;
+        atperson::budget_for(policy_state, OutboundActionKind::Post) = post_budget;
+        write_file(policy, atperson::serialise_outbound_policy(policy_state));
+
+        ControlState control_state;
+        control_state.paused = false;
+        control_state.writes_enabled = true;
+        control_state.dry_run = false;
+        control_state.approval_required = true;
+        atperson::save_control_state(control_state, control);
+    }
+};
+
+/* A graph where "alpha beta" is strongly learned, and a ledger whose most
+ * recent committed payload is "alpha": the decision layer accepts the
+ * continuation "beta". */
+LanguageGraph learned_graph() {
+    LanguageGraph graph;
+    for (std::size_t i = 0u; i < 8u; ++i) {
+        graph.observe("alpha beta", "at://scheduler/observe/" + std::to_string(i));
+    }
+    return graph;
+}
+
+Ledger populated_ledger(const std::filesystem::path &root) {
+    Ledger ledger(root / "ledger.bin");
+    const std::uint64_t digest = Ledger::digest("alpha");
+    std::uint64_t id = 0u;
+    ledger.append("at://scheduler/context/1", "did:plc:other", NOW, digest, 1u,
+                  ATP_LEDGER_OUTCOME_LEARNED, "alpha", &id);
+    return ledger;
+}
+
+SchedulerCycle make_cycle(const GateFiles &gates, const std::filesystem::path &data_dir,
+                          OutboundWriter &writer) {
+    return SchedulerCycle{
+        data_dir,
+        data_dir / "proposals",
+        atperson::OutboundAttemptPaths{gates.policy, gates.budget, gates.control, gates.audit,
+                                        gates.journal},
+        [&writer]() -> OutboundWriter & { return writer; },
+        NOW,
+        []() -> std::int64_t { return 0; }};
+}
+
+SchedulerConfig enabled_config() {
+    SchedulerConfig config;
+    config.enabled = true;
+    return config;
+}
+
+void test_disabled_scheduler_is_inert() {
+    const GateFiles gates("disabled");
+    FakeWriter writer;
+    LanguageGraph graph;
+    Ledger ledger = populated_ledger(gates.root);
+    SchedulerConfig config;
+    config.enabled = false;
+
+    const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        config, make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.contexts_examined == 0u);
+    assert(report.proposals_written == 0u);
+    assert(writer.put_calls == 0);
+}
+
+void test_decision_writes_proposal_but_never_executes_unapproved() {
+    const GateFiles gates("proposal");
+    FakeWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+
+    const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+
+    /* The decision accepted the "beta" continuation and froze it as an
+     * inspectable proposal; approval is required, so nothing executed. */
+    assert(report.contexts_examined == 1u);
+    assert(report.decisions == 1u);
+    assert(report.abstentions == 0u);
+    assert(report.proposals_written == 1u);
+    assert(report.executions_attempted == 0u);
+    assert(report.executed == 0u);
+    assert(writer.put_calls == 0);
+
+    /* The proposal is a valid action document the operator can inspect and
+     * `atperson publish` can consume unchanged. */
+    std::filesystem::path proposal;
+    for (const auto &entry : std::filesystem::directory_iterator(gates.root / "proposals")) {
+        proposal = entry.path();
+    }
+    const OutboundAction action = atperson::load_outbound_action(proposal);
+    assert(action.kind == OutboundActionKind::Post);
+    assert(action.text == "beta");
+    assert(action.digest.size() == 16u);
+}
+
+void test_approved_proposal_executes_and_is_consumed() {
+    const GateFiles gates("approved");
+    FakeWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+
+    /* Cycle 1: freeze the proposal. */
+    atperson::run_scheduler_cycle(enabled_config(), make_cycle(gates, gates.root, writer), graph,
+                                 ledger);
+    std::filesystem::path proposal;
+    for (const auto &entry : std::filesystem::directory_iterator(gates.root / "proposals")) {
+        proposal = entry.path();
+    }
+    const OutboundAction action = atperson::load_outbound_action(proposal);
+
+    /* The operator approves the exact digest. */
+    ControlState control = atperson::load_control_state(gates.control);
+    control.approved_digests.push_back(action.digest);
+    atperson::save_control_state(control, gates.control);
+
+    /* Cycle 2: the approved proposal executes through the full gate chain
+     * and is consumed. */
+    const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.executions_attempted == 1u);
+    assert(report.executed == 1u);
+    assert(writer.put_calls == 1);
+    assert(writer.rkeys.front() == action.rkey);
+    assert(!std::filesystem::exists(proposal));
+
+    /* Durable bookkeeping: audit and journal recorded the execution. */
+    const JournalContents journal = atperson::load_journal(gates.journal);
+    assert(journal.actions.size() == 1u);
+    assert(journal.actions.front().outcome == atperson::JournalActionOutcome::Executed);
+    assert(journal.actions.front().text == "beta");
+}
+
+void test_pause_between_cycles_refuses_execution() {
+    const GateFiles gates("paused");
+    FakeWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+
+    atperson::run_scheduler_cycle(enabled_config(), make_cycle(gates, gates.root, writer), graph,
+                                  ledger);
+    std::filesystem::path proposal;
+    for (const auto &entry : std::filesystem::directory_iterator(gates.root / "proposals")) {
+        proposal = entry.path();
+    }
+    const OutboundAction action = atperson::load_outbound_action(proposal);
+
+    ControlState control = atperson::load_control_state(gates.control);
+    control.approved_digests.push_back(action.digest);
+    control.paused = true;
+    atperson::save_control_state(control, gates.control);
+
+    const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+    /* The pause gate refuses before the write; the refusal is recorded,
+     * the proposal stays for the operator. */
+    assert(report.executions_attempted == 1u);
+    assert(report.executed == 0u);
+    assert(report.refused == 1u);
+    assert(writer.put_calls == 0);
+    assert(std::filesystem::exists(proposal));
+}
+
+void test_existing_proposal_is_never_rewritten() {
+    const GateFiles gates("existing");
+    FakeWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+
+    const SchedulerCycleReport first = atperson::run_scheduler_cycle(
+        enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(first.proposals_written == 1u);
+
+    /* Second cycle over the same context: the digest matches, the exact
+     * bytes are already frozen, so nothing is rewritten. */
+    const SchedulerCycleReport second = atperson::run_scheduler_cycle(
+        enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(second.decisions == 1u);
+    assert(second.proposals_written == 0u);
+    assert(second.proposals_existing == 1u);
+}
+
+void test_abstention_writes_no_proposal() {
+    const GateFiles gates("abstain");
+    FakeWriter writer;
+    LanguageGraph graph; /* empty: no learned continuations */
+    Ledger ledger = populated_ledger(gates.root);
+
+    const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.contexts_examined == 1u);
+    assert(report.abstentions == 1u);
+    assert(report.decisions == 0u);
+    assert(report.proposals_written == 0u);
+}
+
+} // namespace
+
+int main() {
+    test_disabled_scheduler_is_inert();
+    test_decision_writes_proposal_but_never_executes_unapproved();
+    test_approved_proposal_executes_and_is_consumed();
+    test_pause_between_cycles_refuses_execution();
+    test_existing_proposal_is_never_rewritten();
+    test_abstention_writes_no_proposal();
+    std::cout << "atperson-scheduler: all assertions passed\n";
+    return 0;
+}

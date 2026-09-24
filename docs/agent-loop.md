@@ -140,7 +140,7 @@ Execution must preserve these rules:
 
 The current runtime supports operator-led posts and replies only. Likes, follows, reposts, moderation, DMs and other writes remain unsupported/fail-closed.
 
-An autonomous scheduler, if implemented later, may invoke the same frozen-action path only after satisfying the same gates. It does not get a privileged write API.
+The autonomous scheduler (#140) invokes the same frozen-action path through the shared attempt composition: it composes the guarded C23 decision on recent ledger contexts into frozen proposal documents, and executes only operator-approved digests through the identical gate chain (pause, policy, dry-run, control, external-publishing). It does not get a privileged write API. It is off by default (`ATPERSON_SCHEDULER`), bounded per cycle, and testable offline with a fake writer.
 
 ## 6. Outcome and experience
 
@@ -213,7 +213,7 @@ Every responsibility is therefore either implemented already or tracked independ
 
 ## What #61 does not enable
 
-This contract does not add a scheduler that autonomously chooses when to post. It does not remove approval, enable write kinds, broaden ingestion, add an LLM, seed a persona, or create a second protocol implementation.
+This contract does not remove approval, enable write kinds, broaden ingestion, add an LLM, seed a persona, or create a second protocol implementation. The scheduler added by #140 follows step 5 exactly: it composes the existing contracts without bypassing any of them, and every executed action still requires an operator-approved exact digest.
 
 The safe implementation sequence remains:
 

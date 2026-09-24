@@ -233,6 +233,8 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/config.cpp
     src/app/outbound/evaluate.cpp
     src/app/outbound/execute.cpp
+    src/app/outbound/attempt.cpp
+    src/app/scheduler/cycle.cpp
     src/app/state/lock.cpp
     src/app/sync/engine.cpp
   src/app/sync/jetstream_backfill.cpp
@@ -606,6 +608,31 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-publish-test PRIVATE atperson-cpp)
   target_include_directories(atperson-publish-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-publish COMMAND atperson-publish-test)
+
+  # Autonomous scheduler (#140): decision -> frozen proposal -> approved
+  # execution through the existing gate chain, composed after perception.
+  # Offline: fake OutboundWriter, injected clock, real ledger and gates.
+  add_executable(
+    atperson-scheduler-test
+    tests/scheduler/scheduler.cpp
+    src/app/action/inspection.cpp
+    src/app/control/state.cpp
+    src/app/journal/store.cpp
+    src/app/ledger.cpp
+    src/app/outbound/action.cpp
+    src/app/outbound/actions.cpp
+    src/app/outbound/attempt.cpp
+    src/app/outbound/audit.cpp
+    src/app/outbound/budget.cpp
+    src/app/outbound/config.cpp
+    src/app/outbound/evaluate.cpp
+    src/app/outbound/execute.cpp
+    src/app/scheduler/cycle.cpp
+    src/app/state/lock.cpp)
+  target_compile_features(atperson-scheduler-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-scheduler-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-scheduler-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-scheduler COMMAND atperson-scheduler-test)
 
   # Action/outcome journal (#27): durable append-only record of the entity's
   # own outbound attempts, public events that reference executed records and
