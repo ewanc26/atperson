@@ -95,6 +95,26 @@ OutboundAction reply_action() {
     return action;
 }
 
+OutboundAction like_action() {
+    OutboundAction action;
+    action.kind = OutboundActionKind::Like;
+    action.rkey = "3klike";
+    action.created_at = "2026-09-17T00:00:02Z";
+    action.digest = "abcdef0123456789";
+    action.subject = "at://did:plc:author/app.bsky.feed.post/3ksubject";
+    return action;
+}
+
+OutboundAction follow_action() {
+    OutboundAction action;
+    action.kind = OutboundActionKind::Follow;
+    action.rkey = "3kfollow";
+    action.created_at = "2026-09-17T00:00:03Z";
+    action.digest = "13579bdf02468ace";
+    action.subject = "did:plc:followed";
+    return action;
+}
+
 struct FakeWriter final : OutboundWriter {
     int resolve_calls = 0;
     int put_calls = 0;
@@ -152,6 +172,25 @@ void test_action_document_round_trip() {
     assert(proposal.kind == OutboundActionKind::Reply);
     assert(proposal.target == original.reply_parent);
     assert(proposal.action_digest == original.digest);
+
+    /* #152: like and follow round-trip through the same document shape,
+     * and their proposals target the subject. */
+    const OutboundAction like = like_action();
+    const OutboundAction parsed_like =
+        atperson::parse_outbound_action(atperson::serialise_outbound_action(like), "test");
+    assert(parsed_like.kind == OutboundActionKind::Like);
+    assert(parsed_like.subject == like.subject);
+    assert(parsed_like.text.empty());
+    const auto like_proposal = atperson::outbound_action_proposal(parsed_like);
+    assert(like_proposal.target == like.subject);
+
+    const OutboundAction follow = follow_action();
+    const OutboundAction parsed_follow =
+        atperson::parse_outbound_action(atperson::serialise_outbound_action(follow), "test");
+    assert(parsed_follow.kind == OutboundActionKind::Follow);
+    assert(parsed_follow.subject == follow.subject);
+    const auto follow_proposal = atperson::outbound_action_proposal(parsed_follow);
+    assert(follow_proposal.target == follow.subject);
     std::printf("ok action document round trip\n");
 }
 
@@ -172,6 +211,20 @@ void test_action_document_rejects_bad_input() {
         R"({"format":"atperson-outbound-action","version":2,"kind":"post","text":"x","rkey":"r","created_at":"t","digest":"d"})");
     reject(
         R"({"format":"atperson-outbound-action","version":1,"kind":"like","text":"x","rkey":"r","created_at":"t","digest":"d"})");
+    /* #152: a like without a subject, and a like with text. */
+    reject(
+        R"({"format":"atperson-outbound-action","version":1,"kind":"like","rkey":"r","created_at":"t","digest":"0123456789abcdef"})");
+    reject(
+        R"({"format":"atperson-outbound-action","version":1,"kind":"repost","text":"x","subject":"at://did:plc:a/app.bsky.feed.post/1","rkey":"r","created_at":"t","digest":"0123456789abcdef"})");
+    reject(
+        R"({"format":"atperson-outbound-action","version":1,"kind":"follow","rkey":"r","created_at":"t","digest":"0123456789abcdef"})");
+    reject(
+        R"({"format":"atperson-outbound-action","version":1,"kind":"post","text":"x","subject":"did:plc:a","rkey":"r","created_at":"t","digest":"0123456789abcdef"})");
+    /* Unsupported kinds stay closed. */
+    reject(
+        R"({"format":"atperson-outbound-action","version":1,"kind":"unfollow","subject":"did:plc:a","rkey":"r","created_at":"t","digest":"0123456789abcdef"})");
+    reject(
+        R"({"format":"atperson-outbound-action","version":1,"kind":"moderation","text":"x","rkey":"r","created_at":"t","digest":"0123456789abcdef"})");
     reject(
         R"({"format":"atperson-outbound-action","version":1,"kind":"nsfw","text":"x","rkey":"r","created_at":"t","digest":"d"})");
     reject(
@@ -193,25 +246,49 @@ void test_action_document_rejects_bad_input() {
 
 void test_record_json_shape() {
     const OutboundAction post = post_action();
-    const std::string post_json = atperson::build_outbound_record_json(post, "", "");
+    const std::string post_json = atperson::build_outbound_record_json(post, "", "", "");
     assert(post_json.find("app.bsky.feed.post") != std::string::npos);
     assert(post_json.find("hello world") != std::string::npos);
     assert(post_json.find("reply") == std::string::npos);
 
     const OutboundAction reply = reply_action();
     const std::string reply_json =
-        atperson::build_outbound_record_json(reply, "bafyroot", "bafyparent");
+        atperson::build_outbound_record_json(reply, "bafyroot", "bafyparent", "");
     assert(reply_json.find("com.atproto.repo.strongRef") != std::string::npos);
     assert(reply_json.find("bafyroot") != std::string::npos);
     assert(reply_json.find("bafyparent") != std::string::npos);
 
     bool threw = false;
     try {
-        static_cast<void>(atperson::build_outbound_record_json(reply, "", ""));
+        static_cast<void>(atperson::build_outbound_record_json(reply, "", "", ""));
     } catch (const atperson::OutboundActionError &) {
         threw = true;
     }
     assert(threw);
+
+    /* #152: a like/repost record is a strongRef to its subject; a follow
+     * record names the subject DID directly. No text in either. */
+    const OutboundAction like = like_action();
+    const std::string like_json =
+        atperson::build_outbound_record_json(like, "", "", "bafysubject");
+    assert(like_json.find("app.bsky.feed.like") != std::string::npos);
+    assert(like_json.find("com.atproto.repo.strongRef") != std::string::npos);
+    assert(like_json.find("bafysubject") != std::string::npos);
+    assert(like_json.find("\"text\"") == std::string::npos);
+    bool like_threw = false;
+    try {
+        static_cast<void>(atperson::build_outbound_record_json(like, "", "", ""));
+    } catch (const atperson::OutboundActionError &) {
+        like_threw = true;
+    }
+    assert(like_threw);
+
+    const OutboundAction follow = follow_action();
+    const std::string follow_json =
+        atperson::build_outbound_record_json(follow, "", "", "");
+    assert(follow_json.find("app.bsky.graph.follow") != std::string::npos);
+    assert(follow_json.find("did:plc:followed") != std::string::npos);
+    assert(follow_json.find("com.atproto.repo.strongRef") == std::string::npos);
     std::printf("ok record json shape\n");
 }
 
@@ -322,6 +399,68 @@ void test_execute_writes_exact_text_and_frozen_rkey() {
     assert(writer.rkey == "3kabc");
     assert(writer.record_json.find("the exact approved text") != std::string::npos);
     std::printf("ok execute writes exact text and frozen rkey\n");
+}
+
+void test_execute_like_repost_follow_kinds() {
+    /* #152: like/repost/follow pass the same gate chain and reach the write
+     * under their own collections. A like resolves the subject CID first. */
+    {
+        FakeWriter writer;
+        OutboundBudgetState budget;
+        const auto factory = [&](void) -> OutboundWriter & { return writer; };
+        const auto result = run(open_control(),
+                                enabled_policy(OutboundActionKind::Like, allow_all_budget()),
+                                budget, like_action(), factory);
+        assert(result.outcome == OutboundExecutionOutcome::Executed);
+        assert(result.reason_code == "allow");
+        assert(result.budget_recorded);
+        assert(writer.put_calls == 1);
+        assert(writer.collection == "app.bsky.feed.like");
+        assert(writer.rkey == "3klike");
+        assert(writer.resolve_calls == 1);
+        assert(writer.resolved.at(0) == like_action().subject);
+        assert(writer.record_json.find("bafycid(") != std::string::npos);
+        assert(result.written.uri == "at://did:plc:self/app.bsky.feed.like/3klike");
+    }
+    {
+        FakeWriter writer;
+        OutboundBudgetState budget;
+        const auto factory = [&](void) -> OutboundWriter & { return writer; };
+        OutboundAction repost = like_action();
+        repost.kind = OutboundActionKind::Repost;
+        repost.rkey = "3krepost";
+        const auto result = run(open_control(),
+                                enabled_policy(OutboundActionKind::Repost, allow_all_budget()),
+                                budget, repost, factory);
+        assert(result.outcome == OutboundExecutionOutcome::Executed);
+        assert(writer.collection == "app.bsky.feed.repost");
+        assert(writer.record_json.find("app.bsky.feed.repost") != std::string::npos);
+    }
+    {
+        /* A follow resolves no CIDs: the record names the subject DID. */
+        FakeWriter writer;
+        OutboundBudgetState budget;
+        const auto factory = [&](void) -> OutboundWriter & { return writer; };
+        const auto result = run(open_control(),
+                                enabled_policy(OutboundActionKind::Follow, allow_all_budget()),
+                                budget, follow_action(), factory);
+        assert(result.outcome == OutboundExecutionOutcome::Executed);
+        assert(writer.collection == "app.bsky.graph.follow");
+        assert(writer.resolve_calls == 0);
+        assert(writer.record_json.find("did:plc:followed") != std::string::npos);
+    }
+    {
+        /* Default-deny: a like with no policy entry is refused, not written. */
+        FakeWriter writer;
+        OutboundBudgetState budget;
+        const auto factory = [&](void) -> OutboundWriter & { return writer; };
+        const auto result =
+            run(open_control(), atperson::OutboundPolicy{}, budget, like_action(), factory);
+        assert(result.outcome == OutboundExecutionOutcome::Denied);
+        assert(result.reason_code == "kind_disabled");
+        assert(writer.put_calls == 0);
+    }
+    std::printf("ok execute like repost follow kinds\n");
 }
 
 void test_budget_recorded_only_on_confirmed_success() {
@@ -518,6 +657,7 @@ int main() {
     test_writes_disabled_refuses();
     test_approval_gate_refuses_unapproved_digest();
     test_execute_writes_exact_text_and_frozen_rkey();
+    test_execute_like_repost_follow_kinds();
     test_budget_recorded_only_on_confirmed_success();
     test_duplicate_cooldown_defers_after_success();
     test_reply_resolves_cids_and_builds_strong_refs();
