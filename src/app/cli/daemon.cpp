@@ -183,9 +183,22 @@ void print_scheduler_report(std::ostream &out, const SchedulerCycleReport &repor
         << " execution attempt(s): " << report.executed << " executed, " << report.refused
         << " refused, " << report.failed << " failed — " << report.detail
         << (report.ordered_by_drives ? " (drive-ordered)" : "")
+        << (report.ordered_by_intents ? " (intent-continuations)" : "")
         << "; expectations " << report.expectations_evaluated << " evaluated ("
         << report.expectations_pending << " pending), " << report.resolutions_written
-        << " resolution(s) recorded\n";
+        << " resolution(s) recorded";
+    if (report.intents_evaluated > 0u || report.intents_expired > 0u ||
+        report.intents_closed > 0u) {
+        out << "; intents " << report.intents_evaluated << " evaluated ("
+            << report.intents_expired << " expired, " << report.intents_closed << " closed)";
+    }
+    if (report.intents_opened > 0u || report.intents_continued > 0u ||
+        report.intents_cap_reached > 0u) {
+        out << "; intent mutations " << report.intents_opened << " opened, "
+            << report.intents_continued << " continued, " << report.intents_cap_reached
+            << " cap-reached";
+    }
+    out << "\n";
 }
 
 } // namespace

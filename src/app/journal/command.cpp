@@ -91,6 +91,18 @@ void print_resolutions(std::ostream &out, const JournalContents &journal,
     }
 }
 
+void print_intents(std::ostream &out, const JournalContents &journal,
+                   std::size_t limit) {
+    const std::size_t count = std::min(journal.intents.size(), limit);
+    for (std::size_t i = 0u; i < count; ++i) {
+        const JournalIntent &entry = journal.intents[i];
+        out << entry.at << " " << std::setw(12) << entry.actions.size() << " act "
+            << std::setw(8) << intent_state_name(entry.state) << " "
+            << std::setw(12) << entry.responder << " expires=" << entry.expires_at
+            << " thread=" << entry.id << "\n";
+    }
+}
+
 [[nodiscard]] std::optional<float> parse_signal(std::string_view text) {
     try {
         const std::string owned(text);
@@ -129,7 +141,8 @@ int run_map(std::ostream &out, LanguageGraph &graph,
     std::size_t skipped_unmapped = 0u;
     std::size_t skipped_unknown_tokens = 0u;
     for (const JournalAction &action : journal.actions) {
-        const ValenceRule *rule = first_matching_rule(table, action, journal.events, now_unix);
+        const ValenceRule *rule =
+            first_matching_rule(table, action, journal.events, now_unix, journal.intents);
         if (rule == nullptr) {
             ++skipped_unmapped;
             continue;
@@ -202,6 +215,12 @@ int run_journal_command(std::ostream &out, LanguageGraph &graph,
         const std::size_t limit =
             argument_count >= 1u ? std::stoul(std::string(arguments[0])) : kDefaultListLimit;
         print_resolutions(out, journal, limit);
+        return 0;
+    }
+    if (subcommand == "intents") {
+        const std::size_t limit =
+            argument_count >= 1u ? std::stoul(std::string(arguments[0])) : kDefaultListLimit;
+        print_intents(out, journal, limit);
         return 0;
     }
 

@@ -18,6 +18,22 @@
 //      control -> Wolfram write), reloading control/policy/budget from disk
 //      so an operator pause or revocation between cycles always wins.
 //
+// Pending social intent (#150) composes with the cycle, never bypassing it:
+//   * every cycle opens with the intent sweep (expire/close intents whose
+//     window or budget ended, journaled idempotently) followed by the
+//     expectation resolution pass — so an expired intent's action resolves
+//     to `unmet` in the same cycle that expired it;
+//   * a candidate observation that continues an open intent (#150) is
+//     ordered first by the intent drive when drives are enabled, and its
+//     frozen proposal is composed as a reply into that thread (reply_root =
+//     the intent's thread root, reply_parent = the triggered observation)
+//     instead of an original post;
+//   * after each executed action, the intent it continued (or opened) is
+//     journaled — new intents only while under the active-intent cap.
+//   Continuations are still decisions through the same C23 layer and the
+//   same gate chain; intent only decides *what* the proposal is and what to
+//   journal after execution.
+//
 // The scheduler composes the existing gates; it never gains a privileged
 // write path. A refused or deferred proposal is reported and left in place
 // for the operator. Failed executions are not retried within the same cycle.
@@ -40,6 +56,7 @@
 // execution failure is recorded by the gate chain itself (audit + journal)
 // and reported, never thrown.
 
+#include "intent/config.hpp"
 #include "outbound/attempt.hpp"
 
 #include "atperson/graph.hpp"
@@ -68,10 +85,15 @@ struct SchedulerConfig {
      * Checked between execution attempts, the only potentially slow stage. */
     std::int64_t max_cycle_ms{0};
     /* Reorder candidate decision contexts by experience-derived drives
-     * (#148): reciprocity first, then curiosity, then newest-first. Only
-     * changes which contexts are decided on first; never widens the
-     * decision or gate bounds. Off by default. */
+     * (#148): intent first (a reply an open intent is waiting on), then
+     * reciprocity, then curiosity, then newest-first. Only changes which
+     * contexts are decided on first; never widens the decision or gate
+     * bounds. Off by default. */
     bool drives_enabled{false};
+    /* Pending social intent (#150): on/off, caps and reply window. Off by
+     * default; when enabled it composes with the cycle as documented at the
+     * top of this header. */
+    IntentConfig intents;
 };
 
 /* Accounting for one scheduler cycle, reported to the operator. */
@@ -89,12 +111,25 @@ struct SchedulerCycleReport {
     /* Non-zero when drives reordering (#148) was applied to the candidate
      * context list for this cycle. */
     bool ordered_by_drives{false};
+    /* Non-zero when at least one proposal written this cycle was composed as
+     * the continuation of a pending social intent (#150). */
+    bool ordered_by_intents{false};
     /* Expectation resolution (#149): how many executed expectations the
      * cycle's resolution pass evaluated, how many were still pending, and
      * how many terminal resolution lines it recorded. */
     std::size_t expectations_evaluated{};
     std::size_t expectations_pending{};
     std::size_t resolutions_written{};
+    /* Pending social intent (#150): the intent sweep's accounting —
+     * intents examined, and terminal intent lines it appended (expired when
+     * the reply window closed, closed when the continuation budget was
+     * reached) — plus per-cycle intent mutations from executed actions. */
+    std::size_t intents_evaluated{};
+    std::size_t intents_expired{};
+    std::size_t intents_closed{};
+    std::size_t intents_opened{};
+    std::size_t intents_continued{};
+    std::size_t intents_cap_reached{};
 };
 
 /* Paths and injected collaborators for one cycle. `writer_for` is the same

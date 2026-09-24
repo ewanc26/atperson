@@ -1,6 +1,9 @@
 /* Autonomous scheduler (#140): decision -> proposal -> approved execution,
- * composed through the existing gate chain. Offline: the network is a fake
- * OutboundWriter, the clock is injected, the ledger is real. */
+ * composed through the existing gate chain, plus the pending-social-intent
+ * (#150) conversation lifecycle — an executed post opens an intent, the
+ * invited reply is composed as a continuation reply, and a closed window
+ * expires the intent and resolves its action unmet. Offline: the network is a
+ * fake OutboundWriter, the clock is injected, the ledger is real. */
 #include "scheduler/cycle.hpp"
 
 #include "action/inspection.hpp"
@@ -28,7 +31,10 @@
 namespace {
 
 using atperson::ControlState;
+using atperson::IntentState;
 using atperson::JournalContents;
+using atperson::JournalExpectationState;
+using atperson::JournalIntent;
 using atperson::LanguageGraph;
 using atperson::Ledger;
 using atperson::OutboundAction;
@@ -95,6 +101,13 @@ struct GateFiles {
         post_budget.min_interval_seconds = 0;
         post_budget.duplicate_cooldown_seconds = 0;
         atperson::budget_for(policy_state, OutboundActionKind::Post) = post_budget;
+        atperson::ActionBudget reply_budget;
+        reply_budget.enabled = true;
+        reply_budget.max_in_window = 10;
+        reply_budget.window_seconds = 3600;
+        reply_budget.min_interval_seconds = 0;
+        reply_budget.duplicate_cooldown_seconds = 0;
+        atperson::budget_for(policy_state, OutboundActionKind::Reply) = reply_budget;
         write_file(policy, atperson::serialise_outbound_policy(policy_state));
 
         ControlState control_state;
@@ -127,14 +140,14 @@ Ledger populated_ledger(const std::filesystem::path &root) {
 }
 
 SchedulerCycle make_cycle(const GateFiles &gates, const std::filesystem::path &data_dir,
-                          OutboundWriter &writer) {
+                          OutboundWriter &writer, std::int64_t now = NOW) {
     return SchedulerCycle{
         data_dir,
         data_dir / "proposals",
         atperson::OutboundAttemptPaths{gates.policy, gates.budget, gates.control, gates.audit,
                                         gates.journal, gates.envelopes},
         [&writer]() -> OutboundWriter & { return writer; },
-        NOW,
+        now,
         []() -> std::int64_t { return 0; }};
 }
 
@@ -352,6 +365,187 @@ void test_drives_reorder_first_decision_context() {
     assert(on_text == "beta");
 }
 
+/* #150 end-to-end through the cycle: two executed posts open two pending
+ * intents; the invited reply on one conversation is composed as a
+ * continuation reply (reply_root = the thread, reply_parent = the triggered
+ * observation) and, once approved, executes into the same conversation; and a
+ * closed window later expires both intents while the resolution pass records
+ * the unanswered conversation's action unmet. Everything above drives through
+ * the real gate chain with a fake writer; nothing is simulated. The two
+ * conversations and the continuation use distinct learned plans so each
+ * frozen proposal and its action id are distinct. */
+void test_intent_conversation_lifecycle() {
+    const GateFiles gates("intents");
+    FakeWriter writer;
+
+    LanguageGraph graph = learned_graph();
+    for (std::size_t i = 0u; i < 8u; ++i) {
+        graph.observe("foo bar", "at://scheduler/foo/" + std::to_string(i));
+        graph.observe("gamma delta", "at://scheduler/gamma/" + std::to_string(i));
+    }
+
+    Ledger ledger(gates.root / "ledger.bin");
+    std::uint64_t id = 0u;
+    assert(ledger.append("at://scheduler/context/1", "did:plc:other", NOW,
+                         Ledger::digest("alpha"), 1u, ATP_LEDGER_OUTCOME_LEARNED, "alpha",
+                         &id) == atperson::LedgerResult::New);
+    assert(ledger.append("at://scheduler/context/2", "did:plc:other", NOW + 1,
+                         Ledger::digest("foo"), 1u, ATP_LEDGER_OUTCOME_LEARNED, "foo",
+                         &id) == atperson::LedgerResult::New);
+
+    SchedulerConfig base = enabled_config();
+    base.intents.enabled = true;
+    base.intents.max_active = 3u;
+    base.intents.max_continuations = 3u;
+    base.intents.window_seconds = 30 * 24 * 3600;
+    base.max_contexts = 2u;
+    base.max_proposals = 4u;
+    base.max_executions = 4u;
+
+    /* Phase A: cycle 1 freezes both decisions; cycle 2 executes the approved
+     * posts and opens one intent per executed record URI. */
+    const SchedulerCycleReport seeded = atperson::run_scheduler_cycle(
+        base, make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(seeded.proposals_written == 2u);
+    ControlState control = atperson::load_control_state(gates.control);
+    for (const auto &entry : std::filesystem::directory_iterator(gates.root / "proposals")) {
+        control.approved_digests.push_back(atperson::load_outbound_action(entry.path()).digest);
+    }
+    atperson::save_control_state(control, gates.control);
+
+    const SchedulerCycleReport second = atperson::run_scheduler_cycle(
+        base, make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(second.executed == 2u);
+    assert(second.intents_opened == 2u);
+
+    const JournalContents open = atperson::load_journal(gates.journal);
+    assert(open.actions.size() == 2u);
+    assert(open.intents.size() == 2u);
+    std::string beta_rkey;
+    std::string foo_rkey;
+    for (const auto &action : open.actions) {
+        if (action.text == "beta") {
+            beta_rkey = action.id;
+        } else if (action.text == "bar") {
+            foo_rkey = action.id;
+        }
+    }
+    assert(!beta_rkey.empty() && !foo_rkey.empty());
+    const JournalIntent *beta_intent = nullptr;
+    const JournalIntent *foo_intent = nullptr;
+    for (const auto &intent : open.intents) {
+        assert(intent.state == IntentState::Open);
+        if (intent.id.find("/" + beta_rkey) != std::string::npos) {
+            beta_intent = &intent;
+        } else if (intent.id.find("/" + foo_rkey) != std::string::npos) {
+            foo_intent = &intent;
+        }
+    }
+    assert(beta_intent != nullptr && foo_intent != nullptr);
+
+    /* Phase B: a reply arrives on the first conversation. The single newest
+     * observation is exactly the event the open intent is waiting on, so the
+     * proposal is composed as a continuation reply with a distinct plan. */
+    assert(ledger.append("at://scheduler/reply/2", "did:plc:fan", NOW + 2,
+                         Ledger::digest("gamma"), 1u, ATP_LEDGER_OUTCOME_LEARNED, "gamma",
+                         &id) == atperson::LedgerResult::New);
+    atperson::JournalEvent arrived;
+    arrived.action_id = beta_rkey;
+    arrived.event_uri = "at://scheduler/reply/2";
+    arrived.author_did = "did:plc:fan";
+    arrived.via = "reply";
+    arrived.at = "2023-11-14T22:23:20Z"; /* NOW + 600s: inside the window */
+    atperson::append_journal_event(gates.journal, arrived);
+
+    SchedulerConfig narrow = base;
+    narrow.max_contexts = 1u;
+    narrow.max_proposals = 1u;
+
+    const SchedulerCycleReport third = atperson::run_scheduler_cycle(
+        narrow, make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(third.ordered_by_intents);
+    assert(third.contexts_examined == 1u);
+    assert(third.intents_evaluated == 2u);
+    assert(third.intents_expired == 0u);
+    assert(third.proposals_written == 1u);
+
+    /* The on-time reply resolves the first prediction met; the second is
+     * still pending. */
+    const JournalContents reasoned = atperson::load_journal(gates.journal);
+    assert(reasoned.resolutions.size() == 1u);
+    assert(reasoned.resolutions[0].action_id == beta_rkey);
+    assert(reasoned.resolutions[0].state == JournalExpectationState::Met);
+
+    std::filesystem::path reply_proposal;
+    for (const auto &entry : std::filesystem::directory_iterator(gates.root / "proposals")) {
+        reply_proposal = entry.path();
+    }
+    const OutboundAction continuation = atperson::load_outbound_action(reply_proposal);
+    assert(continuation.kind == OutboundActionKind::Reply);
+    assert(continuation.reply_root == beta_intent->id);
+    assert(continuation.reply_parent == "at://scheduler/reply/2");
+    assert(continuation.text == "delta");
+    assert(continuation.rkey != beta_rkey && continuation.rkey != foo_rkey);
+
+    /* Approve the reply and let the next cycle execute it into the same
+     * conversation. */
+    control = atperson::load_control_state(gates.control);
+    control.approved_digests.push_back(continuation.digest);
+    atperson::save_control_state(control, gates.control);
+    const SchedulerCycleReport fourth = atperson::run_scheduler_cycle(
+        narrow, make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(fourth.executed == 1u);
+    assert(fourth.intents_continued == 1u);
+    assert(!std::filesystem::exists(reply_proposal));
+
+    const JournalContents grown = atperson::load_journal(gates.journal);
+    const JournalIntent *continued_beta = nullptr;
+    for (const auto &intent : grown.intents) {
+        if (intent.id == beta_intent->id) {
+            continued_beta = &intent;
+        }
+    }
+    assert(continued_beta != nullptr);
+    assert(continued_beta->state == IntentState::Open);
+    assert(continued_beta->actions.size() == 2u);
+    assert(continued_beta->actions[1] == continuation.rkey);
+
+    /* Phase C: the window closes with no further reply. Both intents expire;
+     * the sweep journals the terminal states and the resolution pass records
+     * the unanswered (second) conversation's action unmet. */
+    SchedulerConfig inert = base;
+    inert.max_contexts = 2u;
+    inert.max_proposals = 0u;
+    inert.max_executions = 0u;
+    const std::int64_t later = NOW + 31 * 24 * 3600;
+    const SchedulerCycleReport fifth = atperson::run_scheduler_cycle(
+        inert, make_cycle(gates, gates.root, writer, later), graph, ledger);
+    assert(fifth.intents_evaluated == 2u);
+    assert(fifth.intents_expired == 2u);
+    assert(fifth.intents_closed == 0u);
+    (void)foo_intent;
+
+    const JournalContents terminal = atperson::load_journal(gates.journal);
+    std::size_t beta_terminal = 0u;
+    std::size_t foo_terminal = 0u;
+    for (const auto &intent : terminal.intents) {
+        if (intent.id == beta_intent->id) {
+            beta_terminal += intent.state == IntentState::Expired ? 1u : 0u;
+        }
+        if (intent.id == foo_intent->id) {
+            foo_terminal += intent.state == IntentState::Expired ? 1u : 0u;
+        }
+    }
+    assert(beta_terminal >= 1u && foo_terminal >= 1u);
+    bool unanswered_unmet = false;
+    for (const auto &entry : terminal.resolutions) {
+        if (entry.action_id == foo_rkey && entry.state == JournalExpectationState::Unmet) {
+            unanswered_unmet = true;
+        }
+    }
+    assert(unanswered_unmet);
+}
+
 } // namespace
 
 int main() {
@@ -362,6 +556,7 @@ int main() {
     test_existing_proposal_is_never_rewritten();
     test_abstention_writes_no_proposal();
     test_drives_reorder_first_decision_context();
+    test_intent_conversation_lifecycle();
     std::cout << "atperson-scheduler: all assertions passed\n";
     return 0;
 }

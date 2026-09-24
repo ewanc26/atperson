@@ -1,7 +1,8 @@
 /* Pre-action expectation resolution tests (#149): the pure derivation
  * semantics (met / unmet / expired / pending / none), the window boundaries
  * (a reply exactly on the boundary is on time; expiry is strictly beyond),
- * and the idempotent resolution pass (pending stays unwritten, reruns
+ * the intent hand-off (#150: an expired pending intent's actions resolve
+ * unmet), and the idempotent resolution pass (pending stays unwritten, reruns
  * append nothing, a late reference after expiry records the knowledge change).
  * Offline, no network. */
 
@@ -17,12 +18,14 @@
 
 namespace {
 
+using atperson::IntentState;
 using atperson::JournalAction;
 using atperson::JournalActionOutcome;
 using atperson::JournalContents;
 using atperson::JournalEvent;
 using atperson::JournalExpectation;
 using atperson::JournalExpectationState;
+using atperson::JournalIntent;
 using atperson::ResolutionReport;
 using atperson::derive_expectation_state;
 
@@ -273,12 +276,75 @@ void test_resolve_skips_foreign_entries() {
     std::printf("ok resolve skips foreign entries\n");
 }
 
+/* #150: when a pending intent on the action's thread has expired, the action
+ * flips to unmet even while the 7-day window is still open. Until the
+ * intent's own expiry the judgement stays pending. */
+void test_intent_expiry_flips_to_unmet_inside_window() {
+    const JournalAction action = executed_with_expectation("act", "2026-09-17T10:00:00Z");
+
+    JournalIntent intent;
+    intent.id = "at://did:plc:example/app.bsky.feed.post/3lzc7thread";
+    intent.actions = {"act"};
+    intent.responder = "anyone";
+    intent.expires_at_epoch = kActionEpoch + 172800; /* closed 2026-09-19 10:00Z */
+    intent.max_continuations = 3u;
+    intent.state = IntentState::Open;
+    const std::vector<JournalIntent> intents{intent};
+
+    const std::vector<JournalEvent> none;
+    /* 2026-09-18: neither the intent nor the 7-day window has closed. */
+    assert(derive_expectation_state(action, none, kActionEpoch + 86400) ==
+           JournalExpectationState::Pending);
+
+    /* 2026-09-19 + 1s: the intent expired, the window is still open, and the
+     * flip is authoritative. */
+    assert(derive_expectation_state(action, none, kActionEpoch + 172801, intents) ==
+           JournalExpectationState::Unmet);
+
+    /* At the boundary and beyond it stays unmet. */
+    assert(derive_expectation_state(action, none, kCutoff, intents) ==
+           JournalExpectationState::Unmet);
+    assert(derive_expectation_state(action, none, kCutoff + 1, intents) ==
+           JournalExpectationState::Unmet);
+
+    /* A recorded terminal expiry (sweep already wrote it) still flips. */
+    JournalIntent swept = intent;
+    swept.state = IntentState::Expired;
+    const std::vector<JournalIntent> swept_intents{swept};
+    assert(derive_expectation_state(action, none, kActionEpoch + 172801, swept_intents) ==
+           JournalExpectationState::Unmet);
+
+    /* Contact inside the window wins: intent expiry never hides a met. */
+    const std::vector<JournalEvent> early{linked_event("act", "2026-09-17T12:00:00Z")};
+    assert(derive_expectation_state(action, early, kActionEpoch + 172801, intents) ==
+           JournalExpectationState::Met);
+
+    /* A budget-closed intent (not an expiry) does not overturn the default
+     * judgement: still pending inside the window. */
+    JournalIntent closed = intent;
+    closed.actions = {"act", "r1", "r2", "r3"};
+    closed.state = IntentState::Closed;
+    const std::vector<JournalIntent> closed_intents{closed};
+    assert(derive_expectation_state(action, none, kActionEpoch + 86400, closed_intents) ==
+           JournalExpectationState::Pending);
+
+    /* An intent whose entry does not mention this action is irrelevant. */
+    JournalIntent unrelated = intent;
+    unrelated.actions = {"other"};
+    const std::vector<JournalIntent> unrelated_intents{unrelated};
+    assert(derive_expectation_state(action, none, kActionEpoch + 172801, unrelated_intents) ==
+           JournalExpectationState::Pending);
+
+    std::printf("ok intent expiry flips to unmet inside window\n");
+}
+
 } // namespace
 
 int main() {
     test_derive_states();
     test_resolution_pass_idempotent_and_late_change();
     test_resolve_skips_foreign_entries();
+    test_intent_expiry_flips_to_unmet_inside_window();
     std::printf("atperson-journal-resolve: all tests passed\n");
     return 0;
 }

@@ -176,7 +176,8 @@ RuleTable load_rule_table(const std::filesystem::path &path) {
 }
 
 const ValenceRule *first_matching_rule(const RuleTable &table, const JournalAction &action,
-                                       const std::vector<JournalEvent> &events, std::int64_t now) {
+                                       const std::vector<JournalEvent> &events, std::int64_t now,
+                                       const std::vector<JournalIntent> &intents) {
     /* Count the later events linked to this action, honouring the optional
      * within-seconds window. An action timestamp that does not parse is
      * unknown time (0), the same convention the sync engine uses; a rule
@@ -208,7 +209,7 @@ const ValenceRule *first_matching_rule(const RuleTable &table, const JournalActi
         /* An expectation-conditioned rule (#149) fires only when the action's
          * derived resolution state is exactly the named terminal state. */
         if (rule.expectation.has_value() &&
-            derive_expectation_state(action, events, now) != rule.expectation.value()) {
+            derive_expectation_state(action, events, now, intents) != rule.expectation.value()) {
             continue;
         }
         return &rule;

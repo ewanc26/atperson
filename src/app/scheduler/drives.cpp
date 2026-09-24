@@ -1,5 +1,6 @@
 #include "scheduler/drives.hpp"
 
+#include "intent/state.hpp"
 #include "journal/store.hpp"
 #include "state/time.hpp"
 #include "atperson/tokenize.h"
@@ -145,6 +146,15 @@ std::vector<Signals> compute_drive_signals(const LanguageGraph &graph,
                 }
             }
         }
+
+        /* Intent (#150): an open pending intent is waiting on this exactly
+         * record — the reply the entity invited. Full strength when it
+         * matches, zero otherwise; the drive never fabricates one. */
+        signals.intent =
+            continuation_intent(journal, candidate.source_id, candidate.author_did, now) != nullptr
+                ? 1.0f
+                : 0.0f;
+
         out.push_back(signals);
     }
     return out;
@@ -156,6 +166,9 @@ std::vector<std::size_t> order_candidates(const std::vector<Signals> &signals) {
         indices[i] = i;
     }
     std::stable_sort(indices.begin(), indices.end(), [&signals](std::size_t a, std::size_t b) {
+        if (signals[a].intent != signals[b].intent) {
+            return signals[a].intent > signals[b].intent;
+        }
         if (signals[a].reciprocity != signals[b].reciprocity) {
             return signals[a].reciprocity > signals[b].reciprocity;
         }

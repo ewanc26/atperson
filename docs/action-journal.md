@@ -8,7 +8,7 @@ Keeping those streams separate matters. Third-party observations and self-author
 
 The append-only journal lives at `<data>/action-journal.jsonl`, or `ATPERSON_ACTION_JOURNAL` when overridden. Every line is one compact JSON object and each append is flushed durably.
 
-There are four entry kinds.
+There are five entry kinds.
 
 ### `action`
 
@@ -58,6 +58,7 @@ atperson journal actions [limit]
 atperson journal events [limit]
 atperson journal valence [limit]
 atperson journal resolutions [limit]
+atperson journal intents [limit]
 atperson journal apply <token> <kind> <signal> <source-id>
 atperson journal map <rule-file>
 atperson journal resolve
@@ -121,6 +122,8 @@ Only terminal states are written. Pending expectations never get a line, and rep
 
 Because each attempt instant is normalised to its Unix epoch, an idle author or a reply that simply cannot be timestamped never counts as an on-time reply.
 
+An action whose conversation is memory of an open intent uses that intent's reply window instead: the event must land inside the intent window to resolve `met`, and an open intent whose window closes with no contact resolves `unmet` even though the week-long expectation window may still be open (#150).
+
 The scheduler runs the resolution pass before any new decision, so a cycle always first resolves the events that landed since the last cycle. The pass is journal-only and idempotent, so it is safe at the top of every enabled cycle.
 
 A rule table may also condition on the resolved state:
@@ -135,6 +138,39 @@ A rule table may also condition on the resolved state:
 ```
 
 Only the three terminal states (`met`, `unmet`, `expired`) are authorable conditions. A condition never fires for an action without a prediction, and never while the expectation is still pending.
+
+### `intent`
+
+The recorded pending-intent state of an autonomous conversation, written by the scheduler's post-execution intent hook (#150) and read back by the next cycle. `intent` requires journal format 4. Each entry records the conversation thread URI, the executed action ids that make it up, the invited respondent, the reply-window end, the continuation budget and the current life-cycle state:
+
+```json
+{
+  "type": "intent",
+  "format": 4,
+  "id": "at://did:plc:self/app.bsky.feed.post/<rkey>",
+  "actions": ["<rkey1>"],
+  "responder": "anyone",
+  "expires_at_epoch": 1721102400,
+  "max_continuations": 3,
+  "state": "open",
+  "at_epoch": 1719878400,
+  "at": "2024-07-01T16:00:00Z"
+}
+```
+
+State is one of `open`, `expired` or `closed`:
+
+- **open** — the conversation is waiting on the reply window;
+- **expired** — the start-of-cycle sweep found `now` past `expires_at_epoch` and journaled the terminal state;
+- **closed** — the continuation budget was reached (`actions.size() - 1` past `max_continuations`); a conversation never orbits one thread forever.
+
+The current record of a conversation is the last entry with its id, terminal or not — the sweep's terminal line supersedes every earlier `open` line for that thread. Only the latest `open` entry can drive a continuation, so a swept conversation never fires again. The hook writes `open` entries when an executed post/reply starts a conversation, or the id/`actions` of an already-open conversation when a continuation reply was executed. An idempotence check runs before every write: a conversation at its budget (`open` entry whose `actions` already fill the cap) is never appended to again.
+
+Every intent entry is validated on append and load: non-empty actions, `responder` of `anyone` or a DID, positive `at_epoch`/`expires_at_epoch`, `max_continuations` in [1, 64], a known state and a valid timestamp.
+
+The resolution pass uses intents separately from `expectation`: when an executed action belongs to an open intent, a linked event is only judged `met` if it landed inside the intent's own reply window; if an open intent's window closes with no contact, the resolution pass flips the prediction `unmet`.
+
+Intent recording is a scheduler concern and all of it is off by default (`ATPERSON_INTENTS=1`). Operator-authored actions never record intents.
 
 ## Replay
 
@@ -176,7 +212,7 @@ Verification is standalone: given the entry and the key, the digest mismatch, si
 - A torn final line is reported and truncated during load.
 - Unsupported versions, malformed entries and impossible field combinations fail explicitly.
 - Unknown entry types are not skipped.
-- The current journal format version is 3. v1 action entries and v2 action/event/valence entries load unchanged (absent expectations are exactly nullopt); a v2 resolution line is refused as foreign schema.
+- The current journal format version is 4. v1 action entries and v2 action/event/valence entries load unchanged (absent expectations are exactly nullopt); a v2 resolution line is refused as foreign schema, and an `intent` line inside an older (`< 4`) file is refused as foreign schema exactly like it.
 
 The file format is append-only and the caller owns cross-process serialisation through the appropriate runtime lock.
 
