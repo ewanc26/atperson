@@ -1,0 +1,13 @@
+{
+  "format": "atperson-outbound-action",
+  "version": 1,
+  "kind": "reply",
+  "text": "the moon is full tonight and the ridge trail is good running",
+  "rkey": "3ksandboxreply1",
+  "created_at": "2026-09-24T00:00:00Z",
+  "digest": "sandbox0000000001",
+  "reply": {
+    "root": "at://did:plc:moonwolf01/app.bsky.feed.post/3kmoonwolfpost1",
+    "parent": "at://did:plc:moonwolf01/app.bsky.feed.post/3kmoonwolfpost1"
+  }
+}
