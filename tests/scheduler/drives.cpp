@@ -1,7 +1,8 @@
 /* Experience-derived drives (#148): curiosity (novelty x adjacency) and
  * reciprocity (referenced-outbound-action signals) as bounded, inspectable
- * scheduler-initiation signals. Deterministic and offline over a real graph
- * and journal; no network. */
+ * scheduler-initiation signals, plus the pending-intent continuation drive
+ * (#150). Deterministic and offline over a real graph and journal; no
+ * network. */
 #include "scheduler/drives.hpp"
 
 #include "atperson/core.h"
@@ -22,10 +23,12 @@
 
 namespace {
 
+using atperson::IntentState;
 using atperson::JournalAction;
 using atperson::JournalActionOutcome;
 using atperson::JournalContents;
 using atperson::JournalEvent;
+using atperson::JournalIntent;
 using atperson::LanguageGraph;
 using atperson::Ledger;
 using atperson::drives::ContextCandidate;
@@ -192,6 +195,29 @@ void test_reciprocity_author_window_expires() {
            atperson::drives::kReciprocityNone);
 }
 
+/* #150: intents exist in the journal but none relate to the candidate
+ * records: the continuation signal stays zero and never displaces anything. */
+void test_no_matching_intent_stays_zero() {
+    const LanguageGraph graph;
+    JournalContents journal;
+    JournalIntent intent;
+    intent.id = "at://did:plc:self/app.bsky.feed.post/zzz";
+    intent.actions = {"zz-rkey"};
+    intent.responder = "anyone";
+    intent.expires_at_epoch = NOW + 30 * kDay;
+    intent.max_continuations = 3u;
+    intent.state = IntentState::Open;
+    intent.at = "2023-11-13T22:13:20Z";
+    intent.at_epoch = static_cast<std::uint64_t>(NOW - kDay);
+    journal.intents.push_back(intent);
+
+    const ContextCandidate candidate = candidate_at(1u, "alpha beta", "did:plc:fan");
+    const std::vector<Signals> signals = compute_drive_signals(graph, {candidate}, journal, NOW);
+    assert(signals[0].intent == 0.0f);
+    assert(signals[0].reciprocity == 0.0f);
+    assert(signals[0].curiosity == 0.0f);
+}
+
 void test_order_is_deterministic_and_stable() {
     const LanguageGraph graph;
     const JournalContents journal;
@@ -206,6 +232,55 @@ void test_order_is_deterministic_and_stable() {
     assert(first == (std::vector<std::size_t>{0u, 1u, 2u}));
     assert(order_candidates(signals) == first);
     assert(kWeeks == atperson::drives::kReciprocityWindowSeconds);
+}
+
+/* #150: the continuation drive is a full-strength 1.0 exactly when the
+ * candidate record is the reply an open pending intent invited, and zero
+ * otherwise (expired intent, unrelated record, unknown author). */
+void test_intent_continuation_drive() {
+    const LanguageGraph graph;
+    JournalContents journal = journal_with_reply(NOW - kDay);
+
+    JournalIntent intent;
+    intent.id = "at://did:plc:self/app.bsky.feed.post/abc";
+    intent.actions = {"some-rkey"};
+    intent.responder = "anyone";
+    intent.expires_at_epoch = NOW + 30 * kDay;
+    intent.max_continuations = 3u;
+    intent.state = IntentState::Open;
+    intent.at_epoch = static_cast<std::uint64_t>(NOW - kDay);
+    intent.at = "2023-11-13T22:13:20Z";
+    journal.intents.push_back(intent);
+
+    /* The event record the intent is waiting for. */
+    ContextCandidate invited = candidate_at(1u, "alpha beta", "did:plc:fan");
+    invited.source_id = "at://did:plc:fan/app.bsky.feed.post/xyz";
+
+    /* A different observation, same author: continues nothing. */
+    const ContextCandidate unrelated = candidate_at(2u, "alpha beta", "did:plc:fan");
+    /* A stranger's record: not the invited responder. */
+    const ContextCandidate stranger =
+        candidate_at(3u, "alpha beta", "did:plc:stranger");
+
+    const std::vector<Signals> signals =
+        compute_drive_signals(graph, {invited, unrelated, stranger}, journal, NOW);
+    assert(signals[0].intent == 1.0f);
+    assert(signals[0].reciprocity == 1.0f); /* still the referencing record */
+    assert(signals[1].intent == 0.0f);
+    assert(signals[2].intent == 0.0f);
+
+    /* The invited record outranks even an equal-strength reciprocity. */
+    const std::vector<std::size_t> order = order_candidates(signals);
+    assert(order == (std::vector<std::size_t>{0u, 1u, 2u}));
+
+    /* An intent whose window closed (or budget is spent) never fires. */
+    JournalContents expired = journal;
+    expired.intents[0].expires_at_epoch = NOW - 1;
+    const std::vector<Signals> dead =
+        compute_drive_signals(graph, {invited}, expired, NOW);
+    assert(dead[0].intent == 0.0f);
+
+    std::printf("ok intent continuation drive\n");
 }
 
 void test_select_candidates_mirrors_scheduler_selection() {
@@ -257,6 +332,8 @@ int main() {
     test_curiosity_author_encounters();
     test_reciprocity_prefers_the_referencing_record();
     test_reciprocity_author_window_expires();
+    test_no_matching_intent_stays_zero();
+    test_intent_continuation_drive();
     test_order_is_deterministic_and_stable();
     test_select_candidates_mirrors_scheduler_selection();
     std::cout << "atperson-drives: all assertions passed\n";

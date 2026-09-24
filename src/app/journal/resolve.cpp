@@ -1,5 +1,6 @@
 #include "resolve.hpp"
 
+#include "intent/state.hpp"
 #include "state/time.hpp"
 
 #include <cstdint>
@@ -9,7 +10,8 @@ namespace atperson {
 
 JournalExpectationState derive_expectation_state(const JournalAction &action,
                                                  const std::vector<JournalEvent> &events,
-                                                 std::int64_t now) {
+                                                 std::int64_t now,
+                                                 const std::vector<JournalIntent> &intents) {
     /* Only executed autonomous actions carry a resolvable prediction. */
     if (!action.expectation.has_value() ||
         action.outcome != JournalActionOutcome::Executed) {
@@ -40,9 +42,25 @@ JournalExpectationState derive_expectation_state(const JournalAction &action,
          * unparseable instant is contact that never counted as on time. */
         return JournalExpectationState::Unmet;
     }
-    /* No contact yet: pending until the window closes, then expired. At
-     * exactly attempt + window the window is still open; expiry is strictly
-     * beyond it (a reply landing exactly on the boundary is on time). */
+    /* A pending social intent (#150) whose reply window closed with no
+     * continuation is the explicit version of "no contact": the entity
+     * invited a response and it never came. The intent's expiry is
+     * authoritative, so the prediction is unmet whether or not the 7-day
+     * expectation window has also passed. */
+    for (const JournalIntent &intent : intents) {
+        if (derive_intent_state(intent, now) != IntentState::Expired) {
+            continue;
+        }
+        for (const std::string &recorded : intent.actions) {
+            if (recorded == action.id) {
+                return JournalExpectationState::Unmet;
+            }
+        }
+    }
+    /* No contact and no expired intent: pending until the window closes,
+     * then expired. At exactly attempt + window the window is still open;
+     * expiry is strictly beyond it (a reply landing exactly on the
+     * boundary is on time). */
     const std::int64_t cutoff = static_cast<std::int64_t>(action_epoch) + kExpectationWindowSeconds;
     if (now > cutoff) {
         return JournalExpectationState::Expired;
@@ -57,7 +75,7 @@ ResolutionReport resolve_expectations(const std::filesystem::path &journal_path,
     const std::uint64_t epoch = now > 0 ? static_cast<std::uint64_t>(now) : 0u;
     for (const JournalAction &action : journal.actions) {
         const JournalExpectationState state =
-            derive_expectation_state(action, journal.events, now);
+            derive_expectation_state(action, journal.events, now, journal.intents);
         if (state == JournalExpectationState::None) {
             continue;
         }

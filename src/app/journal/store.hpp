@@ -54,7 +54,7 @@
 
 namespace atperson {
 
-inline constexpr std::uint32_t kJournalFormatVersion = 3u;
+inline constexpr std::uint32_t kJournalFormatVersion = 4u;
 
 /* What happened to one attempted outbound action. Mirrors the #25 execution
  * outcome vocabulary exactly, so the journal never invents a third spelling
@@ -142,6 +142,43 @@ struct JournalResolution {
     std::string at; /* RFC 3339 UTC timestamp of the pass */
 };
 
+/* The lifetime state of one pending social intent (#150). `Open` — the
+ * conversation is being waited on (replies may still arrive); `Expired` —
+ * the reply window closed without a continuation trigger; `Closed` — the
+ * intent reached its continuation budget (max_continuations replies), so
+ * the entity stops orbiting the thread. Only the two terminal states are
+ * written by the expiry sweep; `Open` is the recorded state of every live
+ * and continuation entry. */
+enum class IntentState { Open, Expired, Closed };
+
+[[nodiscard]] const char *intent_state_name(IntentState state) noexcept;
+[[nodiscard]] std::optional<IntentState> intent_state_from_name(std::string_view name);
+
+/* One durable intent entry (#150): a record of one conversation the entity
+ * is holding — an executed post/reply that invites a response, the thread
+ * it belongs to, who the reply is expected from, and a bounded reply
+ * window. The journal is append-only, so an intent's *current* record is
+ * the last entry with its id: opening appends one line, every continuation
+ * appends another with the conversation's actions grown by one, and the
+ * expiry sweep appends the terminal state. `id` is the thread-root at-URI
+ * (stable conversation identity, so a reply received in the same thread
+ * finds its intent). `actions` lists the entity's own action ids in this
+ * conversation, oldest first; the back is the latest anchor that later
+ * journal events link through. `responder` is "anyone" or "did:<author>".
+ * `continuations` used equals actions.size() - 1, so the max_continuations
+ * cap is derivable from the entry — no second counter store. */
+struct JournalIntent {
+    std::string id;
+    std::vector<std::string> actions;
+    std::string responder; /* "anyone" or "did:<author>" */
+    std::uint64_t expires_at_epoch{};
+    std::string expires_at; /* RFC 3339 UTC window close */
+    std::uint32_t max_continuations{3u};
+    IntentState state{IntentState::Open};
+    std::uint64_t at_epoch{};
+    std::string at; /* RFC 3339 UTC when this entry was recorded */
+};
+
 /* How a later public record referenced an executed action. `via` names the
  * referencing field: "parent" (a direct reply), "root" (a reply in the same
  * thread) or "quote" (a quote post). */
@@ -184,6 +221,7 @@ class JournalError : public std::runtime_error {
 [[nodiscard]] std::string serialise_journal_event(const JournalEvent &entry);
 [[nodiscard]] std::string serialise_journal_valence(const JournalValence &entry);
 [[nodiscard]] std::string serialise_journal_resolution(const JournalResolution &entry);
+[[nodiscard]] std::string serialise_journal_intent(const JournalIntent &entry);
 
 /* Append one entry and fsync it. Creates the file and parent directory when
  * missing. Throws std::runtime_error on I/O failure. */
@@ -192,6 +230,7 @@ void append_journal_event(const std::filesystem::path &path, const JournalEvent 
 void append_journal_valence(const std::filesystem::path &path, const JournalValence &entry);
 void append_journal_resolution(const std::filesystem::path &path,
                                const JournalResolution &entry);
+void append_journal_intent(const std::filesystem::path &path, const JournalIntent &entry);
 
 /* The whole journal in append order. A torn final line is truncated and
  * reported through *repaired_torn_tail; a malformed complete line throws
@@ -201,6 +240,7 @@ struct JournalContents {
     std::vector<JournalEvent> events;
     std::vector<JournalValence> valence;
     std::vector<JournalResolution> resolutions;
+    std::vector<JournalIntent> intents;
     bool repaired_torn_tail{false};
 };
 

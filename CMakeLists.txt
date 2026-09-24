@@ -242,7 +242,12 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/expectation.cpp
     src/app/scheduler/cycle.cpp
     src/app/scheduler/drives.cpp
+    src/app/intent/config.cpp
+    src/app/intent/state.cpp
+    src/app/intent/sweep.cpp
+    src/app/intent/mutate.cpp
     src/app/state/lock.cpp
+    src/app/state/time.cpp
     src/app/sync/engine.cpp
   src/app/sync/jetstream_backfill.cpp
   src/app/sync/jetstream_archive.cpp
@@ -659,6 +664,10 @@ if(ATPERSON_BUILD_TESTS)
     src/app/outbound/expectation.cpp
     src/app/scheduler/cycle.cpp
     src/app/scheduler/drives.cpp
+    src/app/intent/config.cpp
+    src/app/intent/state.cpp
+    src/app/intent/sweep.cpp
+    src/app/intent/mutate.cpp
     src/app/state/time.cpp
     src/app/state/lock.cpp)
   target_compile_features(atperson-scheduler-test PRIVATE cxx_std_23)
@@ -702,6 +711,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/journal/store.cpp
     src/app/ledger.cpp
     src/app/scheduler/drives.cpp
+    src/app/intent/state.cpp
     src/app/state/time.cpp)
   target_compile_features(atperson-drives-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-drives-test PRIVATE atperson-cpp)
@@ -733,6 +743,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/journal/resolve.cpp
     src/app/journal/rules.cpp
     src/app/journal/store.cpp
+    src/app/intent/state.cpp
     src/app/state/lock.cpp
     src/app/state/time.cpp)
   target_compile_features(atperson-journal-rules-test PRIVATE cxx_std_23)
@@ -749,11 +760,32 @@ if(ATPERSON_BUILD_TESTS)
     tests/journal/resolve.cpp
     src/app/journal/resolve.cpp
     src/app/journal/store.cpp
+    src/app/intent/state.cpp
     src/app/state/time.cpp)
   target_compile_features(atperson-journal-resolve-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-journal-resolve-test PRIVATE atperson-cpp)
   target_include_directories(atperson-journal-resolve-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-journal-resolve COMMAND atperson-journal-resolve-test)
+
+  # Pending social intents (#150): configuration bounds, derived open/expired/
+  # closed states, the idempotent expiry sweep, record_pending_intent
+  # (open/continue/duplicate/cap budget), the continuation trigger over
+  # journal events, and the intent-aware expectation resolution
+  # (an expired intent's actions resolve unmet). Offline, no network.
+  add_executable(
+    atperson-intent-test
+    tests/intent/intents.cpp
+    src/app/intent/config.cpp
+    src/app/intent/mutate.cpp
+    src/app/intent/state.cpp
+    src/app/intent/sweep.cpp
+    src/app/journal/resolve.cpp
+    src/app/journal/store.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-intent-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-intent-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-intent-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-intent COMMAND atperson-intent-test)
 
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay

@@ -80,6 +80,7 @@ The project is already beyond the initial scaffold. The important pieces current
 | Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup |
 | Agent loop | Contract documented | Perception → decision → policy → control → execution → journal boundaries are defined; autonomous scheduler is off by default (`ATPERSON_SCHEDULER`) |
 | Experience-derived drives | Implemented | Curiosity (novelty × adjacency) and reciprocity (referenced-action) reorder scheduler contexts; off by default (`ATPERSON_SCHEDULER_DRIVES`), never weakens gates |
+| Pending social intents | Implemented | Open reply-invitation windows on autonomous conversations, bounded continuation replies into the same thread, and an idempotent expiry/closure sweep; off by default (`ATPERSON_INTENTS`) |
 | Autonomous social behaviour | Not enabled | Autonomous posting, replies, likes, follows, reposts, DMs and moderation remain fail-closed |
 
 The model begins with **zero words and zero relationships**. Neural parameters have small deterministic initial values so training can start, but there is no seeded vocabulary, biography, ideology, personality or preference set.

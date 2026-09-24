@@ -116,7 +116,13 @@ sandbox_scenario() {
     sandbox_run journal valence 5 || failed=1
     echo
 
-    echo "==> step 9: final stats"
+    echo "==> step 9: journal intent hooks (offline-safe, no scheduler writes)"
+    sandbox_run journal resolve || failed=1
+    sandbox_run journal intents 5 || failed=1
+    sandbox_run journal actions 5 || failed=1
+    echo
+
+    echo "==> step 10: final stats"
     sandbox_run stats || failed=1
     echo
 

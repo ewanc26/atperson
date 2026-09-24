@@ -43,6 +43,7 @@ namespace journal {
  *   journal events [limit]         list linked outcome events
  *   journal valence [limit]        list applied valence updates
  *   journal resolutions [limit]    list recorded expectation resolutions
+ *   journal intents [limit]        list journaled pending social intents
  *   journal apply <token> <kind> <signal> <source-id>
  *                                  apply one explicit valence event and
  *                                  journal it (writer lock; saves the model)

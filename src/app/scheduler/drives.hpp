@@ -4,7 +4,7 @@
 // Experience-derived drives (#148): bounded, deterministic, inspectable
 // initiation signals computed purely from existing learned evidence.
 //
-// Two drives modulate which recent observations the scheduler decides on
+// Three drives modulate which recent observations the scheduler decides on
 // first:
 //   curiosity  — novelty * adjacency, per topic (token familiarity) and per
 //                author (encounter count). A fresh entity reads zero; a
@@ -15,12 +15,22 @@
 //                being exactly the referencing record (source_id ==
 //                event_uri); a weaker one is the candidate's author having
 //                referenced the entity's action within a bounded window.
+//   intent     — the candidate observation continues a pending social intent
+//                (#150): the entity invited a response on a thread it is
+//                holding open, and this record is the reply it was waiting
+//                for (the referencing event of a journal event whose action
+//                belongs to the open conversation, from an acceptable
+//                responder). Full strength when it matches, zero otherwise.
 //
 // Drives are read-only evidence over the graph and the action journal. They
 // never mutate learned state and never weaken the scheduler's decision or
 // gate bounds; they only reorder candidate contexts. Every signal is clamped
 // to [0, 1]; an empty graph and empty journal yield all zeros (a fresh entity
 // initiates nothing on its own).
+//
+// Ordering is fixed: intent first (an invited reply is the strongest reason
+// to act now), then reciprocity, then curiosity, with the stable input order
+// as the final tie-breaker.
 //
 // Ownership: no allocations beyond owned strings/vectors. No network, no
 // clock — `now` is injected. Failure semantics: journal timestamps that fail
@@ -58,6 +68,9 @@ inline constexpr const char *kReciprocityAuthor = "author";
 struct Signals {
     float curiosity{};
     float reciprocity{};
+    /* Continuation signal (#150): 1.0 when this candidate is the reply an
+     * open pending intent invited, 0.0 otherwise. */
+    float intent{};
     /* How reciprocity was earned: "none", "event" (this record is the
      * referencing event) or "author" (this author recently referenced the
      * entity's action). */
@@ -80,8 +93,9 @@ inline constexpr std::int64_t kReciprocityWindowSeconds = 7 * 24 * 3600;
                                                          const JournalContents &journal,
                                                          std::int64_t now);
 
-/* Index permutation over `signals`: reciprocity desc, curiosity desc, then
- * stable (original) order. Returns indices into the input sequence. */
+/* Index permutation over `signals`: intent desc, reciprocity desc, curiosity
+ * desc, then stable (original) order. Returns indices into the input
+ * sequence. */
 [[nodiscard]] std::vector<std::size_t> order_candidates(const std::vector<Signals> &signals);
 
 } // namespace drives

@@ -96,11 +96,15 @@ struct RuleTable {
  * when no rule maps this outcome. First match wins; unmapped outcomes
  * produce nothing. `now` lets an expectation-conditioned rule judge the
  * action's derived state (#149); without it the window includes the present
- * instant deterministically, so `now` must be the caller's current clock. */
+ * instant deterministically, so `now` must be the caller's current clock.
+ * `intents` carries the journal's pending-intent entries (#150) so the
+ * derived state reflects an expired intent exactly as the resolution pass
+ * does; it defaults to empty for callers that judge events alone. */
 [[nodiscard]] const ValenceRule *first_matching_rule(const RuleTable &table,
                                                       const JournalAction &action,
                                                       const std::vector<JournalEvent> &events,
-                                                      std::int64_t now);
+                                                      std::int64_t now,
+                                                      const std::vector<JournalIntent> &intents = {});
 
 } // namespace journal
 } // namespace atperson

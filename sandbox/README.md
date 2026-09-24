@@ -95,7 +95,7 @@ credentials are unset and outbound policy is fail-closed by default.
 
 ## Scenario walkthrough
 
-`atperson-sandbox scenario` runs ten steps and fails loudly if any step errors:
+`atperson-sandbox scenario` runs eleven steps and fails loudly if any step errors:
 
 1. `stats` — confirm the empty graph
 2. `ingest-file` — train on each text fixture
@@ -105,7 +105,8 @@ credentials are unset and outbound policy is fail-closed by default.
 6. `decide` — guarded decision on the same context
 7. `outbound status/rules/evaluate` — offline policy evaluation
 8. `journal valence` — experience-derived valence state
-9. `stats` — final state
+9. `journal resolve` + `journal intents`/`actions` — intent/expectation journal hooks are offline-safe and idempotent
+10. `stats` — final state
 
 Every step is a plain CLI call, so the scenario doubles as documentation of
 the normal offline workflow. `atperson audit` is deliberately absent: it sends

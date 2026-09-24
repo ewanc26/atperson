@@ -263,21 +263,27 @@ void parse_line(const std::string &line, JournalContents &out) {
     }
     const bool is_v1_action =
         version->valuedouble == 1.0 && type == "action";
-    /* v2 predates the action expectation field and the resolution entry
-     * kind (#149): its action/event/valence lines are accepted and parse
-     * under v3 field semantics (absent expectation == nullopt), while a
-     * v2 `resolution` line is foreign schema and refused. */
-    const bool is_v2 = version->valuedouble == 2.0 && type != "resolution";
+    /* v2 predates the action expectation field, the resolution entry kind
+     * (#149) and the intent entry kind (#150): its action/event/valence
+     * lines are accepted and parse under current field semantics (absent
+     * expectation == nullopt), while a v2 `resolution` or `intent` line is
+     * foreign schema and refused. */
+    const bool is_v2 =
+        version->valuedouble == 2.0 && type != "resolution" && type != "intent";
+    /* v3 adds the resolution entry kind (#149) but predates intents (#150):
+     * a v3 `intent` line is foreign schema and refused. */
+    const bool is_v3 = version->valuedouble == 3.0 && type != "intent";
     const bool is_current =
         version->valuedouble == static_cast<double>(kJournalFormatVersion);
-    if (!is_current && !is_v2 && !is_v1_action) {
-        /* v1 action entries predate the journal MAC field (#57) and the
-         * expectation field (#149). They are migrated in place: an absent
-         * MAC and an absent expectation are the same as nullopt, so the
-         * loaded entry is identical to what a current writer would have
-         * produced. v2 event/valence lines need no migration. Any other
-         * version or type is refused — the journal never silently
-         * reinterprets foreign schema. */
+    if (!is_current && !is_v3 && !is_v2 && !is_v1_action) {
+        /* v1 action entries predate the journal MAC field (#57), the
+         * expectation field (#149) and the intent entry kind (#150). They
+         * are migrated in place: an absent MAC, an absent expectation and
+         * an absent intent are the same as nullopt/absent, so the loaded
+         * entry is identical to what a current writer would have produced.
+         * v2 event/valence lines and v3 event/valence/resolution lines need
+         * no migration. Any other version or type is refused — the journal
+         * never silently reinterprets foreign schema. */
         fail("journal entry has unsupported version");
     }
     if (type == "action") {
@@ -327,6 +333,55 @@ void parse_line(const std::string &line, JournalContents &out) {
         resolution.at_epoch = required_u64(root.get(), "at_epoch");
         resolution.at = required_string(root.get(), "at");
         out.resolutions.push_back(std::move(resolution));
+    } else if (type == "intent") {
+        JournalIntent intent;
+        intent.id = required_string(root.get(), "id");
+        if (intent.id.empty()) {
+            fail("journal intent has an empty id");
+        }
+        const cJSON *actions = cJSON_GetObjectItemCaseSensitive(root.get(), "actions");
+        if (!cJSON_IsArray(actions) || cJSON_GetArraySize(actions) < 1) {
+            fail("journal intent field 'actions' must be a non-empty array");
+        }
+        const int action_count = cJSON_GetArraySize(actions);
+        if (action_count > 64) {
+            fail("journal intent has too many actions");
+        }
+        for (int i = 0; i < action_count; ++i) {
+            const cJSON *item = cJSON_GetArrayItem(actions, i);
+            if (!cJSON_IsString(item) || item->valuestring == nullptr ||
+                item->valuestring[0] == '\0') {
+                fail("journal intent 'actions' entries must be non-empty strings");
+            }
+            intent.actions.emplace_back(item->valuestring);
+        }
+        intent.responder = required_string(root.get(), "responder");
+        if (intent.responder != "anyone" &&
+            intent.responder.compare(0, 4, "did:") != 0) {
+            fail("journal intent responder must be 'anyone' or a specific author DID");
+        }
+        const std::uint64_t expires_at_epoch = required_u64(root.get(), "expires_at_epoch");
+        if (expires_at_epoch == 0u) {
+            fail("journal intent field 'expires_at_epoch' must be a positive number");
+        }
+        intent.expires_at_epoch = expires_at_epoch;
+        intent.expires_at = required_string(root.get(), "expires_at");
+        const std::uint64_t max_continuations = required_u64(root.get(), "max_continuations");
+        if (max_continuations < 1u || max_continuations > 64u) {
+            fail("journal intent field 'max_continuations' must be in [1, 64]");
+        }
+        intent.max_continuations = static_cast<std::uint32_t>(max_continuations);
+        const auto parsed_state = intent_state_from_name(required_string(root.get(), "state"));
+        if (!parsed_state.has_value()) {
+            fail("journal intent has an unknown state");
+        }
+        intent.state = *parsed_state;
+        intent.at_epoch = required_u64(root.get(), "at_epoch");
+        intent.at = required_string(root.get(), "at");
+        if (intent.at_epoch == 0u) {
+            fail("journal intent field 'at_epoch' must be a positive number");
+        }
+        out.intents.push_back(std::move(intent));
     } else {
         fail("journal entry has unknown type '" + type + "'");
     }
@@ -401,6 +456,31 @@ journal_expectation_state_from_name(std::string_view name) {
     }
     if (name == "expired") {
         return JournalExpectationState::Expired;
+    }
+    return std::nullopt;
+}
+
+const char *intent_state_name(IntentState state) noexcept {
+    switch (state) {
+    case IntentState::Open:
+        return "open";
+    case IntentState::Expired:
+        return "expired";
+    case IntentState::Closed:
+        return "closed";
+    }
+    return "open";
+}
+
+std::optional<IntentState> intent_state_from_name(std::string_view name) {
+    if (name == "open") {
+        return IntentState::Open;
+    }
+    if (name == "expired") {
+        return IntentState::Expired;
+    }
+    if (name == "closed") {
+        return IntentState::Closed;
     }
     return std::nullopt;
 }
@@ -504,6 +584,39 @@ std::string serialise_journal_resolution(const JournalResolution &entry) {
     return print_json(root.get(), "journal resolution entry");
 }
 
+std::string serialise_journal_intent(const JournalIntent &entry) {
+    Json root(cJSON_CreateObject());
+    if (!root) {
+        throw std::runtime_error("failed to allocate journal intent entry");
+    }
+    add_string(root.get(), "type", "intent");
+    cJSON_AddNumberToObject(root.get(), "version", kJournalFormatVersion);
+    add_string(root.get(), "id", entry.id);
+    cJSON *actions = cJSON_CreateArray();
+    if (!actions) {
+        throw std::runtime_error("failed to allocate journal intent actions");
+    }
+    for (const std::string &action : entry.actions) {
+        cJSON *item = cJSON_CreateString(action.c_str());
+        if (!item) {
+            cJSON_Delete(actions);
+            throw std::runtime_error("failed to allocate journal intent action");
+        }
+        cJSON_AddItemToArray(actions, item);
+    }
+    cJSON_AddItemToObject(root.get(), "actions", actions);
+    add_string(root.get(), "responder", entry.responder);
+    cJSON_AddNumberToObject(root.get(), "expires_at_epoch",
+                            static_cast<double>(entry.expires_at_epoch));
+    add_string(root.get(), "expires_at", entry.expires_at);
+    cJSON_AddNumberToObject(root.get(), "max_continuations",
+                            static_cast<double>(entry.max_continuations));
+    add_string(root.get(), "state", intent_state_name(entry.state));
+    cJSON_AddNumberToObject(root.get(), "at_epoch", static_cast<double>(entry.at_epoch));
+    add_string(root.get(), "at", entry.at);
+    return print_json(root.get(), "journal intent entry");
+}
+
 void append_journal_action(const std::filesystem::path &path, const JournalAction &entry) {
     append_line(path, serialise_journal_action(entry));
 }
@@ -519,6 +632,10 @@ void append_journal_valence(const std::filesystem::path &path, const JournalVale
 void append_journal_resolution(const std::filesystem::path &path,
                                const JournalResolution &entry) {
     append_line(path, serialise_journal_resolution(entry));
+}
+
+void append_journal_intent(const std::filesystem::path &path, const JournalIntent &entry) {
+    append_line(path, serialise_journal_intent(entry));
 }
 
 JournalContents load_journal(const std::filesystem::path &path) {
