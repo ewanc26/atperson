@@ -5,6 +5,7 @@
 #include "atproto/jetstream_replay_client.hpp"
 #include "atproto/session.hpp"
 #include "atproto/jetstream_filter.hpp"
+#include "atproto/writer.hpp"
 #include "config.hpp"
 #include "control/state.hpp"
 #include "daemon/config.hpp"
@@ -16,6 +17,7 @@
 #include "linkage.hpp"
 #include "lock.hpp"
 #include "parallel.hpp"
+#include "scheduler/cycle.hpp"
 #include "worker/pool.hpp"
 
 #include <algorithm>
@@ -131,6 +133,54 @@ void run_startup_archive_if_configured(
         << " event(s), learned " << result.learned << " (skipped " << result.skipped
         << ", duplicate " << result.duplicates << ")"
         << (result.exhausted ? ", sealed archive exhausted" : ", window incomplete") << '\n';
+}
+
+/* One autonomous scheduler cycle (#140) after a successful perception
+ * cycle. Off unless ATPERSON_SCHEDULER=1. The writer is established lazily
+ * inside the attempt atom, so a cycle with no approved proposal never
+ * reads credentials or touches the network. */
+SchedulerCycleReport run_scheduler_after_cycle(const std::filesystem::path &data_dir,
+                                               const SchedulerConfig &config,
+                                               const LanguageGraph &graph, const Ledger &ledger,
+                                               std::int64_t now) {
+    if (!config.enabled) {
+        return {};
+    }
+    std::unique_ptr<WolframSession> session;
+    std::unique_ptr<WolframWriter> writer;
+    const auto writer_for = [&]() -> OutboundWriter & {
+        if (!session) {
+            const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
+            session = std::make_unique<WolframSession>(service, required_env("ATPERSON_IDENTIFIER"),
+                                                       required_env("ATPERSON_APP_PASSWORD"));
+            writer = std::make_unique<WolframWriter>(*session);
+        }
+        return *writer;
+    };
+    const auto steady_ms = []() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    };
+    const SchedulerCycle cycle{
+        data_dir,
+        scheduler_proposals_path(),
+        OutboundAttemptPaths{outbound_policy_path(), outbound_budget_path(),
+                             control_state_path(), outbound_audit_path(), action_journal_path()},
+        writer_for,
+        now,
+        steady_ms};
+    const SchedulerCycleReport report =
+        run_scheduler_cycle(config, cycle, graph, ledger);
+    return report;
+}
+
+void print_scheduler_report(std::ostream &out, const SchedulerCycleReport &report) {
+    out << "scheduler: " << report.contexts_examined << " context(s), "
+        << report.decisions << " decision(s), " << report.abstentions << " abstention(s), "
+        << report.proposals_written << " proposal(s) written, " << report.executions_attempted
+        << " execution attempt(s): " << report.executed << " executed, " << report.refused
+        << " refused, " << report.failed << " failed — " << report.detail << '\n';
 }
 
 } // namespace
@@ -267,6 +317,11 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
     };
 
     unsigned long long cycle_number = 0;
+    const SchedulerConfig scheduler_config = scheduler_config_from_environment();
+    std::uint64_t scheduler_cycles = 0;
+    std::uint64_t scheduler_decisions = 0;
+    std::uint64_t scheduler_abstentions = 0;
+    std::uint64_t scheduler_executed = 0;
 
     const DaemonHooks hooks{
         [](std::chrono::milliseconds delay) { static_cast<void>(sleep_until_interrupted(delay)); },
@@ -289,13 +344,25 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                 return true;
             }
         },
-        [&out, &cycle_number](const SyncResult &result) {
+        [&out, &data_dir, &cycle_number, &scheduler_config, &graph, &ledger, &scheduler_cycles,
+         &scheduler_decisions, &scheduler_abstentions,
+         &scheduler_executed](const SyncResult &result) {
             ++cycle_number;
             out << "daemon: cycle " << cycle_number << ": " << result.pages_completed
                 << " page(s), " << result.observations_seen << " observation(s), learned "
                 << result.learned << " (skipped " << result.skipped << ", duplicate "
                 << result.duplicates << ")"
                 << (result.exhausted ? ", timeline exhausted" : ", catch-up pending") << '\n';
+            if (scheduler_config.enabled) {
+                ++scheduler_cycles;
+                const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+                const SchedulerCycleReport scheduler_report =
+                    run_scheduler_after_cycle(data_dir, scheduler_config, graph, ledger, now);
+                scheduler_decisions += scheduler_report.decisions;
+                scheduler_abstentions += scheduler_report.abstentions;
+                scheduler_executed += scheduler_report.executed;
+                print_scheduler_report(out, scheduler_report);
+            }
         },
         [&err](std::chrono::milliseconds delay, const RetryableError &error) {
             err << "atperson: transient ingestion failure (" << error.what() << "); retrying in "
@@ -333,7 +400,15 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
     run_state.phase = AutonomyPhase::Stopped;
     run_state.checkpoint++;
     run_state.last_at = control_now_rfc3339();
-    run_state.detail = "daemon stopped after local checkpoint";
+    if (scheduler_config.enabled) {
+        run_state.detail = "daemon stopped; scheduler cycles " +
+                           std::to_string(scheduler_cycles) + ", decisions " +
+                           std::to_string(scheduler_decisions) + ", abstentions " +
+                           std::to_string(scheduler_abstentions) + ", executed " +
+                           std::to_string(scheduler_executed);
+    } else {
+        run_state.detail = "daemon stopped after local checkpoint";
+    }
     save_autonomy_run_state(run_state, run_state_file);
     return 0;
 }

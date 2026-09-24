@@ -143,11 +143,16 @@ std::filesystem::path autonomy_run_state_path() {
                   (data_dir() / "autonomy-run.json").string());
 }
 
+std::filesystem::path scheduler_proposals_path() {
+    return env_or("ATPERSON_SCHEDULER_PROPOSALS",
+                  (data_dir() / "scheduler" / "proposals").string());
+}
+
 std::vector<std::filesystem::path> durable_paths() {
     return {data_dir(), training_dir(), state_path(), ledger_path(), ingestion_state_path(),
             jetstream_state_path(), control_state_path(), outbound_policy_path(),
             outbound_budget_path(), outbound_audit_path(), action_journal_path(),
-            protocol_ledger_path(), autonomy_run_state_path()};
+            protocol_ledger_path(), autonomy_run_state_path(), scheduler_proposals_path()};
 }
 
 int parse_limit(const char *value, int fallback) {
