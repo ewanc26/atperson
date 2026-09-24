@@ -9,6 +9,7 @@
 #include "cli/envelope.hpp"
 #include "cli/cursor.hpp"
 #include "cli/daemon.hpp"
+#include "cli/drives.hpp"
 #include "cli/graph.hpp"
 #include "cli/ingest.hpp"
 #include "cli/jetstream.hpp"
@@ -464,6 +465,15 @@ int main(int argc, char **argv) {
                 return 2;
             }
             return atperson::cli::run_familiarity(std::cout, graph, argv[2]);
+        }
+
+        if (command == "drives") {
+            const int count = argc >= 3 ? atperson::cli::parse_limit(argv[2], 8) : 8;
+            return atperson::cli::run_drives_command(
+                std::cout, graph, atperson::Ledger(atperson::cli::ledger_path()),
+                atperson::cli::action_journal_path(),
+                static_cast<std::int64_t>(std::time(nullptr)),
+                static_cast<std::size_t>(count));
         }
 
         if (command == "recall") {

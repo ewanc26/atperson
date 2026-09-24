@@ -181,7 +181,8 @@ void print_scheduler_report(std::ostream &out, const SchedulerCycleReport &repor
         << report.decisions << " decision(s), " << report.abstentions << " abstention(s), "
         << report.proposals_written << " proposal(s) written, " << report.executions_attempted
         << " execution attempt(s): " << report.executed << " executed, " << report.refused
-        << " refused, " << report.failed << " failed — " << report.detail << '\n';
+        << " refused, " << report.failed << " failed — " << report.detail
+        << (report.ordered_by_drives ? " (drive-ordered)" : "") << '\n';
 }
 
 } // namespace
