@@ -202,6 +202,13 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/jetstream.cpp
     src/app/cli/outbound.cpp
     src/app/cli/publish.cpp
+    src/app/cli/statepub.cpp
+    src/app/cli/reconstruct.cpp
+    src/app/replicate/records.cpp
+    src/app/replicate/file_writer.cpp
+    src/app/replicate/publish.cpp
+    src/app/replicate/reconstruct.cpp
+    src/app/thought/store.cpp
     src/app/cli/protocol.cpp
     src/app/cli/sync.cpp
     src/app/cli/thoughts.cpp
@@ -215,6 +222,7 @@ if(ATPERSON_BUILD_NETWORK)
   src/app/atproto/jetstream_replay_client.cpp
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
+    src/app/atproto/record_source.cpp
     src/app/action/tokens.cpp
     src/app/autonomy/run_state.cpp
     src/app/attestation/signer.cpp
@@ -608,6 +616,25 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-outbound-test PRIVATE atperson-cpp)
   target_include_directories(atperson-outbound-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-outbound COMMAND atperson-outbound-test)
+
+  # Network-native state (#142): record round-trips, the bounded publisher
+  # drain (cursor persistence, backlog retention on network failure,
+  # withdrawal propagation) and the reconstruct acceptance path. Offline:
+  # the writer and record source are fakes.
+  add_executable(
+    atperson-replicate-test
+    tests/replicate/replicate.cpp
+    src/app/replicate/records.cpp
+    src/app/replicate/file_writer.cpp
+    src/app/replicate/publish.cpp
+    src/app/replicate/reconstruct.cpp
+    src/app/thought/store.cpp
+    src/app/state/records.cpp
+    src/app/journal/store.cpp)
+  target_compile_features(atperson-replicate-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-replicate-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-replicate-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-replicate COMMAND atperson-replicate-test)
 
   # Outbound execution (#25): the ordered gate chain (pause, policy, dry-run,
   # #22 approval), fail-closed refusal, budget recorded only on confirmed

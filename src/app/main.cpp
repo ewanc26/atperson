@@ -18,6 +18,8 @@
 #include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
+#include "cli/reconstruct.hpp"
+#include "cli/statepub.hpp"
 #include "cli/protocol_command.hpp"
 #include "cli/sync.hpp"
 #include "cli/thoughts.hpp"
@@ -247,6 +249,39 @@ int main(int argc, char **argv) {
                 atperson::cli::action_journal_path(),
                 atperson::cli::authorization_envelopes_path(),
                 argv[2], static_cast<std::int64_t>(std::time(nullptr)));
+        }
+
+        if (command == "statepub") {
+            const std::string sub = argc >= 3 ? argv[2] : "status";
+            if (sub == "status") {
+                return atperson::cli::run_statepub_status(
+                    std::cout, std::cerr, resource_status, atperson::cli::data_dir(),
+                    atperson::cli::ledger_path(), atperson::cli::action_journal_path(),
+                    atperson::cli::data_dir() / "thoughts");
+            }
+            if (sub == "drain") {
+                bool offline = false;
+                for (int i = 3; i < argc; ++i) {
+                    if (std::string_view(argv[i]) == "--offline") {
+                        offline = true;
+                    }
+                }
+                return atperson::cli::run_statepub_drain(
+                    std::cout, std::cerr, resource_status, atperson::cli::data_dir(),
+                    atperson::cli::ledger_path(), atperson::cli::action_journal_path(),
+                    atperson::cli::data_dir() / "thoughts",
+                    atperson::cli::control_state_path(), offline);
+            }
+            usage(std::cerr);
+            return 2;
+        }
+
+        if (command == "reconstruct") {
+            if (argc >= 4 && std::string_view(argv[2]) == "--into") {
+                return atperson::cli::run_reconstruct(std::cout, std::cerr, argv[3]);
+            }
+            usage(std::cerr);
+            return 2;
         }
 
         if (command == "protocol") {

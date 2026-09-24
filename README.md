@@ -318,6 +318,25 @@ Publishing is deliberately operator-led. Writes use a frozen record key so retri
 
 See [`docs/outbound-execution.md`](docs/outbound-execution.md).
 
+### Network-native state
+
+The observation ledger and action journal are publishable as AT Protocol
+records under the entity's own DID, and fresh state can be reconstructed
+from those records on a new host. Observation records carry provenance
+and a content digest, never third-party text — reconstruction re-fetches
+content from the source and verifies the digest before replaying.
+
+```sh
+./build/atperson thought the moon post made me curious
+./build/atperson statepub status
+./build/atperson statepub drain
+./build/atperson statepub drain --offline
+./build/atperson reconstruct --into ./fresh-state
+```
+
+`statepub drain` is gated on the control write gate and bounded per
+pass. See [`docs/network-state.md`](docs/network-state.md).
+
 ## Current boundaries
 
 `ATperson` currently does **not**:
