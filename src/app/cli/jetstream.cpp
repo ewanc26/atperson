@@ -6,7 +6,6 @@
 #include "atproto/jetstream_dictionary.hpp"
 #include "atproto/jetstream_filter.hpp"
 #include "atproto/jetstream_replay_client.hpp"
-#include "atproto/session.hpp"
 #include "cli/config.hpp"
 #include "ingestion/state.hpp"
 #include "journal/store.hpp"
@@ -163,11 +162,11 @@ int run_jetstream_archive(
             throw std::runtime_error("jetstream archive: requested window exceeds the 10,000,000 sequence cap");
         }
     }
-    const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
-    WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
-                           required_env("ATPERSON_APP_PASSWORD"));
+    /* The archive API is a separate host from the PDS and authenticates with
+     * the raw archive token; no PDS session is needed for replay. */
     JetstreamReplayClient client(
-        *session.agent(), required_env("ATPERSON_JETSTREAM_ARCHIVE_TOKEN"));
+        env_or("ATPERSON_JETSTREAM_ARCHIVE_HOST", ""),
+        required_env("ATPERSON_JETSTREAM_ARCHIVE_TOKEN"));
     const std::vector<std::string> collections =
         collections_file.empty() ? default_jetstream_collections()
                                   : load_jetstream_collections(collections_file);

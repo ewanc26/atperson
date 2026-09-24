@@ -182,7 +182,7 @@ if(ATPERSON_BUILD_NETWORK)
     # wolfram-cpp now resolves its own public-header root via WOLFRAM_CPP_ROOT
     # (set to the checkout root in cpp/CMakeLists.txt), so no source-dir patch
     # is needed; the previous CMAKE_SOURCE_DIR rewrite was upstreamed away.
-    GIT_TAG 135cbd7)  # fix(jetstream): compress=1 + parse TEXT when compression requested
+    GIT_TAG 43e245e)  # fix(transport): follow redirects (archive getBlock 307s to CDN)
   FetchContent_MakeAvailable(wolfram)
 
   add_executable(
@@ -909,6 +909,7 @@ if(ATPERSON_BUILD_TESTS)
       atperson-jetstream-replay-test
       tests/atproto/jetstream_replay.cpp
       src/app/atproto/jetstream_replay.cpp
+      src/app/atproto/jetstream_replay_client.cpp
       src/app/atproto/jetstream.cpp
       src/app/ingestion/policy.cpp
       src/app/sync/engine.cpp

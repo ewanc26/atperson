@@ -120,11 +120,11 @@ void run_startup_archive_if_configured(
         "ATPERSON_JETSTREAM_ENDPOINT", kDefaultJetstreamEndpoint);
     auto archive_state = load_ingestion_state(
         jetstream_state_path(), endpoint, "", kSourceKindJetstream);
-    const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
-    WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
-                           required_env("ATPERSON_APP_PASSWORD"));
+    /* The archive API is a separate host from the PDS and authenticates with
+     * the raw archive token; no PDS session is needed for replay. */
     JetstreamReplayClient replay(
-        *session.agent(), required_env("ATPERSON_JETSTREAM_ARCHIVE_TOKEN"));
+        env_or("ATPERSON_JETSTREAM_ARCHIVE_HOST", ""),
+        required_env("ATPERSON_JETSTREAM_ARCHIVE_TOKEN"));
     const auto result = atperson::run_jetstream_archive(
         graph, ledger, archive_state, replay, after, before, relative_span,
         required_self_did(),

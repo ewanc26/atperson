@@ -46,8 +46,11 @@ when omitted it uses the same configured filter files as live Jetstream. These
 filters are passed to the replay planner and are never inferred from records.
 
 It authenticates the archive API with `ATPERSON_JETSTREAM_ARCHIVE_TOKEN` (a raw
-Jetstream archive token; it is never persisted or logged) and uses the configured
-Wolfram session for service setup. It defaults `after-seq` to the
+Jetstream archive token; it is never persisted or logged) against the archive
+host configured by `ATPERSON_JETSTREAM_ARCHIVE_HOST` (default
+`https://jetstream.us-west.bsky.network`; the archive API is a separate host
+from the PDS, so no PDS session is required for replay). It defaults
+`after-seq` to the
 persisted Jetstream checkpoint (or zero), and optionally caps the window at an
 inclusive `before-seq`. A relative trailing window can be requested instead
 with `--span <sequences>`: atperson probes the archive's sealed tip (or uses an
@@ -60,7 +63,7 @@ daemon startup archive phase is enabled via `ATPERSON_DAEMON_ARCHIVE_AFTER`,
 
 ## Entity identity and policy parity
 
-Live Jetstream ingestion is unauthenticated and can bootstrap without credentials. If `ATPERSON_SELF_DID` is set to a non-secret DID such as `did:plc:...`, it is used only to apply the same self-authored exclusion as authenticated timeline polling; when unset, the public tail remains available but that exclusion cannot be applied. Archive replay additionally requires a Wolfram session and archive token (see above).
+Live Jetstream ingestion is unauthenticated and can bootstrap without credentials. If `ATPERSON_SELF_DID` is set to a non-secret DID such as `did:plc:...`, it is used only to apply the same self-authored exclusion as authenticated timeline polling; when unset, the public tail remains available but that exclusion cannot be applied. Archive replay additionally requires the archive token (see above).
 
 The record-level policy is shared with polling: self-authored posts are skipped, replies and quotes retain their eligible reason, empty/media-only records are classified consistently, and unsupported/private record classes remain non-learnable. Viewer-specific mute/block/moderation fields are only available on AppView timeline responses; public Jetstream events do not fabricate those viewer-state signals.
 
