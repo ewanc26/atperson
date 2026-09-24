@@ -136,6 +136,21 @@ OutboundAction parse_outbound_action(std::string_view json, std::string_view sou
                                   ": an original post must not carry reply context");
     }
 
+    /* Optional decision evidence (#141). Absent fields stay nullopt; a
+     * present field must be a number. */
+    const cJSON *plan_score = cJSON_GetObjectItemCaseSensitive(root.get(), "plan_score");
+    if (cJSON_IsNumber(plan_score)) {
+        action.plan_score = plan_score->valuedouble;
+    } else if (plan_score != nullptr) {
+        throw OutboundActionError(std::string(source) + ": 'plan_score' must be a number");
+    }
+    const cJSON *support_score = cJSON_GetObjectItemCaseSensitive(root.get(), "support_score");
+    if (cJSON_IsNumber(support_score)) {
+        action.support_score = support_score->valuedouble;
+    } else if (support_score != nullptr) {
+        throw OutboundActionError(std::string(source) + ": 'support_score' must be a number");
+    }
+
     return action;
 }
 
@@ -159,6 +174,12 @@ std::string serialise_outbound_action(const OutboundAction &action) {
         cJSON_AddStringToObject(reply, "root", action.reply_root.c_str());
         cJSON_AddStringToObject(reply, "parent", action.reply_parent.c_str());
         cJSON_AddItemToObject(root.get(), "reply", reply);
+    }
+    if (action.plan_score) {
+        cJSON_AddNumberToObject(root.get(), "plan_score", *action.plan_score);
+    }
+    if (action.support_score) {
+        cJSON_AddNumberToObject(root.get(), "support_score", *action.support_score);
     }
     return print_json(root.get(), "outbound action");
 }

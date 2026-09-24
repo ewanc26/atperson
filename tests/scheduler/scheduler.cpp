@@ -81,11 +81,12 @@ struct GateFiles {
     std::filesystem::path control;
     std::filesystem::path audit;
     std::filesystem::path journal;
+    std::filesystem::path envelopes;
 
     GateFiles(const char *tag)
         : root(scratch_dir(tag)), policy(root / "policy.json"), budget(root / "budget.json"),
           control(root / "control.json"), audit(root / "audit.log"),
-          journal(root / "journal.jsonl") {
+          journal(root / "journal.jsonl"), envelopes(root / "envelopes") {
         atperson::OutboundPolicy policy_state;
         atperson::ActionBudget post_budget;
         post_budget.enabled = true;
@@ -131,7 +132,7 @@ SchedulerCycle make_cycle(const GateFiles &gates, const std::filesystem::path &d
         data_dir,
         data_dir / "proposals",
         atperson::OutboundAttemptPaths{gates.policy, gates.budget, gates.control, gates.audit,
-                                        gates.journal},
+                                        gates.journal, gates.envelopes},
         [&writer]() -> OutboundWriter & { return writer; },
         NOW,
         []() -> std::int64_t { return 0; }};

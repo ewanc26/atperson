@@ -30,6 +30,7 @@
 #include "budget.hpp"
 #include "config.hpp"
 #include "control/state.hpp"
+#include "control/envelope.hpp"
 #include "evaluate.hpp"
 
 #include <cstdint>
@@ -81,6 +82,16 @@ enum class OutboundExecutionOutcome { Executed, DryRun, Denied, Deferred, Failed
 [[nodiscard]] const char *
 outbound_execution_outcome_name(OutboundExecutionOutcome outcome) noexcept;
 
+/* How the #22 control gate was satisfied for one execution. Either the
+ * operator approved the exact digest, or a standing authorization envelope
+ * (#141) covered the action at execution time. `envelope_id` is set only
+ * for envelope authorisation, so the audit log can reconstruct which
+ * standing rule applied. */
+struct OutboundAuthorization {
+    bool digest_approved{false};
+    std::string envelope_id;
+};
+
 struct OutboundExecutionResult {
     OutboundExecutionOutcome outcome{OutboundExecutionOutcome::Denied};
     /* Stable machine reason: a #23 reason code, a control code ("paused",
@@ -94,6 +105,18 @@ struct OutboundExecutionResult {
     bool budget_recorded{false};
     /* Budget state measured before any recording. */
     OutboundBudgetStatus budget{};
+    /* How the control gate was satisfied; populated for every outcome
+     * that reached the gate (executed and dry-run). */
+    OutboundAuthorization authorization{};
+};
+
+/* Optional #141 standing-authorization input to the control gate. When
+ * present, the gate passes when the digest is approved OR the envelope
+ * covers the action. When absent, behaviour is exactly the pre-#141
+ * per-digest gate. The coverage is computed by the caller from envelope
+ * files re-read at execution time, never at decision time. */
+struct OutboundEnvelopeGate {
+    EnvelopeCoverage coverage;
 };
 
 /* Run the ordered gates and, only if all pass, perform the write. Deterministic
@@ -103,7 +126,8 @@ execute_outbound_action(const ControlState &control, const OutboundPolicy &polic
                         OutboundBudgetState &budget, const OutboundAction &action,
                         const OutboundWriterFactory &writer_for, std::int64_t now,
                         const OutboundAttestationFactory &attest = {},
-                        bool external_publishing_allowed = true);
+                        bool external_publishing_allowed = true,
+                        const std::optional<OutboundEnvelopeGate> &envelope = std::nullopt);
 
 /* One-sentence human explanation of an execution result. */
 [[nodiscard]] std::string describe_outbound_execution(const OutboundExecutionResult &result);

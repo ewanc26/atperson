@@ -51,6 +51,10 @@ struct OutboundAuditEntry {
     /* Result URI/CID when the write was executed; empty otherwise. */
     std::string uri;
     std::string cid;
+    /* Standing authorization (#141): the covering envelope's id. Empty
+     * for per-digest approval, so the two authorisation sources stay
+     * distinguishable in the log. */
+    std::string envelope_id;
     /* Public proof metadata only; private signing material is never logged. */
     std::string attestation_cid;
     std::string attestation_signature;

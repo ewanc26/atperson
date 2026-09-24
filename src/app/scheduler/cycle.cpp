@@ -1,8 +1,11 @@
 #include "cycle.hpp"
 
 #include "action/inspection.hpp"
+#include "control/envelope.hpp"
 #include "control/state.hpp"
 #include "journal/store.hpp"
+#include "outbound/budget.hpp"
+#include "outbound/config.hpp"
 #include "outbound/action.hpp"
 #include "outbound/actions.hpp"
 #include "state/lock.hpp"
@@ -159,6 +162,14 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         action.rkey = proposal_tid(cycle.now, digest);
         action.created_at = rfc3339_from_unix(cycle.now);
         action.digest = digest;
+        /* Decision evidence (#141): recorded on the proposal so standing
+         * authorization envelopes can apply score floors at execution
+         * time. The first step's scores are the decision's evidence;
+         * the digest already binds to the full decision. */
+        if (decision.plan.step_count > 0u) {
+            action.plan_score = decision.plan.steps[0].score;
+            action.support_score = decision.plan.steps[0].support_score;
+        }
         write_proposal(proposal, serialise_outbound_action(action));
         ++report.proposals_written;
     }
@@ -168,6 +179,7 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
      * attempt, so an operator pause or revocation between attempts always
      * wins. The outbound lock serialises the budget read-modify-write with
      * any concurrent `atperson publish`. */
+    const bool envelopes_available = !cycle.attempt.envelopes_dir.empty();
     if (config.max_executions > 0u) {
         std::vector<std::filesystem::path> proposals;
         std::error_code ec;
@@ -192,7 +204,26 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
                 break;
             }
             const OutboundAction action = load_outbound_action(proposal);
-            if (!is_digest_approved(control, action.digest)) {
+            /* Per-digest approval or a standing envelope (#141): the
+             * proposal is a candidate only when one of the two would
+             * authorise it. The attempt atom re-evaluates coverage at
+             * execution time, so this pre-check is a cheap filter, not
+             * the authority. */
+            bool authorizable = is_digest_approved(control, action.digest);
+            if (!authorizable && envelopes_available) {
+                const EnvelopeEvidence evidence{action.plan_score, action.support_score};
+                /* Budget state for the pre-check: loaded fresh here; the
+                 * attempt atom loads its own under the lock. */
+                const OutboundPolicy policy = load_outbound_policy(cycle.attempt.policy_file);
+                OutboundBudgetState budget =
+                    load_outbound_budget_state(cycle.attempt.budget_file);
+                prune_outbound_budget_state(budget, policy, cycle.now);
+                const EnvelopeCoverage coverage = find_covering_envelope(
+                    cycle.attempt.envelopes_dir, policy, action.kind, action.text, evidence,
+                    budget, cycle.now);
+                authorizable = coverage.covered;
+            }
+            if (!authorizable) {
                 continue;
             }
             ++report.executions_attempted;

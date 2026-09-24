@@ -6,6 +6,7 @@
 #include "audit/command.hpp"
 #include "cli/config.hpp"
 #include "cli/control.hpp"
+#include "cli/envelope.hpp"
 #include "cli/cursor.hpp"
 #include "cli/daemon.hpp"
 #include "cli/graph.hpp"
@@ -143,6 +144,17 @@ int main(int argc, char **argv) {
         if (command == "control") {
             const std::string sub = argc >= 3 ? argv[2] : "status";
             const std::string argument = argc >= 4 ? argv[3] : "";
+            if (sub == "envelope") {
+                std::vector<std::string_view> envelope_arguments;
+                for (int i = 4; i < argc; ++i) {
+                    envelope_arguments.emplace_back(argv[i]);
+                }
+                return atperson::cli::run_envelope_command(
+                    std::cout, resource_status,
+                    atperson::cli::authorization_envelopes_path(),
+                    atperson::cli::outbound_policy_path(), argv[3], envelope_arguments,
+                    static_cast<std::int64_t>(std::time(nullptr)));
+            }
             return atperson::cli::run_control(std::cout, resource_status,
                                               atperson::cli::control_state_path(), sub,
                                               argument);
@@ -199,6 +211,7 @@ int main(int argc, char **argv) {
                 atperson::cli::outbound_policy_path(), atperson::cli::outbound_budget_path(),
                 atperson::cli::control_state_path(), atperson::cli::outbound_audit_path(),
                 atperson::cli::action_journal_path(),
+                atperson::cli::authorization_envelopes_path(),
                 argv[2], static_cast<std::int64_t>(std::time(nullptr)));
         }
 

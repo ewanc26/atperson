@@ -47,6 +47,7 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
                 const std::filesystem::path &policy_file, const std::filesystem::path &budget_file,
                 const std::filesystem::path &control_file, const std::filesystem::path &audit_file,
                 const std::filesystem::path &journal_file,
+                const std::filesystem::path &envelopes_dir,
                 const std::filesystem::path &action_file, std::int64_t now) {
     const OutboundAction action = load_outbound_action(action_file);
 
@@ -88,7 +89,7 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
      * outbound lock, the Wolfram writer and the environment-backed
      * attestation/MAC factories. */
     const OutboundAttemptPaths paths{policy_file, budget_file, control_file, audit_file,
-                                     journal_file};
+                                    journal_file, envelopes_dir};
     const OutboundAttemptOptions options{
         attest,
         [&session](const OutboundAction &a) -> std::optional<JournalMac> {

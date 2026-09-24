@@ -51,6 +51,9 @@ struct OutboundAttemptPaths {
     std::filesystem::path control_file;
     std::filesystem::path audit_file;
     std::filesystem::path journal_file;
+    /* Standing authorization envelopes (#141). Optional: when empty, the
+     * attempt is per-digest approval exactly as before. */
+    std::filesystem::path envelopes_dir;
 };
 
 /* Run one attempt end to end. `now` is injected for determinism. The gates

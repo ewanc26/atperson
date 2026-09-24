@@ -29,6 +29,34 @@ const char *control_denial_code(const ControlState &control, const OutboundActio
     return "control_refused";
 }
 
+/* The #22 control gate with optional #141 standing authorization: the
+ * gate passes when the exact digest is approved, or an envelope covers
+ * the action at execution time. Without an envelope input this is the
+ * pre-#141 per-digest gate, unchanged. */
+OutboundAuthorization authorize_outbound(const ControlState &control,
+                                         const OutboundAction &action,
+                                         const std::optional<OutboundEnvelopeGate> &envelope) {
+    if (!control.writes_enabled) {
+        throw ControlStateError("outbound refused: network writes are disabled");
+    }
+    if (!control.approval_required || is_digest_approved(control, action.digest)) {
+        OutboundAuthorization authorization;
+        authorization.digest_approved =
+            control.approval_required && is_digest_approved(control, action.digest);
+        return authorization;
+    }
+    if (envelope && envelope->coverage.covered) {
+        OutboundAuthorization authorization;
+        authorization.envelope_id = envelope->coverage.envelope_id;
+        return authorization;
+    }
+    throw ControlStateError(envelope && !envelope->coverage.covered
+                                ? "outbound refused: action digest is not approved and no " +
+                                      std::string("envelope covers it (") +
+                                      envelope->coverage.reason + ")"
+                                : "outbound refused: action digest is not approved");
+}
+
 } // namespace
 
 const char *outbound_execution_outcome_name(OutboundExecutionOutcome outcome) noexcept {
@@ -52,7 +80,8 @@ execute_outbound_action(const ControlState &control, const OutboundPolicy &polic
                         OutboundBudgetState &budget, const OutboundAction &action,
                         const OutboundWriterFactory &writer_for, std::int64_t now,
                         const OutboundAttestationFactory &attest,
-                        bool external_publishing_allowed) {
+                        bool external_publishing_allowed,
+                        const std::optional<OutboundEnvelopeGate> &envelope) {
     const auto proposal = outbound_action_proposal(action);
     const OutboundBudgetStatus budget_status =
         outbound_budget_status(policy, budget, action.kind, now);
@@ -82,8 +111,9 @@ execute_outbound_action(const ControlState &control, const OutboundPolicy &polic
     }
 
     /* 4. #22 control gate: the documented choke point for every write. */
+    OutboundAuthorization authorization;
     try {
-        ensure_outbound_allowed(control, action.digest);
+        authorization = authorize_outbound(control, action, envelope);
     } catch (const std::exception &error) {
         return denied(OutboundExecutionOutcome::Denied, control_denial_code(control, action),
                       error.what(), decision.budget);
@@ -131,6 +161,7 @@ execute_outbound_action(const ControlState &control, const OutboundPolicy &polic
         result.attestation = std::move(attestation);
         result.budget_recorded = true;
         result.budget = decision.budget;
+        result.authorization = authorization;
         return result;
     } catch (const std::exception &error) {
         return denied(OutboundExecutionOutcome::Failed, "write_failed", error.what(),

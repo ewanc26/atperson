@@ -197,6 +197,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/control.cpp
     src/app/cli/cursor.cpp
     src/app/cli/daemon.cpp
+    src/app/cli/envelope.cpp
     src/app/cli/jetstream.cpp
     src/app/cli/outbound.cpp
     src/app/cli/publish.cpp
@@ -220,6 +221,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/journal/command.cpp
     src/app/journal/rules.cpp
     src/app/control/state.cpp
+    src/app/control/envelope.cpp
     src/app/daemon/backoff.cpp
     src/app/daemon/config.cpp
     src/app/daemon/loop.cpp
@@ -616,6 +618,7 @@ if(ATPERSON_BUILD_TESTS)
     atperson-scheduler-test
     tests/scheduler/scheduler.cpp
     src/app/action/inspection.cpp
+    src/app/control/envelope.cpp
     src/app/control/state.cpp
     src/app/journal/store.cpp
     src/app/ledger.cpp
@@ -628,11 +631,36 @@ if(ATPERSON_BUILD_TESTS)
     src/app/outbound/evaluate.cpp
     src/app/outbound/execute.cpp
     src/app/scheduler/cycle.cpp
+    src/app/state/time.cpp
     src/app/state/lock.cpp)
   target_compile_features(atperson-scheduler-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-scheduler-test PRIVATE atperson-cpp)
   target_include_directories(atperson-scheduler-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-scheduler COMMAND atperson-scheduler-test)
+
+  # Standing authorization envelopes (#141): operator pre-approval bounded
+  # by kind ceilings, score floors, scope terms and expiry, composing with
+  # the existing gates and never widening them. Offline, no network.
+  add_executable(
+    atperson-envelope-test
+    tests/envelope/envelope.cpp
+    src/app/journal/store.cpp
+    src/app/control/envelope.cpp
+    src/app/control/state.cpp
+    src/app/outbound/action.cpp
+    src/app/outbound/actions.cpp
+    src/app/outbound/attempt.cpp
+    src/app/outbound/audit.cpp
+    src/app/outbound/budget.cpp
+    src/app/outbound/config.cpp
+    src/app/outbound/evaluate.cpp
+    src/app/outbound/execute.cpp
+    src/app/state/time.cpp
+    src/app/state/lock.cpp)
+  target_compile_features(atperson-envelope-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-envelope-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-envelope-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-envelope COMMAND atperson-envelope-test)
 
   # Action/outcome journal (#27): durable append-only record of the entity's
   # own outbound attempts, public events that reference executed records and

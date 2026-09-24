@@ -58,6 +58,21 @@ approval.
 If recovery cannot establish a trustworthy committed prefix, the supervisor
 stops and reports the failure. It must not guess, publish, or discard evidence.
 
+## Standing authorization
+
+Autonomous execution is per-digest approval by default: the operator
+approves the exact frozen action, or nothing runs. Standing authorization
+envelopes (#141) are the bounded alternative — the operator pre-approves a
+class of actions (kinds, ceilings, score floors, scope terms, expiry) and
+the scheduler can execute matching proposals without a per-action round
+trip.
+
+The contract is unchanged where it matters: an envelope never widens
+policy, coverage is re-evaluated from disk at execution time, and
+revocation takes effect on the next attempt. See
+[`outbound-policy.md`](outbound-policy.md) for the envelope format and
+CLI.
+
 The current implementation provides the bootstrap, daemon, control, resource,
 ledger-recovery, and outbound-gate primitives. Future autonomous scheduling
 must compose those same paths rather than introducing a privileged write API.

@@ -26,6 +26,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -56,6 +57,14 @@ struct OutboundAction {
      * time, when the records are read from the network. */
     std::string reply_root;
     std::string reply_parent;
+    /* Decision evidence (#141), recorded by the scheduler so standing
+     * authorization envelopes can apply score floors at execution time.
+     * Absent in operator-authored documents; an envelope with a floor
+     * never covers an action without the matching evidence (fail-closed).
+     * Not part of the approval digest: the digest binds to the decision
+     * itself, and these fields only describe it. */
+    std::optional<double> plan_score;
+    std::optional<double> support_score;
 };
 
 class OutboundActionError : public std::runtime_error {
