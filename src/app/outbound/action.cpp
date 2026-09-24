@@ -71,11 +71,34 @@ bool outbound_action_is_reply(const OutboundAction &action) noexcept {
     return action.kind == OutboundActionKind::Reply;
 }
 
+bool outbound_action_is_subject_ref(const OutboundAction &action) noexcept {
+    return action.kind == OutboundActionKind::Like ||
+           action.kind == OutboundActionKind::Repost;
+}
+
+const char *outbound_action_collection(const OutboundAction &action) noexcept {
+    switch (action.kind) {
+    case OutboundActionKind::Post:
+    case OutboundActionKind::Reply:
+        return kOutboundPostCollection;
+    case OutboundActionKind::Like:
+        return kOutboundLikeCollection;
+    case OutboundActionKind::Repost:
+        return kOutboundRepostCollection;
+    case OutboundActionKind::Follow:
+        return kOutboundFollowCollection;
+    }
+    return kOutboundPostCollection;
+}
+
 OutboundActionProposal outbound_action_proposal(const OutboundAction &action) {
     OutboundActionProposal proposal;
     proposal.kind = action.kind;
     if (outbound_action_is_reply(action)) {
         proposal.target = action.reply_parent;
+    } else if (outbound_action_is_subject_ref(action) ||
+               action.kind == OutboundActionKind::Follow) {
+        proposal.target = action.subject;
     }
     proposal.action_digest = action.digest;
     return proposal;
@@ -107,14 +130,38 @@ OutboundAction parse_outbound_action(std::string_view json, std::string_view sou
         throw OutboundActionError(std::string(source) + ": unknown action kind '" + kind_name +
                                   "'");
     }
-    if (*kind != OutboundActionKind::Post && *kind != OutboundActionKind::Reply) {
+    switch (*kind) {
+    case OutboundActionKind::Post:
+    case OutboundActionKind::Reply:
+    case OutboundActionKind::Like:
+    case OutboundActionKind::Repost:
+    case OutboundActionKind::Follow:
+        break;
+    case OutboundActionKind::Unfollow:
+    case OutboundActionKind::Moderation:
         throw OutboundActionError(std::string(source) + ": kind '" + kind_name +
-                                  "' is not executable yet (only post and reply are supported)");
+                                  "' is not executable yet (post, reply, like, repost and "
+                                  "follow are supported)");
     }
 
     OutboundAction action;
     action.kind = *kind;
-    action.text = require_string(root.get(), "text", source);
+    const cJSON *text = cJSON_GetObjectItemCaseSensitive(root.get(), "text");
+    if (outbound_action_is_subject_ref(action) || action.kind == OutboundActionKind::Follow) {
+        /* Like/repost/follow carry no text: absent or empty is required. */
+        if (text != nullptr && (!cJSON_IsString(text) || std::string(text->valuestring) != "")) {
+            throw OutboundActionError(std::string(source) + ": kind '" + kind_name +
+                                      "' must not carry text");
+        }
+        action.subject = require_string(root.get(), "subject", source);
+    } else {
+        action.text = require_string(root.get(), "text", source);
+        const cJSON *subject = cJSON_GetObjectItemCaseSensitive(root.get(), "subject");
+        if (subject != nullptr) {
+            throw OutboundActionError(std::string(source) +
+                                      ": a post or reply must not carry a subject");
+        }
+    }
     action.rkey = require_string(root.get(), "rkey", source);
     action.created_at = require_string(root.get(), "created_at", source);
     action.digest = require_string(root.get(), "digest", source);
@@ -162,7 +209,12 @@ std::string serialise_outbound_action(const OutboundAction &action) {
     cJSON_AddStringToObject(root.get(), "format", kOutboundActionFormat);
     cJSON_AddNumberToObject(root.get(), "version", static_cast<double>(kOutboundActionVersion));
     cJSON_AddStringToObject(root.get(), "kind", outbound_kind_name(action.kind));
-    cJSON_AddStringToObject(root.get(), "text", action.text.c_str());
+    if (!action.text.empty()) {
+        cJSON_AddStringToObject(root.get(), "text", action.text.c_str());
+    }
+    if (!action.subject.empty()) {
+        cJSON_AddStringToObject(root.get(), "subject", action.subject.c_str());
+    }
     cJSON_AddStringToObject(root.get(), "rkey", action.rkey.c_str());
     cJSON_AddStringToObject(root.get(), "created_at", action.created_at.c_str());
     cJSON_AddStringToObject(root.get(), "digest", action.digest.c_str());
@@ -199,13 +251,16 @@ OutboundAction load_outbound_action(const std::filesystem::path &path) {
 }
 
 std::string build_outbound_record_json(const OutboundAction &action, std::string_view root_cid,
-                                       std::string_view parent_cid) {
+                                       std::string_view parent_cid,
+                                       std::string_view subject_cid) {
     Json record(cJSON_CreateObject());
     if (!record) {
         throw OutboundActionError("failed to allocate record body");
     }
-    cJSON_AddStringToObject(record.get(), "$type", kOutboundPostCollection);
-    cJSON_AddStringToObject(record.get(), "text", action.text.c_str());
+    cJSON_AddStringToObject(record.get(), "$type", outbound_action_collection(action));
+    if (!action.text.empty()) {
+        cJSON_AddStringToObject(record.get(), "text", action.text.c_str());
+    }
     cJSON_AddStringToObject(record.get(), "createdAt", action.created_at.c_str());
 
     if (outbound_action_is_reply(action)) {
@@ -219,6 +274,20 @@ std::string build_outbound_record_json(const OutboundAction &action, std::string
         add_strong_ref(reply, "root", action.reply_root, std::string(root_cid));
         add_strong_ref(reply, "parent", action.reply_parent, std::string(parent_cid));
         cJSON_AddItemToObject(record.get(), "reply", reply);
+    }
+    if (outbound_action_is_subject_ref(action)) {
+        if (subject_cid.empty()) {
+            throw OutboundActionError("a like/repost needs the subject record CID");
+        }
+        cJSON *ref = cJSON_CreateObject();
+        if (!ref) {
+            throw OutboundActionError("failed to allocate subject strongRef");
+        }
+        add_strong_ref(ref, "subject", action.subject, std::string(subject_cid));
+        cJSON_AddItemToObject(record.get(), "subject", ref);
+    }
+    if (action.kind == OutboundActionKind::Follow) {
+        cJSON_AddStringToObject(record.get(), "subject", action.subject.c_str());
     }
 
     return print_json(record.get(), "outbound record");

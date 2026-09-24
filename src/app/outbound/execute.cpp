@@ -135,11 +135,16 @@ execute_outbound_action(const ControlState &control, const OutboundPolicy &polic
         OutboundWriter &writer = writer_for();
         std::string root_cid;
         std::string parent_cid;
+        std::string subject_cid;
         if (outbound_action_is_reply(action)) {
             root_cid = writer.resolve_record_cid(action.reply_root);
             parent_cid = writer.resolve_record_cid(action.reply_parent);
         }
-        const std::string record_json = build_outbound_record_json(action, root_cid, parent_cid);
+        if (outbound_action_is_subject_ref(action)) {
+            subject_cid = writer.resolve_record_cid(action.subject);
+        }
+        const std::string record_json =
+            build_outbound_record_json(action, root_cid, parent_cid, subject_cid);
         std::optional<OutboundAttestation> attestation;
         if (attest) {
             try {
@@ -150,7 +155,7 @@ execute_outbound_action(const ControlState &control, const OutboundPolicy &polic
             }
         }
         OutboundWriteResult written =
-            writer.put_record(kOutboundPostCollection, action.rkey, record_json);
+            writer.put_record(outbound_action_collection(action), action.rkey, record_json);
         record_outbound_action(budget, proposal, budget_for(policy, action.kind), now);
 
         OutboundExecutionResult result;

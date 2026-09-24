@@ -198,6 +198,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/cursor.cpp
     src/app/cli/daemon.cpp
     src/app/cli/drives.cpp
+    src/app/cli/profile.cpp
     src/app/cli/envelope.cpp
     src/app/cli/jetstream.cpp
     src/app/cli/outbound.cpp

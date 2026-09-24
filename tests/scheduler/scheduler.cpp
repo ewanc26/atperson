@@ -303,6 +303,80 @@ void test_abstention_writes_no_proposal() {
     assert(report.proposals_written == 0u);
 }
 
+/* #152: with graduated likes enabled, a below-floor abstention on a post
+ * record composes an explicit like proposal with its own digest; the
+ * abstention is still counted, and nothing is executed without approval. */
+void test_graduated_like_from_below_floor_abstention() {
+    const GateFiles gates("graduated");
+    FakeWriter writer;
+    LanguageGraph graph; /* empty: decisions abstain */
+    Ledger ledger(gates.root / "ledger.bin");
+    std::uint64_t id = 0u;
+    ledger.append("at://did:plc:author/app.bsky.feed.post/3kabc", "did:plc:author", NOW,
+                  Ledger::digest("alpha"), 1u, ATP_LEDGER_OUTCOME_LEARNED, "alpha", &id);
+
+    SchedulerConfig config = enabled_config();
+    config.graduated_likes = true;
+    const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        config, make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.contexts_examined == 1u);
+    assert(report.abstentions == 1u);
+    assert(report.decisions == 0u);
+    assert(report.proposals_written == 1u);
+    assert(report.graduated_likes_written == 1u);
+    assert(writer.put_calls == 0);
+
+    /* The proposal document is a like bound to the subject record. */
+    bool found = false;
+    for (const auto &entry : std::filesystem::directory_iterator(gates.root / "proposals")) {
+        if (entry.path().extension() != ".json") {
+            continue;
+        }
+        std::ifstream file(entry.path());
+        const std::string text((std::istreambuf_iterator<char>(file)),
+                               std::istreambuf_iterator<char>());
+        assert(text.find("\"kind\":\"like\"") != std::string::npos);
+        assert(text.find("at://did:plc:author/app.bsky.feed.post/3kabc") != std::string::npos);
+        found = true;
+    }
+    assert(found);
+}
+
+/* #152: graduated likes never fire without the operator flag, and a
+ * non-post source (no likeable subject) abstains without a proposal. */
+void test_graduated_like_requires_flag_and_likeable_source() {
+    {
+        const GateFiles gates("graduated-off");
+        FakeWriter writer;
+        LanguageGraph graph;
+        Ledger ledger(gates.root / "ledger.bin");
+        std::uint64_t id = 0u;
+        ledger.append("at://did:plc:author/app.bsky.feed.post/3kabc", "did:plc:author", NOW,
+                      Ledger::digest("alpha"), 1u, ATP_LEDGER_OUTCOME_LEARNED, "alpha", &id);
+        const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+            enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+        assert(report.abstentions == 1u);
+        assert(report.proposals_written == 0u);
+        assert(report.graduated_likes_written == 0u);
+    }
+    {
+        const GateFiles gates("graduated-unlikeable");
+        FakeWriter writer;
+        LanguageGraph graph;
+        Ledger ledger(gates.root / "ledger.bin");
+        std::uint64_t id = 0u;
+        ledger.append("at://did:plc:author/custom.record/3kabc", "did:plc:author", NOW,
+                      Ledger::digest("alpha"), 1u, ATP_LEDGER_OUTCOME_LEARNED, "alpha", &id);
+        SchedulerConfig config = enabled_config();
+        config.graduated_likes = true;
+        const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+            config, make_cycle(gates, gates.root, writer), graph, ledger);
+        assert(report.abstentions == 1u);
+        assert(report.proposals_written == 0u);
+        assert(report.graduated_likes_written == 0u);
+    }
+}
+
 /* The first decision slot is the bounded initiation surface: with max one
  * proposal per cycle, drive ordering (#148) decides *which* context gets it.
  * The reply referencing an executed action must beat a newer, unrelated post. */
@@ -555,6 +629,8 @@ int main() {
     test_pause_between_cycles_refuses_execution();
     test_existing_proposal_is_never_rewritten();
     test_abstention_writes_no_proposal();
+    test_graduated_like_from_below_floor_abstention();
+    test_graduated_like_requires_flag_and_likeable_source();
     test_drives_reorder_first_decision_context();
     test_intent_conversation_lifecycle();
     std::cout << "atperson-scheduler: all assertions passed\n";

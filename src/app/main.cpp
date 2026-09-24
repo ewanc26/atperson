@@ -12,6 +12,7 @@
 #include "cli/drives.hpp"
 #include "cli/graph.hpp"
 #include "cli/ingest.hpp"
+#include "cli/profile.hpp"
 #include "cli/jetstream.hpp"
 #include "cli/ledger.hpp"
 #include "cli/metrics.hpp"
@@ -547,6 +548,10 @@ int main(int argc, char **argv) {
                 return 2;
             }
             return atperson::cli::run_familiarity(std::cout, graph, argv[2]);
+        }
+
+        if (command == "profile") {
+            return atperson::cli::run_profile(std::cout, graph);
         }
 
         if (command == "drives") {

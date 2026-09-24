@@ -22,6 +22,7 @@ void print_usage(std::ostream &out) {
         << "  atperson audit <context> [max-tokens] [beam-width]\n"
         << "  atperson context <text> [source-id] [author-did]\n"
         << "  atperson familiarity <token>\n"
+        << "  atperson profile\n"
         << "  atperson drives [max-contexts]\n"
         << "  atperson recall <query> [limit] [min-overlap] [max-prefilter] [on|off]\n"
         << "  atperson groups\n"

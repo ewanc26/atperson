@@ -3,6 +3,7 @@
 #include "atperson/action.h"
 #include "atperson/ledger.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <stdexcept>
@@ -339,6 +340,31 @@ std::vector<atp_valence_state> LanguageGraph::valence_records() const {
         require(atp_graph_valence_at(graph_, i, &result[i]), "read valence record");
     }
     return result;
+}
+
+std::vector<std::pair<std::string, float>> LanguageGraph::familiar_tokens(
+    std::size_t limit) const {
+    std::vector<std::pair<std::string, float>> top;
+    top.reserve(limit + 1u);
+    const std::size_t node_count = stats().node_count;
+    for (std::size_t i = 0u; i < node_count; ++i) {
+        char token[ATPERSON_TOKEN_BYTES];
+        float familiarity = 0.0f;
+        if (atp_graph_familiarity_at(graph_, i, token, sizeof(token), &familiarity) !=
+            ATP_OK) {
+            continue;
+        }
+        /* Strongest first; ties keep earlier-observed tokens ahead so the
+         * order is deterministic. */
+        const auto position = std::lower_bound(
+            top.begin(), top.end(), familiarity,
+            [](const std::pair<std::string, float> &a, float b) { return a.second > b; });
+        top.insert(position, {token, familiarity});
+        if (top.size() > limit) {
+            top.pop_back();
+        }
+    }
+    return top;
 }
 
 atp_replay_report LanguageGraph::replay(const Ledger &ledger) {

@@ -33,16 +33,22 @@
 
 namespace atperson {
 
-/* The AT collection every executable #25 action writes to. A reply is still an
- * app.bsky.feed.post record with `reply` strongRefs. */
+/* The AT collections executable actions write to (#152). A reply is still an
+ * app.bsky.feed.post record with `reply` strongRefs; a like/repost writes a
+ * strongRef to its subject record; a follow writes the subject DID. */
 inline constexpr const char *kOutboundPostCollection = "app.bsky.feed.post";
+inline constexpr const char *kOutboundLikeCollection = "app.bsky.feed.like";
+inline constexpr const char *kOutboundRepostCollection = "app.bsky.feed.repost";
+inline constexpr const char *kOutboundFollowCollection = "app.bsky.graph.follow";
 
 inline constexpr const char *kOutboundActionFormat = "atperson-outbound-action";
 inline constexpr std::uint32_t kOutboundActionVersion = 1u;
 
-/* One exact post or reply. `rkey` is frozen up front and used with putRecord,
- * so a retry after an ambiguous failure overwrites the same record key instead
- * of creating a duplicate. */
+/* One exact outbound action (#152): post, reply, like, repost or follow.
+ * `rkey` is frozen up front and used with putRecord, so a retry after an
+ * ambiguous failure overwrites the same record key instead of creating a
+ * duplicate. `subject` is the like/repost subject record at-URI or the follow
+ * subject DID; empty for post/reply. `text` is empty for like/repost/follow. */
 struct OutboundAction {
     OutboundActionKind kind{OutboundActionKind::Post};
     std::string text;
@@ -57,6 +63,7 @@ struct OutboundAction {
      * time, when the records are read from the network. */
     std::string reply_root;
     std::string reply_parent;
+    std::string subject;
     /* Decision evidence (#141), recorded by the scheduler so standing
      * authorization envelopes can apply score floors at execution time.
      * Absent in operator-authored documents; an envelope with a floor
@@ -73,6 +80,13 @@ class OutboundActionError : public std::runtime_error {
 };
 
 [[nodiscard]] bool outbound_action_is_reply(const OutboundAction &action) noexcept;
+
+/* True for like/repost: the record body is a strongRef to `subject`, whose
+ * CID is resolved at execution time. */
+[[nodiscard]] bool outbound_action_is_subject_ref(const OutboundAction &action) noexcept;
+
+/* The AT collection this action's record belongs in. */
+[[nodiscard]] const char *outbound_action_collection(const OutboundAction &action) noexcept;
 
 /* The #23 proposal this document evaluates against: a reply targets its
  * immediate parent, an original post has no target. */
@@ -93,8 +107,9 @@ class OutboundActionError : public std::runtime_error {
  * for a post they are ignored. Throws OutboundActionError when a reply lacks
  * its CIDs or the record cannot be serialised. */
 [[nodiscard]] std::string build_outbound_record_json(const OutboundAction &action,
-                                                     std::string_view root_cid,
-                                                     std::string_view parent_cid);
+                                                      std::string_view root_cid,
+                                                      std::string_view parent_cid,
+                                                      std::string_view subject_cid);
 
 } // namespace atperson
 

@@ -154,6 +154,14 @@ class LanguageGraph {
     [[nodiscard]] std::vector<atp_valence_state> valence_records() const;
 
     /**
+     * The `limit` strongest vocabulary tokens by familiarity, strongest
+     * first, ties broken by first-observation order. Read-only; used by the
+     * runtime-derived profile card (#152).
+     */
+    [[nodiscard]] std::vector<std::pair<std::string, float>>
+    familiar_tokens(std::size_t limit) const;
+
+    /**
      * Mirrored observation ledger: the entries the graph was trained from.
      * Mirrors are persisted in the snapshot so state can be rebuilt from
      * either the ledger or the snapshot alone.

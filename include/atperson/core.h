@@ -985,6 +985,16 @@ atp_status atp_graph_episode_at(const atp_graph *graph, size_t index, atp_episod
 float atp_graph_familiarity(const atp_graph *graph, const char *token);
 
 /**
+ * Copy the i-th vocabulary node's token text and familiarity (0-based, in
+ * node-index order — the order tokens were first observed in). Read-only;
+ * `token` is copied up to `token_bytes` bytes (always NUL-terminated when
+ * `token_bytes > 0`). ATP_ERR_INVALID_ARGUMENT when arguments are invalid,
+ * ATP_ERR_NOT_FOUND when `index >= atp_graph_get_stats(graph)->node_count`.
+ */
+atp_status atp_graph_familiarity_at(const atp_graph *graph, size_t index,
+                                    char *token, size_t token_bytes, float *familiarity);
+
+/**
  * True when `token` is in the graph's vocabulary (it has been observed at
  * least once). Read-only; never interns. Runtime callers use this to honour
  * the valence contract — valence attaches to experienced subjects only —
