@@ -151,18 +151,18 @@ void test_parse_and_match() {
       ]})");
     const JournalAction denied = action_with(JournalActionOutcome::Denied, "aaa", "hello",
                                              "2026-09-17T10:00:00Z");
-    const ValenceRule *match = first_matching_rule(ordered, denied, {});
+    const ValenceRule *match = first_matching_rule(ordered, denied, {}, 1789639200);
     assert(match != nullptr && match->id == "first");
 
     /* Unmapped outcome: no rule fires. */
     const JournalAction deferred = action_with(JournalActionOutcome::Deferred, "bbb", "hello",
                                                 "2026-09-17T10:00:00Z");
-    assert(first_matching_rule(ordered, deferred, {}) == nullptr);
+    assert(first_matching_rule(ordered, deferred, {}, 1789639200) == nullptr);
 
     /* Empty table derives nothing. */
     const RuleTable empty = parse_rule_table(
         R"({"format": "atperson-valence-rules", "version": 1, "rules": []})");
-    assert(first_matching_rule(empty, denied, {}) == nullptr);
+    assert(first_matching_rule(empty, denied, {}, 1789639200) == nullptr);
 }
 
 void test_event_window_matching() {
@@ -178,16 +178,92 @@ void test_event_window_matching() {
     reply.at = "2026-09-17T22:00:00Z"; /* 12h later: inside the 24h window */
 
     const std::vector<JournalEvent> inside{reply};
-    const ValenceRule *match = first_matching_rule(table, executed, inside);
+    const ValenceRule *match = first_matching_rule(table, executed, inside, 1789646400);
     assert(match != nullptr && match->id == "replied-positive");
 
     JournalEvent late = reply;
     late.at = "2026-09-19T10:00:00Z"; /* 48h later: outside */
     const std::vector<JournalEvent> outside{late};
-    assert(first_matching_rule(table, executed, outside) == nullptr);
+    assert(first_matching_rule(table, executed, outside, 1789725600) == nullptr);
 
     /* No events at all: the min_events trigger fails. */
-    assert(first_matching_rule(table, executed, {}) == nullptr);
+    assert(first_matching_rule(table, executed, {}, 1789646400) == nullptr);
+}
+
+void test_expectation_condition_matching() {
+    /* A rule conditioned on a derived expectation state (#149) fires only
+     * for the named terminal state, never while the expectation is pending,
+     * and never for an action without one. */
+    const RuleTable table = parse_rule_table(R"({
+      "format": "atperson-valence-rules", "version": 1, "rules": [
+        {"id": "met-positive", "when": {"outcome": "executed", "expectation": "met"},
+         "kind": "interaction", "signal": 0.5},
+        {"id": "unmet-negative", "when": {"outcome": "executed", "expectation": "unmet"},
+         "kind": "approach", "signal": -0.2},
+        {"id": "expired-negative", "when": {"outcome": "executed", "expectation": "expired"},
+         "kind": "action", "signal": -0.3}
+      ]})");
+
+    /* action_epoch = 1789639200 ("2026-09-17T10:00:00Z"); the expectation
+     * window (7 days) closes at 1790244000. */
+    JournalAction action = action_with(JournalActionOutcome::Executed, "exp1",
+                                       "moonlight", "2026-09-17T10:00:00Z");
+    action.expectation = atperson::JournalExpectation{"approach", 0.7f, {"moonlight"}};
+
+    JournalEvent reply;
+    reply.action_id = "exp1";
+    reply.event_uri = "at://did:plc:other/app.bsky.feed.post/reply1";
+    reply.author_did = "did:plc:other";
+    reply.via = "parent";
+
+    /* Met: an event landed inside the window. */
+    reply.at = "2026-09-17T12:00:00Z";
+    const std::vector<JournalEvent> on_time{reply};
+    const ValenceRule *match =
+        first_matching_rule(table, action, on_time, 1789646400);
+    assert(match != nullptr && match->id == "met-positive");
+
+    /* Unmet: a late reference exists but landed after the window closed. */
+    reply.at = "2026-09-25T10:00:00Z";
+    const std::vector<JournalEvent> late{reply};
+    match = first_matching_rule(table, action, late, 1790330400);
+    assert(match != nullptr && match->id == "unmet-negative");
+
+    /* Expired: never contacted, strict reference window passed. */
+    match = first_matching_rule(table, action, {}, 1790244001);
+    assert(match != nullptr && match->id == "expired-negative");
+
+    /* Pending (window still open, no contact): no condition fires. Even the
+     * rule naming any terminal state must wait. At the exact boundary the
+     * window is still open, so now == 1790244000 keeps it pending. */
+    assert(first_matching_rule(table, action, {}, 1790244000) == nullptr);
+
+    /* An executed action without a recorded expectation is None: it never
+     * matches an expectation-conditioned rule even with contact. */
+    JournalAction unrecorded = action_with(JournalActionOutcome::Executed, "exp2",
+                                           "moonlight", "2026-09-17T10:00:00Z");
+    assert(first_matching_rule(table, unrecorded, on_time, 1789646400) == nullptr);
+
+    /* Only the three terminal states are authorable; `none` and `pending`
+     * (derived, never stored) are refused. */
+    bool threw = false;
+    try {
+        parse_rule_table(R"({"format": "atperson-valence-rules", "version": 1, "rules": [
+            {"id": "a", "when": {"outcome": "executed", "expectation": "pending"},
+             "kind": "action", "signal": 0.1}]})");
+    } catch (const JournalError &) {
+        threw = true;
+    }
+    assert(threw);
+    threw = false;
+    try {
+        parse_rule_table(R"({"format": "atperson-valence-rules", "version": 1, "rules": [
+            {"id": "a", "when": {"outcome": "executed", "expectation": "none"},
+             "kind": "action", "signal": 0.1}]})");
+    } catch (const JournalError &) {
+        threw = true;
+    }
+    assert(threw);
 }
 
 void test_map_command_end_to_end() {
@@ -323,6 +399,7 @@ int main() {
     test_parse_rejects_malformed_tables();
     test_parse_and_match();
     test_event_window_matching();
+    test_expectation_condition_matching();
     test_map_command_end_to_end();
     test_map_skips_unknown_tokens();
     test_map_rejects_bad_arguments();

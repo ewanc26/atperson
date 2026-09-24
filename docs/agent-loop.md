@@ -151,12 +151,14 @@ The action journal is the authority for what the entity itself attempted. It rec
 - the frozen action/rkey/digest;
 - execution outcome and reason;
 - resulting AT URI/CID for confirmed writes;
+- the deterministic prediction of the outcome (`expectation`) when the decision carried evidence (#149);
 - later public reply/root/quote events linked by stable URI;
+- terminal expectation-resolution lines (`met`/`unmet`/`expired`);
 - explicit valence applications.
 
 The observation ledger remains the authority for third-party observations. The two evidence streams are intentionally separate.
 
-Outcome-to-valence mapping is governed by #56 and is explicit, bounded and off by default. Network success or social response does not silently rewrite learned preferences.
+Outcome-to-valence mapping is governed by #56 and is explicit, bounded and off by default. Network success or social response does not silently rewrite learned preferences. An executed action's recorded expectation is resolved against the journal's linked events within a fixed one-week window (`journal resolve`, and automatically at the start of each enabled scheduler cycle); prediction error only ever flows into learned state through an explicit operator-authored rule map whose `when.expectation` condition names a terminal resolution state.
 
 ## Fail-closed matrix
 
