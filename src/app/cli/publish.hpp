@@ -31,6 +31,7 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
                 const std::filesystem::path &policy_file, const std::filesystem::path &budget_file,
                 const std::filesystem::path &control_file, const std::filesystem::path &audit_file,
                 const std::filesystem::path &journal_file,
+                const std::filesystem::path &envelopes_dir,
                 const std::filesystem::path &action_file, std::int64_t now);
 
 } // namespace cli

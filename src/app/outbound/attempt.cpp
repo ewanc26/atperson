@@ -3,6 +3,7 @@
 #include "audit.hpp"
 #include "budget.hpp"
 #include "config.hpp"
+#include "control/envelope.hpp"
 #include "control/state.hpp"
 #include "journal/store.hpp"
 
@@ -62,9 +63,21 @@ OutboundExecutionResult attempt_outbound_action(const OutboundAction &action,
     OutboundBudgetState budget = load_outbound_budget_state(paths.budget_file);
     prune_outbound_budget_state(budget, policy, now);
 
+    /* Standing authorization (#141), evaluated at execution time from
+     * envelope files re-read on this attempt: a revocation or expiry
+     * between attempts always wins. An empty dir means per-digest
+     * approval exactly as before. */
+    std::optional<OutboundEnvelopeGate> envelope_gate;
+    if (!paths.envelopes_dir.empty()) {
+        const EnvelopeEvidence evidence{action.plan_score, action.support_score};
+        envelope_gate = OutboundEnvelopeGate{find_covering_envelope(
+            paths.envelopes_dir, policy, action.kind, action.text, evidence, budget, now)};
+    }
+
     const OutboundExecutionResult result =
         execute_outbound_action(control, policy, budget, action, writer_for, now,
-                                 options.attest, options.external_publishing_allowed);
+                                 options.attest, options.external_publishing_allowed,
+                                 envelope_gate);
 
     if (result.budget_recorded) {
         budget.saved_at = now;
@@ -81,6 +94,10 @@ OutboundExecutionResult attempt_outbound_action(const OutboundAction &action,
     entry.detail = result.detail;
     entry.uri = result.written.uri;
     entry.cid = result.written.cid;
+    /* Which standing rule covered the attempt (#141): empty for digest
+     * approval, so the audit log distinguishes the two authorisation
+     * sources after the fact. */
+    entry.envelope_id = result.authorization.envelope_id;
     if (result.attestation) {
         entry.attestation_cid = result.attestation->payload_cid;
         entry.attestation_signature = result.attestation->signature_hex;

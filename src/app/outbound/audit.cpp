@@ -50,6 +50,9 @@ std::string serialise_outbound_audit_entry(const OutboundAuditEntry &entry) {
     cJSON_AddStringToObject(root.get(), "detail", entry.detail.c_str());
     cJSON_AddStringToObject(root.get(), "uri", entry.uri.c_str());
     cJSON_AddStringToObject(root.get(), "cid", entry.cid.c_str());
+    if (!entry.envelope_id.empty()) {
+        cJSON_AddStringToObject(root.get(), "envelope_id", entry.envelope_id.c_str());
+    }
     if (!entry.attestation_cid.empty()) {
         cJSON_AddStringToObject(root.get(), "attestation_cid", entry.attestation_cid.c_str());
         cJSON_AddStringToObject(root.get(), "attestation_signature", entry.attestation_signature.c_str());

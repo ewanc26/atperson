@@ -92,6 +92,45 @@ A deferred result includes `retry_after_seconds`. Every result carries the budge
 
 The inspection commands also show the current operator control gate. They do not call Wolfram and do not perform network writes.
 
+## Standing authorization envelopes
+
+Per-digest approval binds the operator to the exact action text. Standing
+authorization envelopes (#141) let the operator pre-approve a bounded class
+of actions instead: a grant says "posts mentioning the moon, at most three
+per hour, while decision confidence stays above this floor" without naming
+the exact post.
+
+An envelope only ever narrows policy. It is validated against the live
+policy at grant time and re-checked at execution time: a kind the policy
+does not enable, a ceiling above the policy budget, or a window longer than
+the policy window is rejected. Coverage is evaluated fresh on every attempt
+from the envelope files on disk, so revocation and expiry take effect on
+the very next execution, with no daemon restart.
+
+```sh
+./build/atperson control envelope list
+./build/atperson control envelope show <id>
+./build/atperson control envelope grant <id> kinds=post:3/3600 scope=moon,wolf expires=2026-10-01T00:00:00Z note="nightly moon posts"
+./build/atperson control envelope revoke <id>
+./build/atperson control envelope dry-run <action-file>
+```
+
+`kinds=<kind>:<max_in_window>/<window_seconds>[:<min_plan_score>/<min_support_score>]`
+bounds what the envelope covers. Optional score floors fail closed: an
+action without recorded decision evidence does not pass a configured floor.
+`scope` takes comma-separated terms; the action text must contain at least
+one (case-insensitive) for the envelope to cover it.
+
+The control gate passes when the exact digest is approved **or** an envelope
+covers the action at execution time. Pause and `writes_enabled` still
+override everything. The audit log records the covering `envelope_id` so
+the two authorisation sources stay distinguishable after the fact.
+
+Envelopes live in `<data>/envelopes/` (override with
+`ATPERSON_ENVELOPES`), one JSON document per id, written atomically.
+Corrupt or unreadable envelope files are skipped as non-covering — a broken
+envelope must never widen authorisation.
+
 ## Relationship to `publish`
 
 `atperson publish` evaluates this policy before it creates a Wolfram session. A denial or deferral stops there. The budget is only recorded after a confirmed successful write, so a failed or ambiguous network attempt can be retried with the same frozen action without consuming quota.

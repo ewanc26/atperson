@@ -62,6 +62,7 @@ std::filesystem::path autonomy_run_state_path();
 /* Autonomous scheduler (#140): frozen proposal documents awaiting operator
  * approval or execution. */
 std::filesystem::path scheduler_proposals_path();
+std::filesystem::path authorization_envelopes_path();
 
 std::vector<std::filesystem::path> durable_paths();
 
