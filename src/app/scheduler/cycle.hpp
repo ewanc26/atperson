@@ -94,6 +94,14 @@ struct SchedulerConfig {
      * default; when enabled it composes with the cycle as documented at the
      * top of this header. */
     IntentConfig intents;
+    /* Graduated actions (#152): when the guarded decision layer abstains
+     * below the text floor (LOW_SCORE/LOW_SUPPORT) on a candidate whose
+     * source is a likeable record, compose an explicit like proposal for
+     * that subject instead. The like is a distinct decision with its own
+     * digest and evidence — never an automatic downgrade of a rejected
+     * plan, and it still passes every execution gate unchanged. Off by
+     * default. */
+    bool graduated_likes{false};
 };
 
 /* Accounting for one scheduler cycle, reported to the operator. */
@@ -114,6 +122,9 @@ struct SchedulerCycleReport {
     /* Non-zero when at least one proposal written this cycle was composed as
      * the continuation of a pending social intent (#150). */
     bool ordered_by_intents{false};
+    /* Non-zero when at least one proposal written this cycle was a
+     * graduated like (#152) composed from a below-floor abstention. */
+    std::size_t graduated_likes_written{};
     /* Expectation resolution (#149): how many executed expectations the
      * cycle's resolution pass evaluated, how many were still pending, and
      * how many terminal resolution lines it recorded. */

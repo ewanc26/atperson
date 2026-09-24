@@ -77,6 +77,28 @@ std::string plan_text(const atp_action_decision &decision) {
     return text;
 }
 
+/* Digest for a graduated like proposal (#152): binds to the subject and
+ * the abstention evidence that produced it — kind, subject, abstain
+ * reason and the raw/viable plan counts — so the approval binds to the
+ * exact below-floor decision the operator inspected. Distinct by
+ * construction from any post/reply decision digest. */
+std::string graduated_like_digest(std::string_view subject,
+                                  const atp_action_decision &decision) {
+    std::string canonical = "like";
+    canonical.append(subject);
+    canonical.push_back('\0');
+    canonical.append(reinterpret_cast<const char *>(&decision.abstain_reason),
+                     sizeof(decision.abstain_reason));
+    canonical.append(reinterpret_cast<const char *>(&decision.raw_plan_count),
+                     sizeof(decision.raw_plan_count));
+    canonical.append(reinterpret_cast<const char *>(&decision.viable_plan_count),
+                     sizeof(decision.viable_plan_count));
+    const std::uint64_t digest = atp_ledger_digest(canonical.data(), canonical.size());
+    char hex[17];
+    std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(digest));
+    return std::string(hex, 16u);
+}
+
 /* Atomic write (temp + rename), the same pattern as the run-state and
  * graph snapshots: an interrupted cycle never leaves a partial proposal. */
 void write_proposal(const std::filesystem::path &path, std::string_view contents) {
@@ -173,6 +195,47 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         const drives::ContextCandidate &candidate = candidates[index];
         const atp_action_decision decision = graph.action_decide(candidate.payload);
         if (decision.abstained) {
+            /* Graduated actions (#152): a below-floor abstention on a
+             * likeable subject is itself inspectable evidence. Compose an
+             * explicit like proposal — a distinct decision with its own
+             * digest, never a rewrite of the abstained plan — when the
+             * operator enabled it. The like still passes every execution
+             * gate unchanged. */
+            if (!config.graduated_likes || report.proposals_written >= config.max_proposals) {
+                ++report.abstentions;
+                continue;
+            }
+            /* Every abstention except EMPTY_CONTEXT is a below-text-floor
+             * outcome: no viable candidates, or candidates that failed the
+             * score/support floors. EMPTY_CONTEXT means the payload itself
+             * carried nothing to engage with - nothing to like either. */
+            const bool below_text_floor =
+                decision.abstain_reason != ATP_ACTION_ABSTAIN_EMPTY_CONTEXT;
+            const bool likeable = candidate.source_id.rfind("at://", 0u) == 0u &&
+                                 candidate.source_id.find("/app.bsky.feed.post/") !=
+                                     std::string::npos;
+            if (!below_text_floor || !likeable) {
+                ++report.abstentions;
+                continue;
+            }
+            const std::string like_digest =
+                graduated_like_digest(candidate.source_id, decision);
+            const std::filesystem::path like_proposal =
+                cycle.proposals_dir / (like_digest + ".json");
+            if (std::filesystem::exists(like_proposal)) {
+                ++report.proposals_existing;
+                ++report.abstentions;
+                continue;
+            }
+            OutboundAction like;
+            like.kind = OutboundActionKind::Like;
+            like.subject = candidate.source_id;
+            like.rkey = proposal_tid(cycle.now, like_digest);
+            like.created_at = now_rfc3339;
+            like.digest = like_digest;
+            write_proposal(like_proposal, serialise_outbound_action(like));
+            ++report.proposals_written;
+            ++report.graduated_likes_written;
             ++report.abstentions;
             continue;
         }
@@ -322,6 +385,8 @@ SchedulerConfig scheduler_config_from_environment() {
     config.enabled = enabled != nullptr && std::string_view(enabled) == "1";
     const char *drives = std::getenv("ATPERSON_SCHEDULER_DRIVES");
     config.drives_enabled = drives != nullptr && std::string_view(drives) == "1";
+    const char *graduated = std::getenv("ATPERSON_SCHEDULER_GRADUATED_LIKES");
+    config.graduated_likes = graduated != nullptr && std::string_view(graduated) == "1";
     config.intents = intent_config_from_environment();
     return config;
 }
