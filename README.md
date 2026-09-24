@@ -126,6 +126,7 @@ More detail lives in:
 
 - [`docs/valence.md`](docs/valence.md)
 - [`docs/reflection.md`](docs/reflection.md)
+- [`lexicons/`](lexicons/README.md) — the `click.croft.*` AT Protocol lexicon catalog for records the entity publishes
 - [`docs/conversation-context.md`](docs/conversation-context.md)
 - [`docs/action-inspection.md`](docs/action-inspection.md)
 - [`docs/action-journal.md`](docs/action-journal.md)
