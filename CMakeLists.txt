@@ -197,6 +197,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/control.cpp
     src/app/cli/cursor.cpp
     src/app/cli/daemon.cpp
+    src/app/cli/drives.cpp
     src/app/cli/envelope.cpp
     src/app/cli/jetstream.cpp
     src/app/cli/outbound.cpp
@@ -237,6 +238,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/execute.cpp
     src/app/outbound/attempt.cpp
     src/app/scheduler/cycle.cpp
+    src/app/scheduler/drives.cpp
     src/app/state/lock.cpp
     src/app/sync/engine.cpp
   src/app/sync/jetstream_backfill.cpp
@@ -631,6 +633,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/outbound/evaluate.cpp
     src/app/outbound/execute.cpp
     src/app/scheduler/cycle.cpp
+    src/app/scheduler/drives.cpp
     src/app/state/time.cpp
     src/app/state/lock.cpp)
   target_compile_features(atperson-scheduler-test PRIVATE cxx_std_23)
@@ -661,6 +664,22 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-envelope-test PRIVATE atperson-cpp)
   target_include_directories(atperson-envelope-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-envelope COMMAND atperson-envelope-test)
+
+  # Experience-derived drives (#148): curiosity (novelty x adjacency) and
+  # reciprocity (referenced-outbound-action signals) as bounded, inspectable
+  # scheduler-initiation orderings. Deterministic and offline over a real
+  # graph and journal; no network.
+  add_executable(
+    atperson-drives-test
+    tests/scheduler/drives.cpp
+    src/app/journal/store.cpp
+    src/app/ledger.cpp
+    src/app/scheduler/drives.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-drives-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-drives-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-drives-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-drives COMMAND atperson-drives-test)
 
   # Action/outcome journal (#27): durable append-only record of the entity's
   # own outbound attempts, public events that reference executed records and

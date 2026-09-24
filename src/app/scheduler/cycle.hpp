@@ -67,6 +67,11 @@ struct SchedulerConfig {
     /* Wall-clock bound for the whole cycle, in milliseconds; 0 = unbounded.
      * Checked between execution attempts, the only potentially slow stage. */
     std::int64_t max_cycle_ms{0};
+    /* Reorder candidate decision contexts by experience-derived drives
+     * (#148): reciprocity first, then curiosity, then newest-first. Only
+     * changes which contexts are decided on first; never widens the
+     * decision or gate bounds. Off by default. */
+    bool drives_enabled{false};
 };
 
 /* Accounting for one scheduler cycle, reported to the operator. */
@@ -81,6 +86,9 @@ struct SchedulerCycleReport {
     std::size_t refused{};
     std::size_t failed{};
     std::string detail;
+    /* Non-zero when drives reordering (#148) was applied to the candidate
+     * context list for this cycle. */
+    bool ordered_by_drives{false};
 };
 
 /* Paths and injected collaborators for one cycle. `writer_for` is the same

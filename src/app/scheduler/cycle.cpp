@@ -3,6 +3,7 @@
 #include "action/inspection.hpp"
 #include "control/envelope.hpp"
 #include "control/state.hpp"
+#include "drives.hpp"
 #include "journal/store.hpp"
 #include "outbound/budget.hpp"
 #include "outbound/config.hpp"
@@ -116,24 +117,30 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
 
     /* Contexts: the most recent committed ledger payloads, newest first.
      * The ledger is the durable authority for what the entity observed;
-     * the scheduler keeps no parallel context store. */
-    const std::vector<atp_ledger_entry> entries = ledger.entries();
+     * the scheduler keeps no parallel context store. When drive ordering is
+     * enabled (#148), the same candidate list is reordered — reciprocity
+     * first, then curiosity — before decisions; the decision and gate
+     * bounds never change. */
+    const std::vector<drives::ContextCandidate> candidates =
+        drives::select_candidates(ledger, config.max_contexts);
+    report.contexts_examined = candidates.size();
+
     std::vector<std::string> contexts;
-    contexts.reserve(config.max_contexts);
-    for (auto it = entries.rbegin(); it != entries.rend() && contexts.size() < config.max_contexts;
-         ++it) {
-        /* Only committed outcomes are durable observation authority;
-         * PENDING entries are mid-pipeline, WITHDRAWN ones are gone. */
-        if (it->outcome == ATP_LEDGER_OUTCOME_PENDING) {
-            continue;
+    contexts.reserve(candidates.size());
+    report.ordered_by_drives = config.drives_enabled;
+    if (config.drives_enabled) {
+        const JournalContents journal = load_journal(cycle.attempt.journal_file);
+        const std::vector<drives::Signals> signals =
+            drives::compute_drive_signals(graph, candidates, journal, cycle.now);
+        const std::vector<std::size_t> order = drives::order_candidates(signals);
+        for (const std::size_t index : order) {
+            contexts.push_back(candidates[index].payload);
         }
-        /* Payload-less entries (v1-migrated) carry nothing to decide on. */
-        const std::string payload = ledger.payload(it->id);
-        if (!payload.empty()) {
-            contexts.push_back(payload);
+    } else {
+        for (const drives::ContextCandidate &candidate : candidates) {
+            contexts.push_back(candidate.payload);
         }
     }
-    report.contexts_examined = contexts.size();
 
     /* Decision -> proposal. Abstention is a first-class outcome, counted
      * and reported; it is never an error. */
@@ -257,6 +264,8 @@ SchedulerConfig scheduler_config_from_environment() {
     SchedulerConfig config;
     const char *enabled = std::getenv("ATPERSON_SCHEDULER");
     config.enabled = enabled != nullptr && std::string_view(enabled) == "1";
+    const char *drives = std::getenv("ATPERSON_SCHEDULER_DRIVES");
+    config.drives_enabled = drives != nullptr && std::string_view(drives) == "1";
     return config;
 }
 

@@ -290,6 +290,68 @@ void test_abstention_writes_no_proposal() {
     assert(report.proposals_written == 0u);
 }
 
+/* The first decision slot is the bounded initiation surface: with max one
+ * proposal per cycle, drive ordering (#148) decides *which* context gets it.
+ * The reply referencing an executed action must beat a newer, unrelated post. */
+void test_drives_reorder_first_decision_context() {
+    const GateFiles off_gates("drives-off");
+    const GateFiles on_gates("drives-on");
+    FakeWriter writer;
+    LanguageGraph graph;
+    for (std::size_t i = 0u; i < 8u; ++i) {
+        graph.observe("alpha beta", "at://drives/observe/a/" + std::to_string(i));
+        graph.observe("foo bar", "at://drives/observe/b/" + std::to_string(i));
+    }
+
+    const auto run_with = [&](const GateFiles &gates, bool drives_enabled) -> SchedulerCycleReport {
+        Ledger ledger(gates.root / "ledger.bin");
+        std::uint64_t id = 0u;
+        /* Older: the reply that referenced an executed action (reciprocity). */
+        assert(ledger.append("at://scheduler/reply/2", "did:plc:fan", NOW,
+                             Ledger::digest("alpha"), 1u, ATP_LEDGER_OUTCOME_LEARNED, "alpha",
+                             &id) == atperson::LedgerResult::New);
+        /* Newest: an unrelated post with no journal link. */
+        assert(ledger.append("at://scheduler/post/9", "did:plc:fan", NOW, Ledger::digest("foo"),
+                             1u, ATP_LEDGER_OUTCOME_LEARNED, "foo", &id) ==
+               atperson::LedgerResult::New);
+        atperson::JournalEvent event;
+        event.action_id = "reply-rkey";
+        event.event_uri = "at://scheduler/reply/2";
+        event.author_did = "did:plc:fan";
+        event.via = "reply";
+        event.at = "2023-11-15T00:00:00Z";
+        atperson::append_journal_event(gates.journal, event);
+
+        SchedulerConfig config = enabled_config();
+        config.drives_enabled = drives_enabled;
+        const SchedulerCycleReport report =
+            atperson::run_scheduler_cycle(config, make_cycle(gates, gates.root, writer), graph,
+                                          ledger);
+        assert(report.contexts_examined == 2u);
+        assert(report.decisions == 1u);
+        assert(report.proposals_written == 1u);
+        return report;
+    };
+
+    /* Without drives: the newer unrelated post ("foo") wins the slot. */
+    const SchedulerCycleReport off = run_with(off_gates, false);
+    assert(!off.ordered_by_drives);
+    std::string off_text;
+    for (const auto &entry : std::filesystem::directory_iterator(off_gates.root / "proposals")) {
+        off_text = atperson::load_outbound_action(entry.path()).text;
+    }
+    assert(off_text == "bar");
+
+    /* With drives: the reciprocated reply context ("alpha") wins the slot. */
+    const SchedulerCycleReport on = run_with(on_gates, true);
+    assert(on.ordered_by_drives);
+    std::string on_text;
+    for (const auto &entry : std::filesystem::directory_iterator(on_gates.root / "proposals")) {
+        on_text = atperson::load_outbound_action(entry.path()).text;
+    }
+    assert(on_text == "beta");
+}
+
 } // namespace
 
 int main() {
@@ -299,6 +361,7 @@ int main() {
     test_pause_between_cycles_refuses_execution();
     test_existing_proposal_is_never_rewritten();
     test_abstention_writes_no_proposal();
+    test_drives_reorder_first_decision_context();
     std::cout << "atperson-scheduler: all assertions passed\n";
     return 0;
 }
