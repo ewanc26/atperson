@@ -95,7 +95,7 @@ credentials are unset and outbound policy is fail-closed by default.
 
 ## Scenario walkthrough
 
-`atperson-sandbox scenario` runs twelve steps and fails loudly if any step errors:
+`atperson-sandbox scenario` runs eleven steps and fails loudly if any step errors:
 
 1. `stats` — confirm the empty graph
 2. `ingest-file` — train on each text fixture
