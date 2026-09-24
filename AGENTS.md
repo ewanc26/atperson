@@ -1,8 +1,8 @@
 # AGENTS.md
 
-## Purpose and architectural invariant
+## `ATperson`
 
-`atperson` is an experimental persistent learning entity for the AT Protocol. It
+`ATperson` is an experimental persistent learning entity for the AT Protocol. It
 must grow from observed experience rather than from a developer-authored
 persona.
 
@@ -25,7 +25,7 @@ The project has a strict C23/C++23 boundary:
   unverified; they must never be fabricated from a firehose cursor.
 - **`ewanc26/wolfram` owns AT Protocol mechanics.** Use Wolfram for sessions,
   XRPC/protocol operations and eventual repository writes. Do not copy or
-  reimplement Wolfram protocol APIs inside atperson.
+  reimplement Wolfram protocol APIs inside ATperson.
 
 If a learning, memory or planning primitive cannot be built and tested with
 `ATPERSON_BUILD_NETWORK=OFF`, the boundary is probably wrong.

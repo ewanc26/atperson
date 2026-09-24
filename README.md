@@ -1,10 +1,10 @@
-# atperson
+# ATperson
 
-`atperson` is an experiment in building a persistent digital entity on the [AT Protocol](https://atproto.com/) that starts with effectively nothing and develops its own learned state through experience.
+`ATperson` is an experiment in building a persistent digital entity on the [AT Protocol](https://atproto.com/) that starts with effectively nothing and develops its own learned state through experience.
 
-The point is not to wrap an LLM in a biography and call it a person. `atperson` starts without a seeded vocabulary, personality, ideology, preferences, opinions or life story. What it knows has to come from observations, and the state produced by those observations has to be durable, inspectable and reconstructable.
+The point is not to wrap an LLM in a biography and call it a person. `ATperson` starts without a seeded vocabulary, personality, ideology, preferences, opinions or life story. What it knows has to come from observations, and the state produced by those observations has to be durable, inspectable and reconstructable.
 
-This is experimental software. `atperson` does **not** claim sentience or personhood, and autonomous network behaviour is deliberately still gated behind explicit policy and operator control.
+This is experimental software. `ATperson` does **not** claim sentience or personhood, and autonomous network behaviour is deliberately still gated behind explicit policy and operator control.
 
 ## Design
 
@@ -73,6 +73,7 @@ The project is already beyond the initial scaffold. The important pieces current
 | Growth limits | Implemented | Bounded node/edge growth with O(1) indexes and capacity rejection |
 | Dynamic resource policy | Implemented | Runtime budgets respond to CPU, RAM, filesystem headroom and Linux cgroups |
 | Long-running runtime | Implemented | `atperson daemon` performs bounded repeated sync cycles with backoff and graceful shutdown |
+| Jetstream ingestion | Implemented | Unauthenticated public backfill via `atperson jetstream`, with zstd dictionary-compressed binary frames |
 | Outbound policy | Implemented | Default-deny policy, durable rate budgets, duplicate suppression and inspectable decisions |
 | Outbound execution | Operator-led | Approved frozen post/reply actions can be published through Wolfram with audit logging and idempotent record keys |
 | Action/outcome journal | Implemented | Outbound attempts and outcomes are durable and replayable into valence |
@@ -86,7 +87,7 @@ The model begins with **zero words and zero relationships**. Neural parameters h
 
 The observation ledger is the authority for what external material has actually been committed. Learning happens on top of it, not instead of it.
 
-That gives `atperson` a few properties I care about:
+That gives `ATperson` a few properties I care about:
 
 - a crash does not silently train the same committed post twice;
 - learned state can be rebuilt from retained observations;
@@ -126,11 +127,11 @@ More detail lives in:
 - [`docs/action-journal.md`](docs/action-journal.md)
 - [`docs/jetstream.md`](docs/jetstream.md)
 
-## `atperson` vs `digital-person`
+## `ATperson` vs `digital-person`
 
 [`ewanc26/digital-person`](https://github.com/ewanc26/digital-person) explores a similar broad idea from the opposite direction.
 
-| | `atperson` | `digital-person` |
+| | `ATperson` | `digital-person` |
 | --- | --- | --- |
 | Starting point | Empty learner | Authored persona |
 | Persona | Not seeded | Defined in files |
@@ -141,13 +142,13 @@ More detail lives in:
 | AT Protocol | Wolfram-backed runtime | Platform adapters |
 | Goal | Grow a persistent learned entity | Run a persistent authored digital person |
 
-The short version is that `digital-person` is a **persona to run**, while `atperson` is a **learner to grow**. They are related projects, but they are not interchangeable.
+The short version is that `digital-person` is a **persona to run**, while `ATperson` is a **learner to grow**. They are related projects, but they are not interchangeable.
 
 ## Resource policy
 
-`atperson` derives runtime limits from the machine or container it is actually running on. Resource policy does not become learned state and is never persisted as personality or preference.
+`ATperson` derives runtime limits from the machine or container it is actually running on. Resource policy does not become learned state and is never persisted as personality or preference.
 
-`atperson resources` reports the detected limits and derived budget. The runtime considers:
+`ATperson resources` reports the detected limits and derived budget. The runtime considers:
 
 - effective CPU capacity, including fractional quotas;
 - total and currently available memory;
@@ -182,7 +183,7 @@ GitHub Actions covers Linux GCC, Linux Clang, macOS Apple Clang, ASan/UBSan and 
 
 ## Runtime execution policy
 
-The persisted neural architecture is not the same thing as the resources used to execute it. `atperson resources` reports a separate runtime neural execution policy derived from the CPU and memory available to the current process.
+The persisted neural architecture is not the same thing as the resources used to execute it. `ATperson resources` reports a separate runtime neural execution policy derived from the CPU and memory available to the current process.
 
 Policy v1 uses the portable deterministic CPU backend, keeps the C23 learner under one owner thread, and adapts surrounding worker allowance, staged observation work and transient workspace to current headroom. A weaker host can therefore reduce throughput without silently shrinking the learned model. Future SIMD or accelerator backends must define their replay/numeric compatibility before they can be selected.
 
@@ -196,7 +197,7 @@ By default, state lives under:
 
 The main files are the model snapshot (`model.bin`), observation ledger (`ledger.bin`) and ingestion cursor (`ingestion-state.json`). The whole directory can be moved with `ATPERSON_HOME`; individual paths can also be overridden.
 
-On first run, `atperson` creates the data directory and a local `.env` template without overwriting existing files.
+On first run, `ATperson` creates the data directory and a local `.env` template without overwriting existing files.
 
 For authenticated timeline ingestion:
 
@@ -313,7 +314,7 @@ See [`docs/outbound-execution.md`](docs/outbound-execution.md).
 
 ## Current boundaries
 
-`atperson` currently does **not**:
+`ATperson` currently does **not**:
 
 - read private messages or private data;
 - autonomously post, reply, like, follow, repost, DM or moderate;
