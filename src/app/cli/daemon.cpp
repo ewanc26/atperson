@@ -21,8 +21,13 @@
 #include "reflect/config.hpp"
 #include "reflect/pass.hpp"
 #include "scheduler/cycle.hpp"
+#include "cli/metrics.hpp"
 #include "cli/thoughts.hpp"
+#include "selfeval/config.hpp"
+#include "selfeval/pass.hpp"
 #include "worker/pool.hpp"
+#include <cmath>
+#include <iomanip>
 
 #include <algorithm>
 #include <chrono>
@@ -359,6 +364,7 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
     unsigned long long cycle_number = 0;
     const SchedulerConfig scheduler_config = scheduler_config_from_environment();
     const ReflectionConfig reflection_config = reflection_config_from_environment();
+    const SelfEvalConfig self_eval_config = self_eval_config_from_environment();
     std::uint64_t scheduler_cycles = 0;
     std::uint64_t scheduler_decisions = 0;
     std::uint64_t scheduler_abstentions = 0;
@@ -385,9 +391,9 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                 return true;
             }
         },
-        [&out, &data_dir, &cycle_number, &scheduler_config, &reflection_config, &graph, &ledger,
-         &scheduler_cycles, &scheduler_decisions, &scheduler_abstentions, &scheduler_executed](
-            const SyncResult &result) {
+        [&out, &data_dir, &cycle_number, &scheduler_config, &reflection_config, &self_eval_config,
+         &graph, &ledger, &scheduler_cycles, &scheduler_decisions, &scheduler_abstentions,
+         &scheduler_executed](const SyncResult &result) {
             ++cycle_number;
             out << "daemon: cycle " << cycle_number << ": " << result.pages_completed
                 << " page(s), " << result.observations_seen << " observation(s), learned "
@@ -404,16 +410,37 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                 scheduler_executed += scheduler_report.executed;
                 print_scheduler_report(out, scheduler_report);
             }
-            if (reflection_config.enabled) {
+            if (reflection_config.enabled || self_eval_config.enabled) {
                 const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-                const StateLock thoughts_lock(data_dir, "thoughts-lock");
                 const JournalContents journal = load_journal(action_journal_path());
-                const ReflectionReport reflection_report = run_reflection_pass(
-                    thoughts_path(data_dir), journal, graph, reflection_config,
-                    static_cast<std::uint64_t>(now));
-                if (reflection_report.thoughts_written > 0u) {
-                    print_reflection_report(out, reflection_report, reflection_config,
-                                             control_now_rfc3339());
+                if (reflection_config.enabled) {
+                    const StateLock thoughts_lock(data_dir, "thoughts-lock");
+                    const ReflectionReport reflection_report = run_reflection_pass(
+                        thoughts_path(data_dir), journal, graph, reflection_config,
+                        static_cast<std::uint64_t>(now));
+                    if (reflection_report.thoughts_written > 0u) {
+                        print_reflection_report(out, reflection_report, reflection_config,
+                                                 control_now_rfc3339());
+                    }
+                }
+                if (self_eval_config.enabled) {
+                    const StateLock metrics_lock(data_dir, "metrics-lock");
+                    const SelfEvalReport self_eval_report = run_self_eval_pass(
+                        metrics_path(data_dir), journal, graph, self_eval_config,
+                        static_cast<std::uint64_t>(now));
+                    if (self_eval_report.due) {
+                        const MetricSnapshot &snapshot = *self_eval_report.snapshot;
+                        out << "self-eval: snapshot " << snapshot.id << " due ("
+                            << self_eval_report.reason << "); actions "
+                            << snapshot.actions.executed << '/' << snapshot.actions.attempts
+                            << " admitted, accepts " << snapshot.interaction.invites_replied
+                            << "/" << (snapshot.interaction.invites_replied +
+                                       snapshot.interaction.invites_expired)
+                            << " terminal intents, valence drift ";
+                        out << (snapshot.valence.drift >= 0.0 ? '+' : '-') << std::fixed
+                            << std::setprecision(2) << std::fabs(snapshot.valence.drift)
+                            << ", " << snapshot.familiarity.authors << " author(s)\n";
+                    }
                 }
             }
         },

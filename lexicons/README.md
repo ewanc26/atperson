@@ -26,6 +26,7 @@ Details and validation rules: `.agents/skills/atproto-lexicon/shared/lexicon-spe
 | NSID | Def | Record key | Purpose |
 | --- | --- | --- | --- |
 | `click.croft.thought` | `main` (record) | `tid` | A self-authored internal note — reflection, consolidation summary, or movement trigger notice. Mirrors the durable thought store (`src/app/thought/store.cpp`, #151) so the local record publishes in full. |
+| `click.croft.atperson.metric` | `main` (record) | `tid` | A schema-versioned longitudinal self-evaluation snapshot — cumulative action execution, terminal intent success, reply ratio, valence drift, familiarity growth and a bounded per-period trace. Mirrors the durable metric store (`src/app/selfeval/store.cpp`, #153) so the local record publishes in full. |
 
 ## Rules
 

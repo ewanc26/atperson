@@ -248,10 +248,15 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/intent/sweep.cpp
     src/app/intent/mutate.cpp
     src/app/state/lock.cpp
+    src/app/state/records.cpp
     src/app/state/time.cpp
     src/app/thought/store.cpp
     src/app/reflect/config.cpp
     src/app/reflect/pass.cpp
+    src/app/selfeval/config.cpp
+    src/app/selfeval/store.cpp
+    src/app/selfeval/pass.cpp
+    src/app/cli/metrics.cpp
     src/app/sync/engine.cpp
   src/app/sync/jetstream_backfill.cpp
   src/app/sync/jetstream_archive.cpp
@@ -807,11 +812,37 @@ if(ATPERSON_BUILD_TESTS)
     src/app/reflect/pass.cpp
     src/app/journal/store.cpp
     src/app/state/lock.cpp
+    src/app/state/records.cpp
     src/app/state/time.cpp)
   target_compile_features(atperson-reflect-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-reflect-test PRIVATE atperson-cpp)
   target_include_directories(atperson-reflect-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-reflect COMMAND atperson-reflect-test)
+
+  # Longitudinal self-evaluation (#153): schema-versioned metric snapshots
+  # (round-trip, torn/id-mismatch rejection, previous-chain provenance), the
+  # deterministic read-only pass (actions executed vs. admitted, terminal
+  # intent success, cumulative reply ratio, valence drift, familiarity growth,
+  # bounded window trace), the cadence gate (first snapshot due, rerun within
+  # cadence writes nothing), one-pass reflection of a fixture change (a
+  # rating drop, a reply spike), read-only guarantees (the graph is never
+  # mutated), and the metrics/selfeval CLI atoms. Offline, clock injected,
+  # no network.
+  add_executable(
+    atperson-selfeval-test
+    tests/selfeval/selfeval.cpp
+    src/app/cli/metrics.cpp
+    src/app/selfeval/config.cpp
+    src/app/selfeval/pass.cpp
+    src/app/selfeval/store.cpp
+    src/app/journal/store.cpp
+    src/app/state/lock.cpp
+    src/app/state/records.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-selfeval-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-selfeval-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-selfeval-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-selfeval COMMAND atperson-selfeval-test)
 
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay
@@ -934,6 +965,19 @@ if(ATPERSON_BUILD_TESTS)
       atperson-attestation-proof-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
     add_test(NAME atperson-attestation-proof
              COMMAND atperson-attestation-proof-test)
+
+    # Lexicon catalog validation: every record the entity publishes must have a
+    # loadable schema and its fixtures must validate (thoughts, self-eval
+    # metrics). Wolfram is only fetched in the network build, so this test runs
+    # there; it loads the catalog from the repo root lexicons/ directory.
+    add_executable(atperson-lexicon-test tests/lexicon/lexicon.cpp)
+    target_compile_features(atperson-lexicon-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-lexicon-test PRIVATE wolfram)
+    target_include_directories(atperson-lexicon-test PRIVATE
+                               ${CMAKE_CURRENT_SOURCE_DIR}/lexicons)
+    add_test(NAME atperson-lexicon COMMAND atperson-lexicon-test)
+    set_tests_properties(atperson-lexicon PROPERTIES WORKING_DIRECTORY
+                                                    ${CMAKE_SOURCE_DIR})
   endif()
 
   add_executable(

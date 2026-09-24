@@ -78,6 +78,7 @@ The project is already beyond the initial scaffold. The important pieces current
 | Outbound execution | Operator-led | Approved frozen post/reply actions can be published through Wolfram with audit logging and idempotent record keys |
 | Action/outcome journal | Implemented | Outbound attempts and outcomes are durable and replayable into valence; autonomous actions record their predicted outcome (`expectation`), resolved forward against linked events (#149) |
 | Reflective thought store | Implemented | Durable, crash-safe thought surface with template-authored `reflection`/`consolidation`/`movement` entries; the deterministic reflection pass (#151) writes bounded consolidations and movement triggers and is read-only over learned state |
+| Longitudinal self-evaluation | Implemented | Schema-versioned metric snapshots of cumulative action execution, terminal intent success (#150), reply ratio, valence drift and familiarity growth with a bounded per-period trace; the pass is read-only, cadence-gated and never schedules or gates activity (#153) |
 | Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup |
 | Agent loop | Contract documented | Perception → decision → policy → control → execution → journal boundaries are defined; autonomous scheduler is off by default (`ATPERSON_SCHEDULER`) |
 | Experience-derived drives | Implemented | Curiosity (novelty × adjacency) and reciprocity (referenced-action) reorder scheduler contexts; off by default (`ATPERSON_SCHEDULER_DRIVES`), never weakens gates |

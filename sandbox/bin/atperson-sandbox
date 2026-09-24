@@ -13,8 +13,8 @@
 #   run       run any atperson CLI command inside the sandbox
 #             e.g. sandbox/bin/atperson-sandbox run stats
 #   scenario  run the scripted end-to-end walkthrough (train -> plan -> decide
-#             -> audit -> outbound evaluation -> thought store/reflection),
-#             then print sandbox stats
+#             -> audit -> outbound evaluation -> thought store/reflection ->
+#             self-evaluation/metrics), then print sandbox stats
 #
 # Environment:
 #   ATPERSON_SANDBOX_HOME  sandbox data directory
@@ -129,7 +129,13 @@ sandbox_scenario() {
     sandbox_run reflect || failed=1
     echo
 
-    echo "==> step 11: final stats"
+    echo "==> step 11: longitudinal self-evaluation and metrics"
+    sandbox_run selfeval || failed=1
+    sandbox_run selfeval || failed=1
+    sandbox_run metrics || failed=1
+    echo
+
+    echo "==> step 12: final stats"
     sandbox_run stats || failed=1
     echo
 
