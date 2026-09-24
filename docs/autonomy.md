@@ -25,7 +25,15 @@ The daemon owns the long-lived writer lock and runs bounded sync cycles. Each
 cycle checkpoints durable state only after successful processing, uses bounded
 backoff on transport failures, and responds to pause, resume, shutdown, and
 resource-pressure controls. A restart reconstructs state from the snapshot and
-replayable ledgers rather than trusting transient process memory.
+replayable ledgers rather than trusting transient process memory. When the
+scheduler is enabled, each cycle first runs the idempotent expectation-
+resolution pass (#149), so events that landed since the last cycle are judged
+before any new decision is made. With intents enabled (`ATPERSON_INTENTS=1`),
+the same head of cycle also sweeps the journal's open conversations: the
+window-closed and budget-reached states are journaled once and never drive
+another decision. Decision contexts that continue an open conversation are
+composed as continuation replies under the same policy, rate-budget and
+approval gates as the original action (#150).
 
 The autonomy supervisor must maintain these invariants:
 

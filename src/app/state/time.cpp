@@ -1,6 +1,7 @@
 #include "time.hpp"
 
 #include <cstdio>
+#include <ctime>
 #include <stdexcept>
 #include <string>
 
@@ -95,6 +96,20 @@ std::optional<std::uint64_t> parse_rfc3339_epoch(std::string_view value) {
         return std::nullopt;
     }
     return static_cast<std::uint64_t>(epoch);
+}
+
+std::string rfc3339_from_unix(std::int64_t unix_seconds) {
+    const std::time_t value = static_cast<std::time_t>(unix_seconds);
+    std::tm utc{};
+#if defined(_WIN32)
+    gmtime_s(&utc, &value);
+#else
+    gmtime_r(&value, &utc);
+#endif
+    char buffer[32];
+    std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02dT%02d:%02d:%02dZ", utc.tm_year + 1900,
+                  utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec);
+    return buffer;
 }
 
 } // namespace atperson

@@ -1,14 +1,15 @@
 #include "store.hpp"
 
+#include "state/records.hpp"
+
 #include <cJSON.h>
 
-#include <fcntl.h>
-#include <unistd.h>
-
+#include <algorithm>
+#include <cstdint>
 #include <fstream>
-#include <sstream>
 #include <iterator>
-#include <optional>
+#include <sstream>
+#include <string>
 #include <string_view>
 
 namespace atperson {
@@ -18,50 +19,10 @@ namespace {
     throw ThoughtError("thought store: " + message);
 }
 
-/* fsync the file's directory so an appended line survives a crash after
- * the caller returns. */
-void sync_parent_directory(const std::filesystem::path &path) {
-    const auto parent = path.parent_path();
-    if (parent.empty()) {
-        return;
-    }
-    std::error_code ec;
-    std::filesystem::path canonical = std::filesystem::canonical(parent, ec);
-    if (ec) {
-        canonical = parent;
-    }
-#if defined(_WIN32)
-    (void)canonical;
-#else
-    const int fd = ::open(canonical.c_str(), O_RDONLY);
-    if (fd >= 0) {
-        ::fsync(fd);
-        ::close(fd);
-    }
-#endif
-}
-
-void append_line(const std::filesystem::path &path, const std::string &line) {
-    if (const auto parent = path.parent_path(); !parent.empty()) {
-        std::error_code ec;
-        std::filesystem::create_directories(parent, ec);
-    }
-    std::ofstream file(path, std::ios::binary | std::ios::app);
-    if (!file) {
-        throw std::runtime_error("cannot append thought store " + path.string());
-    }
-    file << line << '\n';
-    file.flush();
-    if (!file) {
-        throw std::runtime_error("failed while writing thought store " + path.string());
-    }
-    sync_parent_directory(path);
-}
-
 std::string required_string(const cJSON *entry, const char *name) {
     const cJSON *field = cJSON_GetObjectItemCaseSensitive(entry, name);
     if (!cJSON_IsString(field) || field->valuestring == nullptr) {
-        fail(std::string("thought entry field '") + name + "' is missing or not a string");
+        fail(std::string("thought record field '") + name + "' is missing or not a string");
     }
     return field->valuestring;
 }
@@ -72,7 +33,7 @@ std::string optional_string(const cJSON *entry, const char *name) {
         return {};
     }
     if (!cJSON_IsString(field) || field->valuestring == nullptr) {
-        fail(std::string("thought entry field '") + name + "' is present but not a string");
+        fail(std::string("thought record field '") + name + "' is present but not a string");
     }
     return field->valuestring;
 }
@@ -80,7 +41,11 @@ std::string optional_string(const cJSON *entry, const char *name) {
 } // namespace
 
 bool thought_kind_is_valid(std::string_view kind) {
-    return kind == "reflection";
+    return kind == "reflection" || kind == "consolidation" || kind == "movement";
+}
+
+std::string new_thought_id() {
+    return new_record_id();
 }
 
 std::string serialise_thought(const Thought &entry) {
@@ -89,7 +54,7 @@ std::string serialise_thought(const Thought &entry) {
     }
     cJSON *root = cJSON_CreateObject();
     if (!root) {
-        throw std::runtime_error("failed to allocate thought entry");
+        throw std::runtime_error("failed to allocate thought record");
     }
     cJSON_AddStringToObject(root, "format", "atperson-thought");
     cJSON_AddNumberToObject(root, "version", kThoughtFormatVersion);
@@ -102,10 +67,19 @@ std::string serialise_thought(const Thought &entry) {
         cJSON_AddNullToObject(root, "about");
     }
     cJSON_AddStringToObject(root, "at", entry.at.c_str());
+    if (!entry.span_start.empty()) {
+        cJSON_AddStringToObject(root, "span_start", entry.span_start.c_str());
+    }
+    if (!entry.span_end.empty()) {
+        cJSON_AddStringToObject(root, "span_end", entry.span_end.c_str());
+    }
+    if (!entry.topic.empty()) {
+        cJSON_AddStringToObject(root, "topic", entry.topic.c_str());
+    }
     char *raw = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (!raw) {
-        throw std::runtime_error("failed to serialise thought entry");
+        throw std::runtime_error("failed to serialise thought record");
     }
     std::string json(raw);
     cJSON_free(raw);
@@ -118,7 +92,7 @@ Thought parse_thought(std::string_view json) {
         if (root) {
             cJSON_Delete(root);
         }
-        fail("entry is not a JSON object");
+        fail("record is not a JSON object");
     }
     Thought entry;
     try {
@@ -139,6 +113,9 @@ Thought parse_thought(std::string_view json) {
         entry.text = required_string(root, "text");
         entry.about_uri = optional_string(root, "about");
         entry.at = required_string(root, "at");
+        entry.span_start = optional_string(root, "span_start");
+        entry.span_end = optional_string(root, "span_end");
+        entry.topic = optional_string(root, "topic");
     } catch (...) {
         cJSON_Delete(root);
         throw;
@@ -147,46 +124,44 @@ Thought parse_thought(std::string_view json) {
     return entry;
 }
 
-void append_thought(const std::filesystem::path &path, const Thought &entry) {
-    append_line(path, serialise_thought(entry));
+std::filesystem::path thought_record_path(const std::filesystem::path &dir, std::string_view id) {
+    return record_path(dir, id);
 }
 
-ThoughtContents load_thoughts(const std::filesystem::path &path) {
-    ThoughtContents contents;
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        return contents;
-    }
-    const std::string raw{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-    if (raw.empty()) {
-        return contents;
-    }
+bool thought_record_exists(const std::filesystem::path &dir, std::string_view id) {
+    return record_exists(dir, id);
+}
 
-    std::vector<std::string> lines;
-    {
-        std::string line;
-        std::istringstream stream{raw};
-        while (std::getline(stream, line)) {
-            lines.push_back(line);
+void write_thought(const std::filesystem::path &dir, const Thought &entry) {
+    if (entry.id.empty()) {
+        throw std::runtime_error("thought record requires an id");
+    }
+    write_record(dir, entry.id, serialise_thought(entry));
+}
+
+ThoughtContents load_thoughts(const std::filesystem::path &dir) {
+    ThoughtContents contents;
+    const std::vector<std::filesystem::path> files = list_record_files(dir);
+    for (const std::filesystem::path &path : files) {
+        std::ifstream input(path, std::ios::binary);
+        if (!input) {
+            throw std::runtime_error("cannot open thought record " + path.string());
         }
-    }
-    /* A torn final line (crash mid-append) is truncated, not reinterpreted.
-     * A complete but malformed line is corruption and fails loudly. */
-    if (lines.size() == 1u && !lines.back().empty() && raw.back() != '\n') {
-        contents.repaired_torn_tail = true;
-        return contents;
-    }
-    if (!lines.empty() && !lines.back().empty() && raw.back() != '\n') {
-        contents.repaired_torn_tail = true;
-        lines.pop_back();
-    }
-    contents.thoughts.reserve(lines.size());
-    for (const std::string &line : lines) {
-        if (line.empty()) {
+        const std::string raw{std::istreambuf_iterator<char>(input),
+                              std::istreambuf_iterator<char>()};
+        if (!input.bad() && raw.empty()) {
             continue;
         }
-        contents.thoughts.push_back(parse_thought(line));
+        Thought entry = parse_thought(raw);
+        if (entry.id != path.stem().string()) {
+            fail("record id '" + entry.id + "' does not match file " +
+                 path.filename().string());
+        }
+        contents.thoughts.push_back(std::move(entry));
     }
+    /* Record keys encode creation time, so id order is read (append) order. */
+    std::sort(contents.thoughts.begin(), contents.thoughts.end(),
+              [](const Thought &a, const Thought &b) { return a.id < b.id; });
     return contents;
 }
 

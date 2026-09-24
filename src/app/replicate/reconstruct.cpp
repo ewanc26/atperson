@@ -181,7 +181,7 @@ ReconstructReport reconstruct_state(RecordSource &source,
             thought.text = record.text;
             thought.about_uri = record.about_uri;
             thought.at = record.at;
-            append_thought(thoughts_path, thought);
+            write_thought(thoughts_path, thought);
             ++report.thoughts_replayed;
         } catch (const std::exception &error) {
             ++report.records_corrupt;

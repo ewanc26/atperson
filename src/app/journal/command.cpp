@@ -1,17 +1,20 @@
 // Action/outcome journal: command implementation (#27).
 //
 // The listing subcommands render the journal's append order with stable
-// field widths. `apply` is the only mutating path: it loads the journal
-// (creates empty if missing), applies one valence event through the C23
-// API, appends a JournalValence entry, and saves the model under the
-// writer lock. The valence API throws on unknown tokens; the command
-// surface returns 2 for bad arguments and throws for I/O.
+// field widths. `apply` and `map` (#56) are the valence-mutating paths:
+// they apply one (or a table of) explicit valence events through the C23
+// API, append the journal entries, and save the model under the writer
+// lock. `resolve` (#149) runs the idempotent expectation-resolution pass,
+// appending only terminal resolution lines under the writer lock. The
+// valence API throws on unknown tokens; the command surface returns 2 for
+// bad arguments and throws for I/O.
 
 #include "command.hpp"
 
+#include "action/tokens.hpp"
 #include "atperson/core.h"
-#include "atperson/tokenize.h"
 #include "lock.hpp"
+#include "resolve.hpp"
 #include "rules.hpp"
 
 #include <algorithm>
@@ -40,7 +43,17 @@ void print_actions(std::ostream &out, const JournalContents &journal,
         out << entry.at << " " << std::setw(8) << entry.kind << " "
             << std::setw(12) << entry.id << " " << std::setw(8)
             << journal_action_outcome_name(entry.outcome) << " "
-            << std::setw(10) << entry.reason << "\n";
+            << std::setw(10) << entry.reason;
+        /* The predicted outcome (#149): kind, reply likelihood (as a
+         * percentage) and expected-token count. Absent for operator-written
+         * actions. */
+        if (entry.expectation.has_value()) {
+            out << " exp=" << entry.expectation->kind << ":"
+                << std::fixed << std::setprecision(0)
+                << (entry.expectation->reply_likelihood * 100.0f)
+                << " tokens=" << entry.expectation->tokens.size();
+        }
+        out << "\n";
     }
 }
 
@@ -67,6 +80,29 @@ void print_valence(std::ostream &out, const JournalContents &journal,
     }
 }
 
+void print_resolutions(std::ostream &out, const JournalContents &journal,
+                       std::size_t limit) {
+    const std::size_t count = std::min(journal.resolutions.size(), limit);
+    for (std::size_t i = 0u; i < count; ++i) {
+        const JournalResolution &entry = journal.resolutions[i];
+        out << entry.at << " " << std::setw(12) << entry.action_id << " "
+            << std::setw(8) << journal_expectation_state_name(entry.state)
+            << "\n";
+    }
+}
+
+void print_intents(std::ostream &out, const JournalContents &journal,
+                   std::size_t limit) {
+    const std::size_t count = std::min(journal.intents.size(), limit);
+    for (std::size_t i = 0u; i < count; ++i) {
+        const JournalIntent &entry = journal.intents[i];
+        out << entry.at << " " << std::setw(12) << entry.actions.size() << " act "
+            << std::setw(8) << intent_state_name(entry.state) << " "
+            << std::setw(12) << entry.responder << " expires=" << entry.expires_at
+            << " thread=" << entry.id << "\n";
+    }
+}
+
 [[nodiscard]] std::optional<float> parse_signal(std::string_view text) {
     try {
         const std::string owned(text);
@@ -78,29 +114,6 @@ void print_valence(std::ostream &out, const JournalContents &journal,
     } catch (...) {
         return std::nullopt;
     }
-}
-
-/* Collect the distinct tokens of one text under the current shared schema,
- * in first-appearance order. Uses the same public tokenizer as every other
- * token-producing path; never mutates the graph. */
-[[nodiscard]] std::vector<std::string> distinct_tokens(std::string_view text) {
-    struct Collector {
-        std::vector<std::string> *out;
-        std::unordered_set<std::string> *seen;
-    };
-
-    std::vector<std::string> tokens;
-    std::unordered_set<std::string> seen;
-    Collector collector{&tokens, &seen};
-    const auto emit = [](void *userdata, const char *token) -> bool {
-        const Collector &collector = *static_cast<const Collector *>(userdata);
-        if (collector.seen->insert(token).second) {
-            collector.out->emplace_back(token);
-        }
-        return true;
-    };
-    atp_tokenize(std::string(text).c_str(), ATPERSON_SCHEMA_VERSION, emit, &collector);
-    return tokens;
 }
 
 /* The `journal map` runner (#56): apply an operator-authored rule table to
@@ -128,14 +141,15 @@ int run_map(std::ostream &out, LanguageGraph &graph,
     std::size_t skipped_unmapped = 0u;
     std::size_t skipped_unknown_tokens = 0u;
     for (const JournalAction &action : journal.actions) {
-        const ValenceRule *rule = first_matching_rule(table, action, journal.events);
+        const ValenceRule *rule =
+            first_matching_rule(table, action, journal.events, now_unix, journal.intents);
         if (rule == nullptr) {
             ++skipped_unmapped;
             continue;
         }
         const std::string provenance = "map:" + rule->id;
         const std::string kind_name = valence_kind_name(rule->kind);
-        for (const std::string &token : distinct_tokens(action.text)) {
+        for (const std::string &token : action::distinct_tokens(action.text)) {
             /* The valence contract: events attach to experienced subjects
              * only. A token the entity has never observed is skipped, not
              * interned — one mapping run must not create learned state. */
@@ -195,6 +209,33 @@ int run_journal_command(std::ostream &out, LanguageGraph &graph,
         const std::size_t limit =
             argument_count >= 1u ? std::stoul(std::string(arguments[0])) : kDefaultListLimit;
         print_valence(out, journal, limit);
+        return 0;
+    }
+    if (subcommand == "resolutions") {
+        const std::size_t limit =
+            argument_count >= 1u ? std::stoul(std::string(arguments[0])) : kDefaultListLimit;
+        print_resolutions(out, journal, limit);
+        return 0;
+    }
+    if (subcommand == "intents") {
+        const std::size_t limit =
+            argument_count >= 1u ? std::stoul(std::string(arguments[0])) : kDefaultListLimit;
+        print_intents(out, journal, limit);
+        return 0;
+    }
+
+    if (subcommand == "resolve") {
+        /* The expectation pass (#149) appends terminal `met`/`unmet`/
+         * `expired` resolution lines. It is idempotent and touches only the
+         * journal, so it takes the writer lock and never reads a session,
+         * the graph or the model. */
+        const StateLock writer_lock(data_dir);
+        const ResolutionReport report =
+            resolve_expectations(journal_path, now_unix, now_rfc3339);
+        out << "resolved " << report.evaluated << " expectation(s): " << report.pending
+            << " pending, " << report.met_written << " met, " << report.unmet_written
+            << " unmet, " << report.expired_written << " expired, " << report.state_changed
+            << " state change(s), " << report.skipped_already << " already recorded\n";
         return 0;
     }
 

@@ -151,12 +151,17 @@ The action journal is the authority for what the entity itself attempted. It rec
 - the frozen action/rkey/digest;
 - execution outcome and reason;
 - resulting AT URI/CID for confirmed writes;
+- the deterministic prediction of the outcome (`expectation`) when the decision carried evidence (#149);
 - later public reply/root/quote events linked by stable URI;
+- terminal expectation-resolution lines (`met`/`unmet`/`expired`);
+- pending-intent state for autonomous conversations (`intent` lines at format 4), opened when an executed decision starts a conversation, extended when a continuation reply executes, and swept to terminal states (`expired`/`closed`) when the reply window closes or the continuation budget is reached (#150);
 - explicit valence applications.
 
 The observation ledger remains the authority for third-party observations. The two evidence streams are intentionally separate.
 
-Outcome-to-valence mapping is governed by #56 and is explicit, bounded and off by default. Network success or social response does not silently rewrite learned preferences.
+Outcome-to-valence mapping is governed by #56 and is explicit, bounded and off by default. Network success or social response does not silently rewrite learned preferences. An executed action's recorded expectation is resolved against the journal's linked events within a fixed one-week window (`journal resolve`, and automatically at the start of each enabled scheduler cycle); prediction error only ever flows into learned state through an explicit operator-authored rule map whose `when.expectation` condition names a terminal resolution state.
+
+Conversations are an opt-in extension of the same loop, off by default (`ATPERSON_INTENTS=1`). A decision context that resolves the last executed action of an open intent is composed as a bounded continuation reply instead of a fresh post, and the executed reply re-opens the recorded conversation rather than starting a new one. The intent window is capped at configurable days (default two) and the continuation budget at configurable replies (default three, max sixteen); concurrent open conversations are capped (default three, max 256). Intent state is journal-only, deterministic and reconstructable from the journal alone.
 
 ## Fail-closed matrix
 

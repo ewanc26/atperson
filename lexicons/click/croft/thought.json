@@ -1,0 +1,55 @@
+{
+  "lexicon": 1,
+  "id": "click.croft.thought",
+  "revision": 1,
+  "description": "A self-authored internal note recorded by the atperson entity: a reflection, a consolidation summary, or a movement trigger notice. The record object mirrors the entity's durable thought store so the locally stored record can be published in full to the entity's PDS — no digest-and-refetch reconstruction is needed. Record key is the TID frozen at creation; lexicographic order is creation order.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One durable thought record.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["kind", "text", "about", "at"],
+        "nullable": ["about"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "knownValues": ["reflection", "consolidation", "movement"],
+            "description": "The thought's role: 'reflection' is a hand-recorded note, 'consolidation' a scheduled reflection-pass summary, 'movement' a threshold trigger notice. knownValues is open so future kinds can be added without a breaking change."
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 8192,
+            "description": "The entity's own words. Deliberately only self-authored text."
+          },
+          "about": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The record this thought concerns, as an at-URI, or null when the thought references no other record."
+          },
+          "at": {
+            "type": "string",
+            "format": "datetime",
+            "description": "RFC 3339 UTC instant when the thought was created."
+          },
+          "span_start": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Start of the analysis window a pass-generated thought summarises. Present only on pass provenance; omitted for hand-recorded thoughts."
+          },
+          "span_end": {
+            "type": "string",
+            "format": "datetime",
+            "description": "End of the analysis window a pass-generated thought summarises. Present only on pass provenance; omitted for hand-recorded thoughts."
+          },
+          "topic": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "The dedup subject key the reflection pass uses so a rerun over the same window never emits a duplicate trigger."
+          }
+        }
+      }
+    }
+  }
+}

@@ -9,18 +9,20 @@
 #include "cli/envelope.hpp"
 #include "cli/cursor.hpp"
 #include "cli/daemon.hpp"
+#include "cli/drives.hpp"
 #include "cli/graph.hpp"
 #include "cli/ingest.hpp"
 #include "cli/jetstream.hpp"
 #include "cli/ledger.hpp"
+#include "cli/metrics.hpp"
 #include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
 #include "cli/reconstruct.hpp"
 #include "cli/statepub.hpp"
-#include "cli/thought.hpp"
 #include "cli/protocol_command.hpp"
 #include "cli/sync.hpp"
+#include "cli/thoughts.hpp"
 #include "cli/usage.hpp"
 #include "control/state.hpp"
 #include "journal/command.hpp"
@@ -191,6 +193,37 @@ int main(int argc, char **argv) {
             return 0;
         }
 
+        /* Thought commands: a thought and a listing need only the thought
+         * store, never the model. `reflect` needs the graph and is
+         * dispatched after it loads. */
+        if (command == "thought") {
+            std::vector<std::string> text_parts;
+            for (int i = 2; i < argc; ++i) {
+                text_parts.emplace_back(argv[i]);
+            }
+            return atperson::cli::run_thought_record(
+                std::cout, atperson::cli::data_dir(), text_parts,
+                atperson::control_now_rfc3339());
+        }
+
+        if (command == "thoughts") {
+            std::vector<std::string_view> arguments;
+            for (int i = 2; i < argc; ++i) {
+                arguments.emplace_back(argv[i]);
+            }
+            return atperson::cli::run_thoughts_list(
+                std::cout, atperson::cli::data_dir(), arguments.data(), arguments.size());
+        }
+
+        if (command == "metrics") {
+            std::vector<std::string_view> arguments;
+            for (int i = 2; i < argc; ++i) {
+                arguments.emplace_back(argv[i]);
+            }
+            return atperson::cli::run_metrics_list(
+                std::cout, atperson::cli::data_dir(), arguments.data(), arguments.size());
+        }
+
         if (command == "outbound") {
             const std::string sub = argc >= 3 ? argv[2] : "status";
             std::vector<std::string_view> arguments;
@@ -224,7 +257,7 @@ int main(int argc, char **argv) {
                 return atperson::cli::run_statepub_status(
                     std::cout, std::cerr, resource_status, atperson::cli::data_dir(),
                     atperson::cli::ledger_path(), atperson::cli::action_journal_path(),
-                    atperson::cli::data_dir() / "thoughts.jsonl");
+                    atperson::cli::data_dir() / "thoughts");
             }
             if (sub == "drain") {
                 bool offline = false;
@@ -236,7 +269,7 @@ int main(int argc, char **argv) {
                 return atperson::cli::run_statepub_drain(
                     std::cout, std::cerr, resource_status, atperson::cli::data_dir(),
                     atperson::cli::ledger_path(), atperson::cli::action_journal_path(),
-                    atperson::cli::data_dir() / "thoughts.jsonl",
+                    atperson::cli::data_dir() / "thoughts",
                     atperson::cli::control_state_path(), offline);
             }
             usage(std::cerr);
@@ -246,28 +279,6 @@ int main(int argc, char **argv) {
         if (command == "reconstruct") {
             if (argc >= 4 && std::string_view(argv[2]) == "--into") {
                 return atperson::cli::run_reconstruct(std::cout, std::cerr, argv[3]);
-            }
-            usage(std::cerr);
-            return 2;
-        }
-
-        if (command == "thought") {
-            const std::string sub = argc >= 3 ? argv[2] : "";
-            if (sub == "list") {
-                return atperson::cli::run_thought_list(
-                    std::cout, std::cerr, atperson::cli::data_dir(),
-                    argc >= 4 ? std::string_view(argv[3]) : std::string_view());
-            }
-            if (argc >= 3) {
-                /* Join argv[2..] so quotes are not required around text. */
-                std::string text;
-                for (int i = 2; i < argc; ++i) {
-                    if (!text.empty()) {
-                        text.push_back(' ');
-                    }
-                    text += argv[i];
-                }
-                return atperson::cli::run_thought_record(std::cout, std::cerr, text);
             }
             usage(std::cerr);
             return 2;
@@ -477,6 +488,20 @@ int main(int argc, char **argv) {
                 now, atperson::control_now_rfc3339());
         }
 
+        if (command == "reflect") {
+            const auto now = static_cast<std::int64_t>(std::time(nullptr));
+            return atperson::cli::run_reflect_command(
+                std::cout, atperson::cli::data_dir(), atperson::cli::action_journal_path(),
+                graph, now, atperson::control_now_rfc3339());
+        }
+
+        if (command == "selfeval") {
+            const auto now = static_cast<std::int64_t>(std::time(nullptr));
+            return atperson::cli::run_self_eval_command(
+                std::cout, atperson::cli::data_dir(), atperson::cli::action_journal_path(),
+                graph, now, atperson::control_now_rfc3339());
+        }
+
         if (command == "ingest") {
             if (argc < 3) {
                 usage(std::cerr);
@@ -522,6 +547,15 @@ int main(int argc, char **argv) {
                 return 2;
             }
             return atperson::cli::run_familiarity(std::cout, graph, argv[2]);
+        }
+
+        if (command == "drives") {
+            const int count = argc >= 3 ? atperson::cli::parse_limit(argv[2], 8) : 8;
+            return atperson::cli::run_drives_command(
+                std::cout, graph, atperson::Ledger(atperson::cli::ledger_path()),
+                atperson::cli::action_journal_path(),
+                static_cast<std::int64_t>(std::time(nullptr)),
+                static_cast<std::size_t>(count));
         }
 
         if (command == "recall") {

@@ -1,6 +1,8 @@
 /* Action/outcome journal store tests (#27): append/load round-trip for all
- * three entry kinds, torn-tail recovery, malformed-line rejection, event
- * dedup and executed-action URI lookup. Offline, no network. */
+ * entry kinds (actions, events, valence, resolutions and — #150 — intents),
+ * torn-tail recovery, malformed-line rejection, event dedup, executed-action
+ * URI lookup and the v1/v2/v3/v4 version acceptance policy. Offline, no
+ * network. */
 
 #include "journal/store.hpp"
 
@@ -13,11 +15,16 @@
 
 namespace {
 
+using atperson::IntentState;
 using atperson::JournalAction;
 using atperson::JournalActionOutcome;
 using atperson::JournalContents;
 using atperson::JournalError;
 using atperson::JournalEvent;
+using atperson::JournalExpectation;
+using atperson::JournalExpectationState;
+using atperson::JournalIntent;
+using atperson::JournalResolution;
 using atperson::JournalValence;
 
 std::filesystem::path scratch_dir(const char *tag) {
@@ -90,7 +97,30 @@ void test_append_order_across_kinds() {
     valence.at = "2026-09-17T19:00:00Z";
     atperson::append_journal_valence(path, valence);
 
-    // The file preserves append order: action, then event, then valence.
+    JournalResolution resolution;
+    resolution.action_id = action.id;
+    resolution.state = JournalExpectationState::Met;
+    resolution.at_epoch = 1758122400u;
+    resolution.at = "2026-09-17T19:00:00Z";
+    atperson::append_journal_resolution(path, resolution);
+
+    /* A pending social intent (#150): the thread root as identity, the
+     * executed action ids of the conversation, the expected responder, the
+     * reply window and the continuation budget. */
+    JournalIntent intent;
+    intent.id = "at://did:plc:example/app.bsky.feed.post/3lzc7a2pfxn2c";
+    intent.actions = {action.id};
+    intent.responder = "anyone";
+    intent.expires_at_epoch = 1789894800u;
+    intent.expires_at = "2026-09-19T17:00:00Z";
+    intent.max_continuations = 3u;
+    intent.state = IntentState::Open;
+    intent.at_epoch = 1789632000u;
+    intent.at = "2026-09-17T16:00:00Z";
+    atperson::append_journal_intent(path, intent);
+
+    // The file preserves append order: action, then event, then valence,
+    // then resolution, then intent.
     std::ifstream file(path, std::ios::binary);
     std::string first;
     std::getline(file, first);
@@ -101,14 +131,27 @@ void test_append_order_across_kinds() {
     std::string third;
     std::getline(file, third);
     assert(third.find("\"type\":\"valence\"") != std::string::npos);
+    std::string fourth;
+    std::getline(file, fourth);
+    assert(fourth.find("\"type\":\"resolution\"") != std::string::npos);
+    std::string fifth;
+    std::getline(file, fifth);
+    assert(fifth.find("\"type\":\"intent\"") != std::string::npos);
 
     const JournalContents journal = atperson::load_journal(path);
     assert(journal.actions.size() == 1u);
     assert(journal.events.size() == 1u);
     assert(journal.valence.size() == 1u);
+    assert(journal.resolutions.size() == 1u);
+    assert(journal.intents.size() == 1u);
     assert(journal.events[0].via == "parent");
     assert(journal.valence[0].token == "moon");
     assert(journal.valence[0].at_epoch == 1758122400u);
+    assert(journal.resolutions[0].action_id == action.id);
+    assert(journal.resolutions[0].state == JournalExpectationState::Met);
+    assert(journal.intents[0].id == intent.id);
+    assert(journal.intents[0].actions.size() == 1u);
+    assert(journal.intents[0].actions[0] == action.id);
 }
 
 void test_outcome_names_round_trip() {
@@ -330,6 +373,291 @@ void test_malformed_mac_rejected() {
     std::printf("ok malformed MAC rejected\n");
 }
 
+/* #149: an action expectation round-trips, omits nothing, and the closed
+ * vocabulary is enforced on read. */
+void test_expectation_round_trip() {
+    const auto root = scratch_dir("expectation");
+    const auto path = root / "action-journal.jsonl";
+
+    JournalAction action = sample_action();
+    JournalExpectation expectation;
+    expectation.kind = "approach";
+    expectation.reply_likelihood = 0.7f;
+    expectation.tokens = {"moon", "loyal", "companion"};
+    action.expectation = expectation;
+    atperson::append_journal_action(path, action);
+
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.actions.size() == 1u);
+    assert(journal.actions[0].expectation.has_value());
+    const JournalExpectation &loaded = journal.actions[0].expectation.value();
+    assert(loaded.kind == "approach");
+    assert(loaded.reply_likelihood == 0.7f);
+    assert(loaded.tokens.size() == 3u);
+    assert(loaded.tokens[0] == "moon");
+    assert(loaded.tokens[2] == "companion");
+
+    /* Serialisation is deterministic. */
+    const std::string once = atperson::serialise_journal_action(journal.actions[0]);
+    assert(once.find("\"expectation\"") != std::string::npos);
+    assert(once == atperson::serialise_journal_action(journal.actions[0]));
+    std::printf("ok expectation round trip\n");
+}
+
+/* #149: the three terminal expectation-state names round-trip; derived-only
+ * names exist for inspection but may not be authored. */
+void test_expectation_state_names_round_trip() {
+    const JournalExpectationState states[] = {
+        JournalExpectationState::None,   JournalExpectationState::Pending,
+        JournalExpectationState::Met,    JournalExpectationState::Unmet,
+        JournalExpectationState::Expired};
+    for (const JournalExpectationState state : states) {
+        const std::string name = atperson::journal_expectation_state_name(state);
+        const auto parsed = atperson::journal_expectation_state_from_name(name);
+        assert(parsed.has_value());
+        assert(*parsed == state);
+    }
+    assert(!atperson::journal_expectation_state_from_name("nonsense").has_value());
+}
+
+/* #149: an action without recorded evidence (no `expectation` field) loads
+ * as nullopt — the v2->v3 migration is silent and lossless. */
+void test_v2_action_loads_without_expectation() {
+    const auto root = scratch_dir("v2-expectation");
+    const auto path = root / "action-journal.jsonl";
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << "{\"type\":\"action\",\"version\":2,\"id\":\"3lzc7a2pfxn2c\",\"kind\":\"post\","
+                "\"text\":\"the moon is a loyal companion\",\"digest\":\"0123456789abcdef\","
+                "\"outcome\":\"executed\",\"reason\":\"allow\","
+                "\"uri\":\"at://did:plc:example/app.bsky.feed.post/3lzc7a2pfxn2c\","
+                "\"cid\":\"bafyreiabc123\",\"at\":\"2026-09-17T17:00:00Z\"}\n";
+    }
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.actions.size() == 1u);
+    assert(!journal.actions[0].expectation.has_value());
+    std::printf("ok v2 action loads without expectation\n");
+}
+
+/* #149: a v2 `resolution` line is foreign schema (predates the entry kind)
+ * and is refused like any other unknown version/type combination. */
+void test_v2_resolution_is_refused() {
+    const auto root = scratch_dir("v2-resolution");
+    const auto path = root / "action-journal.jsonl";
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << "{\"type\":\"resolution\",\"version\":2,\"action_id\":\"x\",\"state\":\"met\","
+                "\"at_epoch\":1758122400,\"at\":\"2026-09-17T19:00:00Z\"}\n";
+    }
+    bool threw = false;
+    try {
+        (void)atperson::load_journal(path);
+    } catch (const JournalError &) {
+        threw = true;
+    }
+    assert(threw);
+    std::printf("ok v2 resolution is refused\n");
+}
+
+/* #149: a resolution line carrying a derived (never-stored) state is
+ * rejected; only the three terminal states may be written. */
+void test_non_terminal_resolution_rejected() {
+    const auto root = scratch_dir("pending-resolution");
+    const auto path = root / "action-journal.jsonl";
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << "{\"type\":\"resolution\",\"version\":3,\"action_id\":\"x\",\"state\":\"pending\","
+                "\"at_epoch\":1758122400,\"at\":\"2026-09-17T19:00:00Z\"}\n";
+    }
+    bool threw = false;
+    try {
+        (void)atperson::load_journal(path);
+    } catch (const JournalError &) {
+        threw = true;
+    }
+    assert(threw);
+    std::printf("ok non-terminal resolution rejected\n");
+}
+
+/* #149: a malformed expectation (unknown kind, out-of-range likelihood,
+ * too many tokens, empty token) is rejected rather than reinterpreted. */
+void test_malformed_expectation_rejected() {
+    const std::string account[] = {
+        R"json({"type":"action","version":3,"id":"x","kind":"post","text":"t",
+            "digest":"0123456789abcdef","outcome":"executed","reason":"allow",
+            "uri":"","cid":"","at":"2026-09-17T17:00:00Z",
+            "expectation":{"kind":"avoid","reply_likelihood":0.5,"tokens":[]}})json",
+        R"json({"type":"action","version":3,"id":"x","kind":"post","text":"t",
+            "digest":"0123456789abcdef","outcome":"executed","reason":"allow",
+            "uri":"","cid":"","at":"2026-09-17T17:00:00Z",
+            "expectation":{"kind":"action","reply_likelihood":1.5,"tokens":[]}})json",
+        R"json({"type":"action","version":3,"id":"x","kind":"post","text":"t",
+            "digest":"0123456789abcdef","outcome":"executed","reason":"allow",
+            "uri":"","cid":"","at":"2026-09-17T17:00:00Z",
+            "expectation":{"kind":"action","reply_likelihood":0.5,"tokens":["","b"]}})json"};
+    for (const auto &line : account) {
+        const auto root = scratch_dir("bad-expectation");
+        const auto path = root / "action-journal.jsonl";
+        {
+            std::ofstream file(path, std::ios::binary | std::ios::trunc);
+            file << line << '\n';
+        }
+        bool threw = false;
+        try {
+            (void)atperson::load_journal(path);
+        } catch (const JournalError &) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    std::printf("ok malformed expectation rejected\n");
+}
+
+/* #149: a resolution entry round-trips with its terminal state and stamps. */
+void test_resolution_round_trip() {
+    const auto root = scratch_dir("resolution");
+    const auto path = root / "action-journal.jsonl";
+
+    JournalResolution resolution;
+    resolution.action_id = "3lzc7a2pfxn2c";
+    resolution.state = JournalExpectationState::Unmet;
+    resolution.at_epoch = 1790244001u;
+    resolution.at = "2026-09-24T10:00:01Z";
+    atperson::append_journal_resolution(path, resolution);
+
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.resolutions.size() == 1u);
+    assert(journal.resolutions[0].action_id == "3lzc7a2pfxn2c");
+    assert(journal.resolutions[0].state == JournalExpectationState::Unmet);
+    assert(journal.resolutions[0].at_epoch == 1790244001u);
+    assert(journal.resolutions[0].at == "2026-09-24T10:00:01Z");
+    assert(journal.actions.empty() && journal.events.empty() && journal.valence.empty());
+    std::printf("ok resolution round trip\n");
+}
+
+/* #150: an intent entry round-trips with its identity, conversation
+ * history, responder, window and budget; serialisation is deterministic. */
+void test_intent_round_trip() {
+    const auto root = scratch_dir("intent");
+    const auto path = root / "action-journal.jsonl";
+
+    JournalIntent intent;
+    intent.id = "at://did:plc:example/app.bsky.feed.post/3lzc7thread";
+    intent.actions = {"act-1", "act-2", "act-3"};
+    intent.responder = "did:plc:other";
+    intent.expires_at_epoch = 1789894800u;
+    intent.expires_at = "2026-09-19T17:00:00Z";
+    intent.max_continuations = 3u;
+    intent.state = IntentState::Closed;
+    intent.at_epoch = 1790330400u;
+    intent.at = "2026-09-25T10:00:00Z";
+    atperson::append_journal_intent(path, intent);
+
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.intents.size() == 1u);
+    assert(journal.actions.empty() && journal.events.empty() && journal.valence.empty() &&
+           journal.resolutions.empty());
+    const JournalIntent &loaded = journal.intents[0];
+    assert(loaded.id == intent.id);
+    assert(loaded.actions.size() == 3u);
+    assert(loaded.actions[0] == "act-1");
+    assert(loaded.actions[2] == "act-3");
+    assert(loaded.responder == "did:plc:other");
+    assert(loaded.expires_at_epoch == 1789894800u);
+    assert(loaded.expires_at == "2026-09-19T17:00:00Z");
+    assert(loaded.max_continuations == 3u);
+    assert(loaded.state == IntentState::Closed);
+    assert(loaded.at_epoch == 1790330400u);
+    assert(loaded.at == "2026-09-25T10:00:00Z");
+    assert(atperson::serialise_journal_intent(loaded) ==
+           atperson::serialise_journal_intent(loaded));
+    std::printf("ok intent round trip\n");
+}
+
+/* #150: the three intent-state names round-trip; anything else is refused. */
+void test_intent_state_names_round_trip() {
+    const IntentState states[] = {IntentState::Open, IntentState::Expired, IntentState::Closed};
+    for (const IntentState state : states) {
+        const std::string name = atperson::intent_state_name(state);
+        const auto parsed = atperson::intent_state_from_name(name);
+        assert(parsed.has_value());
+        assert(*parsed == state);
+    }
+    assert(!atperson::intent_state_from_name("unknown").has_value());
+    std::printf("ok intent state names round trip\n");
+}
+
+/* #150: a v2 or v3 `intent` line is foreign schema (predates the entry kind)
+ * and is refused like any other unknown version/type combination. */
+void test_pre_v4_intent_is_refused() {
+    const char *lines[] = {
+        "{\"type\":\"intent\",\"version\":2,\"id\":\"at://x/y/z\",\"actions\":[\"a\"],"
+        "\"responder\":\"anyone\",\"expires_at_epoch\":1,\"expires_at\":\"2026-09-19T17:00:00Z\","
+        "\"max_continuations\":3,\"state\":\"open\",\"at_epoch\":1,\"at\":\"2026-09-17T17:00:00Z\"}",
+        "{\"type\":\"intent\",\"version\":3,\"id\":\"at://x/y/z\",\"actions\":[\"a\"],"
+        "\"responder\":\"anyone\",\"expires_at_epoch\":1,\"expires_at\":\"2026-09-19T17:00:00Z\","
+        "\"max_continuations\":3,\"state\":\"open\",\"at_epoch\":1,\"at\":\"2026-09-17T17:00:00Z\"}"};
+    for (const char *line : lines) {
+        const auto root = scratch_dir("old-intent");
+        const auto path = root / "action-journal.jsonl";
+        {
+            std::ofstream file(path, std::ios::binary | std::ios::trunc);
+            file << line << '\n';
+        }
+        bool threw = false;
+        try {
+            (void)atperson::load_journal(path);
+        } catch (const JournalError &) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    std::printf("ok pre-v4 intent refused\n");
+}
+
+/* #150: a malformed intent (empty id, empty/oversized actions, bad responder,
+ * zero window, out-of-range budget, unknown state) is rejected. */
+void test_malformed_intent_rejected() {
+    const char *lines[] = {
+        "{\"type\":\"intent\",\"version\":4,\"id\":\"\",\"actions\":[\"a\"],\"responder\":\"anyone\","
+        "\"expires_at_epoch\":1,\"expires_at\":\"2026-09-19T17:00:00Z\",\"max_continuations\":3,"
+        "\"state\":\"open\",\"at_epoch\":1,\"at\":\"2026-09-17T17:00:00Z\"}",
+        "{\"type\":\"intent\",\"version\":4,\"id\":\"at://x/y/z\",\"actions\":[],\"responder\":\"anyone\","
+        "\"expires_at_epoch\":1,\"expires_at\":\"2026-09-19T17:00:00Z\",\"max_continuations\":3,"
+        "\"state\":\"open\",\"at_epoch\":1,\"at\":\"2026-09-17T17:00:00Z\"}",
+        "{\"type\":\"intent\",\"version\":4,\"id\":\"at://x/y/z\",\"actions\":[\"a\"],\"responder\":\"user\","
+        "\"expires_at_epoch\":1,\"expires_at\":\"2026-09-19T17:00:00Z\",\"max_continuations\":3,"
+        "\"state\":\"open\",\"at_epoch\":1,\"at\":\"2026-09-17T17:00:00Z\"}",
+        "{\"type\":\"intent\",\"version\":4,\"id\":\"at://x/y/z\",\"actions\":[\"a\"],\"responder\":\"anyone\","
+        "\"expires_at_epoch\":0,\"expires_at\":\"2026-09-19T17:00:00Z\",\"max_continuations\":3,"
+        "\"state\":\"open\",\"at_epoch\":1,\"at\":\"2026-09-17T17:00:00Z\"}",
+        "{\"type\":\"intent\",\"version\":4,\"id\":\"at://x/y/z\",\"actions\":[\"a\"],\"responder\":\"anyone\","
+        "\"expires_at_epoch\":1,\"expires_at\":\"2026-09-19T17:00:00Z\",\"max_continuations\":65,"
+        "\"state\":\"open\",\"at_epoch\":1,\"at\":\"2026-09-17T17:00:00Z\"}",
+        "{\"type\":\"intent\",\"version\":4,\"id\":\"at://x/y/z\",\"actions\":[\"a\"],\"responder\":\"anyone\","
+        "\"expires_at_epoch\":1,\"expires_at\":\"2026-09-19T17:00:00Z\",\"max_continuations\":3,"
+        "\"state\":\"expiring\",\"at_epoch\":1,\"at\":\"2026-09-17T17:00:00Z\"}"};
+    for (std::size_t i = 0u; i < std::size(lines); ++i) {
+        const auto root = scratch_dir("bad-intent");
+        const auto path = root / "action-journal.jsonl";
+        {
+            std::ofstream file(path, std::ios::binary | std::ios::trunc);
+            file << lines[i] << '\n';
+        }
+        bool threw = false;
+        try {
+            (void)atperson::load_journal(path);
+        } catch (const JournalError &) {
+            threw = true;
+        }
+        if (!threw) {
+            std::printf("malformed intent line %zu accepted by parser:\n%s\n", i, lines[i]);
+        }
+        assert(threw);
+    }
+    std::printf("ok malformed intent rejected\n");
+}
+
 } // namespace
 
 int main() {
@@ -346,6 +674,17 @@ int main() {
     test_v1_action_migrates_silently();
     test_v1_event_is_refused();
     test_malformed_mac_rejected();
+    test_expectation_round_trip();
+    test_expectation_state_names_round_trip();
+    test_v2_action_loads_without_expectation();
+    test_v2_resolution_is_refused();
+    test_non_terminal_resolution_rejected();
+    test_malformed_expectation_rejected();
+    test_resolution_round_trip();
+    test_intent_round_trip();
+    test_intent_state_names_round_trip();
+    test_pre_v4_intent_is_refused();
+    test_malformed_intent_rejected();
     std::printf("atperson-journal: all tests passed\n");
     return 0;
 }

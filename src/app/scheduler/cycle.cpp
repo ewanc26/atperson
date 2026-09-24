@@ -3,12 +3,18 @@
 #include "action/inspection.hpp"
 #include "control/envelope.hpp"
 #include "control/state.hpp"
+#include "drives.hpp"
+#include "intent/mutate.hpp"
+#include "intent/state.hpp"
+#include "intent/sweep.hpp"
+#include "journal/resolve.hpp"
 #include "journal/store.hpp"
 #include "outbound/budget.hpp"
 #include "outbound/config.hpp"
 #include "outbound/action.hpp"
 #include "outbound/actions.hpp"
 #include "state/lock.hpp"
+#include "state/time.hpp"
 
 #include <atperson/core.h>
 
@@ -88,22 +94,6 @@ void write_proposal(const std::filesystem::path &path, std::string_view contents
     if (ec) throw std::runtime_error("cannot commit scheduler proposal");
 }
 
-/* rfc3339 for the proposal's created_at; identical format to the audit
- * log and journal entries. */
-std::string rfc3339_from_unix(std::int64_t unix_seconds) {
-    const std::time_t value = static_cast<std::time_t>(unix_seconds);
-    std::tm utc{};
-#if defined(_WIN32)
-    gmtime_s(&utc, &value);
-#else
-    gmtime_r(&value, &utc);
-#endif
-    char buffer[32];
-    std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02dT%02d:%02d:%02dZ", utc.tm_year + 1900,
-                  utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec);
-    return buffer;
-}
-
 } // namespace
 
 SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const SchedulerCycle &cycle,
@@ -114,41 +104,80 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         return report;
     }
 
+    const std::string now_rfc3339 = rfc3339_from_unix(cycle.now);
+
+    /* Intent sweep (#150): before any new decision, expire/close intents
+     * whose window or continuation budget ended. Idempotent and journal-only;
+     * it appends terminal intent lines so the resolution pass below judges
+     * the swept state. */
+    if (config.intents.enabled) {
+        const IntentSweepReport sweep =
+            sweep_intents(cycle.attempt.journal_file, cycle.now, now_rfc3339);
+        report.intents_evaluated = sweep.evaluated;
+        report.intents_expired = sweep.expired_written;
+        report.intents_closed = sweep.closed_written;
+    }
+
+    /* Expectation resolution (#149): after the intent sweep, resolve the
+     * recorded predictions against the events that landed since the last
+     * cycle (or never) and the intent state — an expired intent is an
+     * ultimately unanswered invitation, so its action resolves `unmet`.
+     * Idempotent and journal-only; it appends terminal
+     * `met`/`unmet`/`expired` resolution lines and never touches the graph,
+     * so it is safe at the top of every enabled cycle. */
+    const ResolutionReport resolution = resolve_expectations(
+        cycle.attempt.journal_file, cycle.now, now_rfc3339);
+    report.expectations_evaluated = resolution.evaluated;
+    report.expectations_pending = resolution.pending;
+    report.resolutions_written = resolution.met_written + resolution.unmet_written +
+                                 resolution.expired_written + resolution.state_changed;
+
     /* Contexts: the most recent committed ledger payloads, newest first.
      * The ledger is the durable authority for what the entity observed;
-     * the scheduler keeps no parallel context store. */
-    const std::vector<atp_ledger_entry> entries = ledger.entries();
-    std::vector<std::string> contexts;
-    contexts.reserve(config.max_contexts);
-    for (auto it = entries.rbegin(); it != entries.rend() && contexts.size() < config.max_contexts;
-         ++it) {
-        /* Only committed outcomes are durable observation authority;
-         * PENDING entries are mid-pipeline, WITHDRAWN ones are gone. */
-        if (it->outcome == ATP_LEDGER_OUTCOME_PENDING) {
-            continue;
-        }
-        /* Payload-less entries (v1-migrated) carry nothing to decide on. */
-        const std::string payload = ledger.payload(it->id);
-        if (!payload.empty()) {
-            contexts.push_back(payload);
+     * the scheduler keeps no parallel context store. When drive ordering is
+     * enabled (#148), the same candidate list is reordered — intent
+     * continuations first (#150), then reciprocity, then curiosity — before
+     * decisions; the decision and gate bounds never change. */
+    const std::vector<drives::ContextCandidate> candidates =
+        drives::select_candidates(ledger, config.max_contexts);
+    report.contexts_examined = candidates.size();
+
+    std::optional<JournalContents> intents_journal;
+    if (config.drives_enabled || config.intents.enabled) {
+        intents_journal = load_journal(cycle.attempt.journal_file);
+    }
+
+    std::vector<std::size_t> order;
+    order.reserve(candidates.size());
+    report.ordered_by_drives = config.drives_enabled;
+    if (config.drives_enabled) {
+        const std::vector<drives::Signals> signals =
+            drives::compute_drive_signals(graph, candidates, intents_journal.value(), cycle.now);
+        order = drives::order_candidates(signals);
+    } else {
+        for (std::size_t i = 0u; i < candidates.size(); ++i) {
+            order.push_back(i);
         }
     }
-    report.contexts_examined = contexts.size();
 
     /* Decision -> proposal. Abstention is a first-class outcome, counted
-     * and reported; it is never an error. */
+     * and reported; it is never an error. When the decided observation
+     * continues an open pending intent (#150), the frozen document is a
+     * reply into that conversation (root = the intent's thread root, parent
+     * = the triggered observation). */
     const ControlState control = load_control_state(cycle.attempt.control_file);
-    for (const std::string &context : contexts) {
+    for (const std::size_t index : order) {
         if (report.proposals_written >= config.max_proposals) {
             break;
         }
-        const atp_action_decision decision = graph.action_decide(context);
+        const drives::ContextCandidate &candidate = candidates[index];
+        const atp_action_decision decision = graph.action_decide(candidate.payload);
         if (decision.abstained) {
             ++report.abstentions;
             continue;
         }
         ++report.decisions;
-        const std::string digest = decision_digest(context, decision);
+        const std::string digest = decision_digest(candidate.payload, decision);
         const std::filesystem::path proposal = cycle.proposals_dir / (digest + ".json");
         if (std::filesystem::exists(proposal)) {
             /* The approval binds to the exact bytes; an existing proposal
@@ -158,9 +187,18 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         }
         OutboundAction action;
         action.kind = OutboundActionKind::Post;
+        if (config.intents.enabled && intents_journal.has_value()) {
+            const JournalIntent *continuation = continuation_intent(
+                intents_journal.value(), candidate.source_id, candidate.author_did, cycle.now);
+            if (continuation != nullptr) {
+                action.kind = OutboundActionKind::Reply;
+                action.reply_root = continuation->id;
+                action.reply_parent = candidate.source_id;
+            }
+        }
         action.text = plan_text(decision);
         action.rkey = proposal_tid(cycle.now, digest);
-        action.created_at = rfc3339_from_unix(cycle.now);
+        action.created_at = now_rfc3339;
         action.digest = digest;
         /* Decision evidence (#141): recorded on the proposal so standing
          * authorization envelopes can apply score floors at execution
@@ -172,6 +210,9 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         }
         write_proposal(proposal, serialise_outbound_action(action));
         ++report.proposals_written;
+        if (action.kind == OutboundActionKind::Reply) {
+            report.ordered_by_intents = true;
+        }
     }
 
     /* Execution: approved proposals only, oldest first, through the same
@@ -233,6 +274,28 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
             switch (result.outcome) {
             case OutboundExecutionOutcome::Executed:
                 ++report.executed;
+                /* Pending intent (#150): an executed post or reply records
+                 * its conversation — opening a new intent (while under the
+                 * cap), continuing the one it answered, or refusing when the
+                 * cap is exhausted. Recording happens here, after the write,
+                 * so operator `publish` never silently opens a conversation. */
+                if (config.intents.enabled) {
+                    switch (record_pending_intent(cycle.attempt.journal_file, action, result,
+                                                  config.intents, cycle.now, now_rfc3339)) {
+                    case IntentMutation::Opened:
+                        ++report.intents_opened;
+                        break;
+                    case IntentMutation::Continued:
+                        ++report.intents_continued;
+                        break;
+                    case IntentMutation::CapReached:
+                        ++report.intents_cap_reached;
+                        break;
+                    case IntentMutation::Duplicate:
+                    case IntentMutation::NotTracked:
+                        break;
+                    }
+                }
                 std::filesystem::remove(proposal);
                 break;
             case OutboundExecutionOutcome::DryRun:
@@ -257,6 +320,9 @@ SchedulerConfig scheduler_config_from_environment() {
     SchedulerConfig config;
     const char *enabled = std::getenv("ATPERSON_SCHEDULER");
     config.enabled = enabled != nullptr && std::string_view(enabled) == "1";
+    const char *drives = std::getenv("ATPERSON_SCHEDULER_DRIVES");
+    config.drives_enabled = drives != nullptr && std::string_view(drives) == "1";
+    config.intents = intent_config_from_environment();
     return config;
 }
 

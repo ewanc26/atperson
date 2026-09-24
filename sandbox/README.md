@@ -40,7 +40,8 @@ ATPERSON_BIN="$PWD/build-core/atperson" sandbox/bin/atperson-sandbox run stats
 sandbox/bin/atperson-sandbox run stats
 sandbox/bin/atperson-sandbox run ingest "the wolf watches the moon" sandbox:manual
 
-# scripted walkthrough: train, plan, decide, audit, outbound evaluation
+# scripted walkthrough: train, plan, decide, audit, outbound evaluation,
+# self-evaluation and metrics
 sandbox/bin/atperson-sandbox scenario
 
 # wipe and re-create the sandbox data directory
@@ -95,7 +96,7 @@ credentials are unset and outbound policy is fail-closed by default.
 
 ## Scenario walkthrough
 
-`atperson-sandbox scenario` runs ten steps and fails loudly if any step errors:
+`atperson-sandbox scenario` runs twelve steps and fails loudly if any step errors:
 
 1. `stats` — confirm the empty graph
 2. `ingest-file` — train on each text fixture
@@ -105,7 +106,10 @@ credentials are unset and outbound policy is fail-closed by default.
 6. `decide` — guarded decision on the same context
 7. `outbound status/rules/evaluate` — offline policy evaluation
 8. `journal valence` — experience-derived valence state
-9. `stats` — final state
+9. `journal resolve` + `journal intents`/`actions` — intent/expectation journal hooks are offline-safe and idempotent
+10. `thought` + `thoughts` + `reflect` — durable thought store and the deterministic reflection pass over the journal, graph and thought surface
+11. `selfeval` × 2 + `metrics` — longitudinal self-evaluation: the first pass writes the baseline metric snapshot, the second demonstrates the cadence guard (inside cadence, no write), then `metrics` lists the snapshot
+12. `stats` — final state
 
 Every step is a plain CLI call, so the scenario doubles as documentation of
 the normal offline workflow. `atperson audit` is deliberately absent: it sends

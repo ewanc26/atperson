@@ -1,0 +1,168 @@
+{
+  "lexicon": 1,
+  "id": "click.croft.atperson.metric",
+  "revision": 1,
+  "description": "A schema-versioned longitudinal self-evaluation snapshot recorded by the atperson entity: cumulative actions executed vs. admitted, terminal social-intent success, reply/quote ratio, valence drift, familiarity growth, and a bounded per-period trace. The record object mirrors the entity's durable metric store so the locally stored record can be published in full to the entity's PDS; the store adds a format/version persistence envelope that publication omits. Record key is the TID frozen at pass time; lexicographic order is the weekly series order.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One metric snapshot record.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["at", "period_start", "period_end", "cadence_seconds", "actions", "interaction", "reply_ratio", "valence", "familiarity"],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "datetime",
+            "description": "RFC 3339 UTC instant when the pass produced this snapshot."
+          },
+          "period_start": {
+            "type": "string",
+            "format": "datetime",
+            "description": "RFC 3339 UTC start of the cadence period the trace summarises."
+          },
+          "period_end": {
+            "type": "string",
+            "format": "datetime",
+            "description": "RFC 3339 UTC end of the cadence period the trace summarises."
+          },
+          "cadence_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The configured minimum gap between snapshots; the period length this snapshot covers."
+          },
+          "actions": {
+            "type": "ref",
+            "ref": "#actions",
+            "description": "Cumulative outbound action execution: attempts and how each was resolved."
+          },
+          "interaction": {
+            "type": "ref",
+            "ref": "#interaction",
+            "description": "Cumulative pending-social-intent outcomes (#150): terminal conversations by state."
+          },
+          "reply_ratio": {
+            "type": "ref",
+            "ref": "#reply_ratio",
+            "description": "Cumulative reply fraction of public references to the entity's executed actions."
+          },
+          "valence": {
+            "type": "ref",
+            "ref": "#valence",
+            "description": "Cumulative explicit valence-state updates and their net drift."
+          },
+          "familiarity": {
+            "type": "ref",
+            "ref": "#familiarity",
+            "description": "Cumulative author exposure growth from the observation ledger."
+          },
+          "previous": {
+            "type": "ref",
+            "ref": "#previous",
+            "description": "The immediately preceding snapshot in the series, so trend deltas are derivable from the stored sequence. Absent on the first snapshot."
+          },
+          "trace": {
+            "type": "ref",
+            "ref": "#trace",
+            "description": "Bounded trace of the per-period activity each metric summarises; the provenance of the numbers."
+          }
+        }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "required": ["attempts", "executed", "denied", "deferred", "failed", "dry_run", "success_rate"],
+      "properties": {
+        "attempts": { "type": "integer", "minimum": 0, "description": "Total recorded outbound action attempts." },
+        "executed": { "type": "integer", "minimum": 0, "description": "Attempts that completed execution." },
+        "denied": { "type": "integer", "minimum": 0, "description": "Attempts refused by policy/approval." },
+        "deferred": { "type": "integer", "minimum": 0, "description": "Attempts deferred under a rate/window constraint." },
+        "failed": { "type": "integer", "minimum": 0, "description": "Attempts that failed execution." },
+        "dry_run": { "type": "integer", "minimum": 0, "description": "Attempts observed under dry-run mode; informational, not in the success denominator." },
+        "success_rate": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "executed / attempts over all recorded attempts, in per-mille (0..1000). Lexicons have no fractional type, so ratios are scaled x1000." }
+      }
+    },
+    "interaction": {
+      "type": "object",
+      "required": ["invites", "invites_replied", "invites_expired", "invites_pending", "success_rate"],
+      "properties": {
+        "invites": { "type": "integer", "minimum": 0, "description": "Distinct tracked conversations (thread-root identities)." },
+        "invites_replied": { "type": "integer", "minimum": 0, "description": "Conversations that reached their continuation budget (Closed)." },
+        "invites_expired": { "type": "integer", "minimum": 0, "description": "Conversations whose reply window closed unanswered (Expired)." },
+        "invites_pending": { "type": "integer", "minimum": 0, "description": "Conversations still being waited on (Open)." },
+        "success_rate": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "invites_replied / (invites_replied + invites_expired) over terminal intents in per-mille; 0 when none have resolved." }
+      }
+    },
+    "reply_ratio": {
+      "type": "object",
+      "required": ["events", "replies", "ratio"],
+      "properties": {
+        "events": { "type": "integer", "minimum": 0, "description": "Public references (parent/root/quote) to executed actions." },
+        "replies": { "type": "integer", "minimum": 0, "description": "Events referencing through the reply parent field." },
+        "ratio": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "replies / events over all linked events, in per-mille." }
+      }
+    },
+    "valence": {
+      "type": "object",
+      "required": ["updates", "tokens", "drift"],
+      "properties": {
+        "updates": { "type": "integer", "minimum": 0, "description": "Valence state updates ever applied." },
+        "tokens": { "type": "integer", "minimum": 0, "description": "Distinct tokens holding any valence update." },
+        "drift": { "type": "integer", "description": "Net signal sum across all updates in per-mille of signal scale; cumulative drift." }
+      }
+    },
+    "familiarity": {
+      "type": "object",
+      "required": ["authors", "encounters", "new_authors", "accretion"],
+      "properties": {
+        "authors": { "type": "integer", "minimum": 0, "description": "Distinct authors observed in learned ledger entries." },
+        "encounters": { "type": "integer", "minimum": 0, "description": "Total author-bearing learned entries." },
+        "new_authors": { "type": "integer", "minimum": 0, "description": "Authors first observed within this period." },
+        "accretion": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "new_authors / authors in per-mille; the period's author growth fraction." }
+      }
+    },
+    "previous": {
+      "type": "object",
+      "required": ["id", "at"],
+      "properties": {
+        "id": { "type": "string", "description": "The previous snapshot's record key." },
+        "at": { "type": "string", "format": "datetime", "description": "When the previous snapshot was produced." }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "required": ["episodes", "events", "resolutions", "valence_updates"],
+      "properties": {
+        "episodes": { "type": "integer", "minimum": 0, "description": "Learned episodes observed within the period." },
+        "events": { "type": "integer", "minimum": 0, "description": "Linked public events within the period." },
+        "resolutions": { "type": "integer", "minimum": 0, "description": "Expectation resolutions recorded within the period." },
+        "valence_updates": { "type": "integer", "minimum": 0, "description": "Valence updates applied within the period." },
+        "new_authors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Suffix of author DIDs first observed in this period, bounded to the pass's trace cap."
+        },
+        "top_valence": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "#group" },
+          "description": "Period valence movement grouped by (token, kind), strongest |sum| first, bounded to the pass's trace cap."
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "required": ["token", "kind", "sum", "count"],
+      "properties": {
+        "token": { "type": "string", "description": "The valence subject token." },
+        "kind": {
+          "type": "string",
+          "knownValues": ["action", "interaction", "approach", "avoid"],
+          "description": "The valence kind. knownValues is open."
+        },
+        "sum": { "type": "integer", "description": "Net signal across the grouped updates, in per-mille of signal scale." },
+        "count": { "type": "integer", "minimum": 1, "description": "Updates in the group." }
+      }
+    }
+  }
+}

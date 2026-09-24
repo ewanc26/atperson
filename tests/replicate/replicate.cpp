@@ -218,13 +218,13 @@ void test_drain_and_reconstruct() {
     atperson::append_journal_valence(journal_file, valence);
 
     /* A thought: self-authored, published in full. */
-    const std::filesystem::path thoughts_file = root / "thoughts.jsonl";
+    const std::filesystem::path thoughts_file = root / "thoughts";
     atperson::Thought thought;
     thought.id = "aaaaaaaaaaaaa";
     thought.kind = "reflection";
     thought.text = "the moon post made me curious";
     thought.at = "2026-09-24T00:00:00Z";
-    atperson::append_thought(thoughts_file, thought);
+    atperson::write_thought(thoughts_file, thought);
 
     /* Drain: everything published, withdrawal propagated. */
     FakeWriter writer;
@@ -258,7 +258,7 @@ void test_drain_and_reconstruct() {
     std::filesystem::create_directories(fresh);
     const atperson::ReconstructReport rebuilt =
         atperson::reconstruct_state(source, fresh / "ledger.bin", fresh / "journal.jsonl",
-                                    fresh / "thoughts.jsonl");
+                                    fresh / "thoughts");
     assert(rebuilt.observations_replayed + rebuilt.observations_skipped_withdrawn == 3u);
     assert(rebuilt.observations_failed == 0u);
     assert(rebuilt.actions_replayed == 1u);
@@ -283,7 +283,7 @@ void test_drain_and_reconstruct() {
     assert(journal.valence[0].token == "curious");
 
     const atperson::ThoughtContents rebuilt_thoughts =
-        atperson::load_thoughts(fresh / "thoughts.jsonl");
+        atperson::load_thoughts(fresh / "thoughts");
     assert(rebuilt_thoughts.thoughts.size() == 1u);
     assert(rebuilt_thoughts.thoughts[0].text == "the moon post made me curious");
 
@@ -306,7 +306,7 @@ void test_drain_network_failure_retains_backlog() {
     writer.fail_next = true;
     atperson::ReplicateConfig config;
     const atperson::ReplicateReport failed =
-        atperson::replicate_drain(cursor_file, journal_file, ledger, root / "thoughts.jsonl",
+        atperson::replicate_drain(cursor_file, journal_file, ledger, root / "thoughts",
                                   writer, config);
     assert(failed.network_failed);
     assert(failed.observations_published == 0u);
@@ -314,7 +314,7 @@ void test_drain_network_failure_retains_backlog() {
     /* The cursor stayed at the start, so a later drain republishes. */
     writer.fail_next = false;
     const atperson::ReplicateReport retried =
-        atperson::replicate_drain(cursor_file, journal_file, ledger, root / "thoughts.jsonl",
+        atperson::replicate_drain(cursor_file, journal_file, ledger, root / "thoughts",
                                   writer, config);
     assert(retried.network_failed == false);
     assert(retried.observations_published == 1u);
@@ -332,7 +332,7 @@ void test_reconstruct_fail_closed() {
     FakeWriter writer;
     atperson::ReplicateConfig config;
     atperson::replicate_drain(root / "cursor.json", root / "journal.jsonl", ledger,
-                              root / "thoughts.jsonl", writer, config);
+                              root / "thoughts", writer, config);
 
     /* Source serves TAMPERED content: digest mismatch must fail closed. */
     FakeSource source;
@@ -342,7 +342,7 @@ void test_reconstruct_fail_closed() {
     std::filesystem::create_directories(fresh);
     const atperson::ReconstructReport rebuilt =
         atperson::reconstruct_state(source, fresh / "ledger.bin", fresh / "journal.jsonl",
-                                    fresh / "thoughts.jsonl");
+                                    fresh / "thoughts");
     assert(rebuilt.observations_replayed == 0u);
     assert(rebuilt.observations_failed == 1u);
     assert(rebuilt.failures.size() == 1u);
@@ -366,14 +366,14 @@ void test_offline_drain_stages_record_files() {
     thought.kind = "reflection";
     thought.text = "staged offline";
     thought.at = "2026-09-24T00:00:00Z";
-    atperson::append_thought(root / "thoughts.jsonl", thought);
+    atperson::write_thought(root / "thoughts", thought);
 
     /* Offline drain: the exact record JSON lands under records/<nsid>/. */
     atperson::FileWriter writer(records_dir);
     atperson::ReplicateConfig config;
     const atperson::ReplicateReport report =
         atperson::replicate_drain(root / "cursor.json", journal_file, ledger,
-                                  root / "thoughts.jsonl", writer, config);
+                                  root / "thoughts", writer, config);
     assert(report.network_failed == false);
     assert(report.observations_published == 1u);
     assert(report.thoughts_published == 1u);
@@ -395,7 +395,7 @@ void test_offline_drain_stages_record_files() {
     /* A second offline drain is a no-op: the cursor advanced. */
     const atperson::ReplicateReport second =
         atperson::replicate_drain(root / "cursor.json", journal_file, ledger,
-                                  root / "thoughts.jsonl", writer, config);
+                                  root / "thoughts", writer, config);
     assert(second.observations_published == 0u);
     assert(second.thoughts_published == 0u);
     std::puts("offline drain stages record files: ok");
