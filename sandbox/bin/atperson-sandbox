@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# ATperson offline sandbox wrapper.
+#
+# Runs the atperson CLI against an isolated data directory so training,
+# planning and inspection can be exercised without touching the live
+# model in ~/.ewanc26/atperson or the network.
+#
+# Usage:
+#   sandbox/bin/atperson-sandbox <init|reset|run|scenario> [args...]
+#
+#   init      create the sandbox data directory (idempotent)
+#   reset     wipe the sandbox data directory and re-init
+#   run       run any atperson CLI command inside the sandbox
+#             e.g. sandbox/bin/atperson-sandbox run stats
+#   scenario  run the scripted end-to-end walkthrough (train -> plan -> decide
+#             -> audit -> outbound evaluation), then print sandbox stats
+#
+# Environment:
+#   ATPERSON_SANDBOX_HOME  sandbox data directory
+#                          (default <repo>/sandbox/data)
+#   ATPERSON_BIN           atperson binary path
+#                          (default <repo>/build/atperson)
+#
+# The wrapper never reads or writes the live data directory. Network
+# credentials (ATPERSON_APP_PASSWORD, ATPERSON_JETSTREAM_ARCHIVE_TOKEN) are
+# explicitly unset so a typo cannot leak a training run into the real PDS
+# session path.
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_dir="$(cd "${script_dir}/../.." && pwd)"
+
+sandbox_home="${ATPERSON_SANDBOX_HOME:-${repo_dir}/sandbox/data}"
+atperson_bin="${ATPERSON_BIN:-${repo_dir}/build/atperson}"
+
+if [[ ! -x "${atperson_bin}" ]]; then
+    echo "atperson binary not found at ${atperson_bin}" >&2
+    echo "build it first: cmake -S . -B build-core -DATPERSON_BUILD_NETWORK=OFF && cmake --build build-core -j" >&2
+    exit 1
+fi
+
+sandbox_init() {
+    mkdir -p "${sandbox_home}"
+}
+
+sandbox_reset() {
+    rm -rf "${sandbox_home}"
+    sandbox_init
+}
+
+sandbox_run() {
+    sandbox_init
+    env -u ATPERSON_APP_PASSWORD \
+        -u ATPERSON_JETSTREAM_ARCHIVE_TOKEN \
+        -u ATPERSON_JETSTREAM_ENDPOINT \
+        -u ATPERSON_IDENTIFIER \
+        ATPERSON_HOME="${sandbox_home}" \
+        "${atperson_bin}" "$@"
+}
+
+sandbox_scenario() {
+    local fixtures="${repo_dir}/sandbox/fixtures"
+    local failed=0
+
+    echo "==> scenario: offline training walkthrough"
+    echo "==> sandbox home: ${sandbox_home}"
+    echo
+
+    echo "==> step 1: initial stats (empty graph)"
+    sandbox_run stats || failed=1
+    echo
+
+    echo "==> step 2: ingest fixture texts"
+    for text_file in "${fixtures}"/text/*.txt; do
+        echo "-- ingesting ${text_file##*/}"
+        sandbox_run ingest-file "${text_file}" "sandbox:$(basename "${text_file}" .txt)" || failed=1
+    done
+    echo
+
+    echo "==> step 3: replay jetstream fixture frames as observations"
+    local frame_seq=0
+    while IFS= read -r frame; do
+        frame_seq=$((frame_seq + 1))
+        local text did
+        text="$(printf '%s' "${frame}" | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); c=d.get("commit",{}); r=c.get("record",{}); print(r.get("text","")) if c.get("operation")=="create" else ""' 2>/dev/null || true)"
+        did="$(printf '%s' "${frame}" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["did"])' 2>/dev/null || true)"
+        if [[ -z "${text}" || -z "${did}" ]]; then
+            echo "-- skipping non-post frame ${frame_seq} (delete/identity/no text)"
+            continue
+        fi
+        echo "-- ingesting frame ${frame_seq} (did: ${did})"
+        sandbox_run ingest "${text}" "sandbox:jetstream-frame-${frame_seq}" || failed=1
+    done < "${fixtures}/jetstream/frames.jsonl"
+    echo
+
+    echo "==> step 4: inspect learned associations"
+    sandbox_run assoc werewolf || failed=1
+    echo
+
+    echo "==> step 5: plan from a trained context"
+    sandbox_run plans "the werewolf howls at the full moon" || failed=1
+    echo
+
+    echo "==> step 6: guarded decision on the same context"
+    sandbox_run decide "the werewolf howls at the full moon" || failed=1
+    echo
+
+    echo "==> step 7: outbound policy evaluation (offline, no credentials)"
+    sandbox_run outbound status || failed=1
+    sandbox_run outbound rules || failed=1
+    sandbox_run outbound evaluate post "" "sandbox-digest-00000000" || failed=1
+    echo
+
+    echo "==> step 8: journal valence (experience-derived state)"
+    sandbox_run journal valence 5 || failed=1
+    echo
+
+    echo "==> step 9: final stats"
+    sandbox_run stats || failed=1
+    echo
+
+    if [[ "${failed}" -ne 0 ]]; then
+        echo "==> scenario: FAILED (one or more steps errored)"
+        exit 1
+    fi
+    echo "==> scenario: complete"
+}
+
+command="${1:-}"
+shift || true
+
+case "${command}" in
+    init) sandbox_init ;;
+    reset) sandbox_reset ;;
+    run) sandbox_run "$@" ;;
+    scenario) sandbox_scenario ;;
+    *)
+        echo "usage: atperson-sandbox <init|reset|run|scenario> [args...]" >&2
+        exit 2
+        ;;
+esac

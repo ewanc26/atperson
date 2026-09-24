@@ -1,0 +1,6 @@
+the personal data server holds the repository and signs every commit
+a did resolves to a document that names the pds endpoint
+the firehose streams commits and the jetstream flattens them
+records live in collections addressed by an at uri
+the app view indexes public records so clients can search them
+a lexicon defines the shape of a record before it is written
