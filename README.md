@@ -77,6 +77,7 @@ The project is already beyond the initial scaffold. The important pieces current
 | Outbound policy | Implemented | Default-deny policy, durable rate budgets, duplicate suppression and inspectable decisions |
 | Outbound execution | Operator-led | Approved frozen post/reply actions can be published through Wolfram with audit logging and idempotent record keys |
 | Action/outcome journal | Implemented | Outbound attempts and outcomes are durable and replayable into valence; autonomous actions record their predicted outcome (`expectation`), resolved forward against linked events (#149) |
+| Reflective thought store | Implemented | Durable, crash-safe thought surface with template-authored `reflection`/`consolidation`/`movement` entries; the deterministic reflection pass (#151) writes bounded consolidations and movement triggers and is read-only over learned state |
 | Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup |
 | Agent loop | Contract documented | Perception → decision → policy → control → execution → journal boundaries are defined; autonomous scheduler is off by default (`ATPERSON_SCHEDULER`) |
 | Experience-derived drives | Implemented | Curiosity (novelty × adjacency) and reciprocity (referenced-action) reorder scheduler contexts; off by default (`ATPERSON_SCHEDULER_DRIVES`), never weakens gates |
@@ -124,6 +125,7 @@ rules and capability gates are defined in [`docs/protocol-learning.md`](docs/pro
 More detail lives in:
 
 - [`docs/valence.md`](docs/valence.md)
+- [`docs/reflection.md`](docs/reflection.md)
 - [`docs/conversation-context.md`](docs/conversation-context.md)
 - [`docs/action-inspection.md`](docs/action-inspection.md)
 - [`docs/action-journal.md`](docs/action-journal.md)

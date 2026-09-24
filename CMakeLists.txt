@@ -204,6 +204,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/publish.cpp
     src/app/cli/protocol.cpp
     src/app/cli/sync.cpp
+    src/app/cli/thoughts.cpp
     src/app/atproto/client.cpp
     src/app/atproto/extract.cpp
     src/app/atproto/repository_verifier.cpp
@@ -248,6 +249,9 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/intent/mutate.cpp
     src/app/state/lock.cpp
     src/app/state/time.cpp
+    src/app/thought/store.cpp
+    src/app/reflect/config.cpp
+    src/app/reflect/pass.cpp
     src/app/sync/engine.cpp
   src/app/sync/jetstream_backfill.cpp
   src/app/sync/jetstream_archive.cpp
@@ -786,6 +790,28 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-intent-test PRIVATE atperson-cpp)
   target_include_directories(atperson-intent-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-intent COMMAND atperson-intent-test)
+
+  # Deterministic reflection (#151): the thought store (round-trip, torn-tail
+  # repair, kind vocabulary, provenance), the bounded non-training reflection
+  # pass (valence trigger on a bare journal without a scheduled pass, the
+  # issue acceptance; committee author/reply triggers; consolidation cadence
+  # gating; dedup; bounded burst; read-only guarantees), and the thought/
+  # thoughts/reflect CLI atoms with their listing filters. Offline, clock
+  # injected, no network.
+  add_executable(
+    atperson-reflect-test
+    tests/reflect/reflect.cpp
+    src/app/cli/thoughts.cpp
+    src/app/thought/store.cpp
+    src/app/reflect/config.cpp
+    src/app/reflect/pass.cpp
+    src/app/journal/store.cpp
+    src/app/state/lock.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-reflect-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-reflect-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-reflect-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-reflect COMMAND atperson-reflect-test)
 
   # Property-based persistence round-trip invariants (issue #11): snapshot
   # save/load equivalence, ledger append/reopen equivalence, and replay
