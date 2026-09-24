@@ -89,6 +89,12 @@ ReplicateCursor load_replicate_cursor(const std::filesystem::path &path) {
     if (cJSON_IsNumber(thoughts) && thoughts->valuedouble >= 0.0) {
         cursor.thoughts_published = static_cast<std::uint64_t>(thoughts->valuedouble);
     }
+    /* Absent in cursors written before intents were published (#161); zero
+     * is the correct resume point. */
+    const cJSON *intents = cJSON_GetObjectItemCaseSensitive(root.get(), "intents_published");
+    if (cJSON_IsNumber(intents) && intents->valuedouble >= 0.0) {
+        cursor.intents_published = static_cast<std::uint64_t>(intents->valuedouble);
+    }
     return cursor;
 }
 
@@ -105,6 +111,8 @@ void save_replicate_cursor(const std::filesystem::path &path,
                              static_cast<double>(cursor.valence_published));
     cJSON_AddNumberToObject(root.get(), "thoughts_published",
                              static_cast<double>(cursor.thoughts_published));
+    cJSON_AddNumberToObject(root.get(), "intents_published",
+                             static_cast<double>(cursor.intents_published));
 
     char *raw = cJSON_PrintUnformatted(root.get());
     if (!raw) {
@@ -313,6 +321,43 @@ ReplicateReport replicate_drain(const std::filesystem::path &cursor_path,
         ++written;
         ++cursor.thoughts_published;
         ++report.thoughts_published;
+    }
+
+    /* 5. Intents (#161): pending conversation state, published in the
+     * journal's append order. The rkey is the frozen intent id, so
+     * putRecord retries are idempotent and reconstruct maps records back
+     * to journal entries — a network rebuild restores pending
+     * conversations on a new host. Terminal state changes (expired /
+     * closed) republish under the same rkey, mirroring the withdrawal
+     * propagation contract: the record always reflects the current
+     * journal state. */
+    for (std::uint64_t i = cursor.intents_published;
+         i < static_cast<std::uint64_t>(journal.intents.size()) &&
+         written < config.max_records_per_drain;
+         ++i) {
+        const JournalIntent &intent = journal.intents[static_cast<std::size_t>(i)];
+        try {
+            IntentRecord record;
+            record.id = intent.id;
+            record.actions = intent.actions;
+            record.responder = intent.responder;
+            record.expires_at_epoch = intent.expires_at_epoch;
+            record.expires_at = intent.expires_at;
+            record.max_continuations = intent.max_continuations;
+            record.state = intent_state_name(intent.state);
+            record.at_epoch = intent.at_epoch;
+            record.at = intent.at;
+            writer.put_record(std::string(kIntentCollection), intent.id,
+                              serialise_intent_record(record));
+        } catch (const std::exception &error) {
+            report.network_failed = true;
+            report.failure_detail = error.what();
+            save_replicate_cursor(cursor_path, cursor);
+            return report;
+        }
+        ++written;
+        ++cursor.intents_published;
+        ++report.intents_published;
     }
 
     save_replicate_cursor(cursor_path, cursor);

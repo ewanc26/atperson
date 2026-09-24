@@ -35,6 +35,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace atperson {
 
@@ -51,6 +52,7 @@ inline constexpr std::string_view kObservationCollection =
 inline constexpr std::string_view kActionCollection = "click.croft.atperson.action";
 inline constexpr std::string_view kValenceCollection = "click.croft.atperson.valence";
 inline constexpr std::string_view kThoughtCollection = "click.croft.atperson.thought";
+inline constexpr std::string_view kIntentCollection = "click.croft.atperson.intent";
 
 /* Record format marker and version. A format change that alters what a
  * rebuild learns requires a version bump and reconstruct-side migration
@@ -123,6 +125,25 @@ struct ThoughtRecord {
 
 [[nodiscard]] std::string serialise_thought_record(const ThoughtRecord &record);
 [[nodiscard]] ThoughtRecord parse_thought_record(std::string_view json);
+
+/* One pending-intent record (#161): mirrors JournalIntent exactly — the
+ * same field semantics as the journal line, so a network rebuild replays
+ * the intent back into the journal and restores pending conversations.
+ * `id` is the frozen intent id and the record rkey. */
+struct IntentRecord {
+    std::string id;
+    std::vector<std::string> actions;
+    std::string responder; /* "anyone" or "did:<author>" */
+    std::uint64_t expires_at_epoch{};
+    std::string expires_at; /* RFC 3339 UTC window close */
+    std::uint32_t max_continuations{3u};
+    std::string state; /* "open" / "expired" / "closed" */
+    std::uint64_t at_epoch{};
+    std::string at; /* RFC 3339 UTC when this entry was recorded */
+};
+
+[[nodiscard]] std::string serialise_intent_record(const IntentRecord &record);
+[[nodiscard]] IntentRecord parse_intent_record(std::string_view json);
 
 /* Stable outcome names shared by the record layer and the ledger. */
 [[nodiscard]] std::string_view ledger_outcome_name(atp_ledger_outcome outcome);

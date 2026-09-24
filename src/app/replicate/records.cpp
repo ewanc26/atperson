@@ -294,4 +294,67 @@ ThoughtRecord parse_thought_record(std::string_view json) {
     return record;
 }
 
+std::string serialise_intent_record(const IntentRecord &record) {
+    const std::optional<IntentState> state = intent_state_from_name(record.state);
+    if (!state.has_value()) {
+        invalid("unknown intent state '" + record.state + "'");
+    }
+    Json root(cJSON_CreateObject());
+    cJSON_AddStringToObject(root.get(), "format", kRecordFormat.data());
+    cJSON_AddNumberToObject(root.get(), "version", kRecordFormatVersion);
+    cJSON_AddStringToObject(root.get(), "id", record.id.c_str());
+    cJSON *actions = cJSON_CreateArray();
+    if (!actions) {
+        throw std::runtime_error("failed to allocate intent record actions");
+    }
+    for (const std::string &action : record.actions) {
+        cJSON *item = cJSON_CreateString(action.c_str());
+        if (!item) {
+            cJSON_Delete(actions);
+            throw std::runtime_error("failed to allocate intent record action");
+        }
+        cJSON_AddItemToArray(actions, item);
+    }
+    cJSON_AddItemToObject(root.get(), "actions", actions);
+    cJSON_AddStringToObject(root.get(), "responder", record.responder.c_str());
+    add_u64_string(root.get(), "expires_at_epoch", record.expires_at_epoch);
+    cJSON_AddStringToObject(root.get(), "expires_at", record.expires_at.c_str());
+    cJSON_AddNumberToObject(root.get(), "max_continuations",
+                             static_cast<double>(record.max_continuations));
+    cJSON_AddStringToObject(root.get(), "state", record.state.c_str());
+    add_u64_string(root.get(), "at_epoch", record.at_epoch);
+    cJSON_AddStringToObject(root.get(), "at", record.at.c_str());
+    return print_json(root.get());
+}
+
+IntentRecord parse_intent_record(std::string_view json) {
+    Json root = parse_root(json);
+    require_format(root.get());
+
+    IntentRecord record;
+    record.id = require_string(root.get(), "id");
+    cJSON *actions = cJSON_GetObjectItemCaseSensitive(root.get(), "actions");
+    if (!cJSON_IsArray(actions)) {
+        invalid("missing or invalid actions array");
+    }
+    cJSON *action = nullptr;
+    cJSON_ArrayForEach(action, actions) {
+        if (!cJSON_IsString(action) || !action->valuestring) {
+            invalid("actions array contains a non-string entry");
+        }
+        record.actions.emplace_back(action->valuestring);
+    }
+    record.responder = require_string(root.get(), "responder");
+    record.expires_at_epoch = require_u64(root.get(), "expires_at_epoch");
+    record.expires_at = require_string(root.get(), "expires_at");
+    record.max_continuations = require_u32(root.get(), "max_continuations");
+    record.state = require_string(root.get(), "state");
+    if (!intent_state_from_name(record.state).has_value()) {
+        invalid("unknown intent state '" + record.state + "'");
+    }
+    record.at_epoch = require_u64(root.get(), "at_epoch");
+    record.at = require_string(root.get(), "at");
+    return record;
+}
+
 } // namespace atperson
