@@ -299,6 +299,27 @@ float atp_graph_familiarity(const atp_graph *graph, const char *token) {
     return graph->nodes[node].familiarity;
 }
 
+atp_status atp_graph_familiarity_at(const atp_graph *graph, size_t index,
+                                    char *token, size_t token_bytes, float *familiarity) {
+    if (!graph || (!token && token_bytes > 0) || !familiarity) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (index >= graph->node_count) {
+        return ATP_ERR_NOT_FOUND;
+    }
+    const atp_node *node = &graph->nodes[index];
+    if (token && token_bytes > 0) {
+        size_t length = strlen(node->token);
+        if (length >= token_bytes) {
+            length = token_bytes - 1u;
+        }
+        memcpy(token, node->token, length);
+        token[length] = '\0';
+    }
+    *familiarity = node->familiarity;
+    return ATP_OK;
+}
+
 bool atp_graph_has_token(const atp_graph *graph, const char *token) {
     if (!graph || !token) {
         return false;
