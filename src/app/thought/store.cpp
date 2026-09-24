@@ -1,15 +1,15 @@
 #include "store.hpp"
 
+#include "state/records.hpp"
+
 #include <cJSON.h>
 
-#include <fcntl.h>
-#include <unistd.h>
-
 #include <algorithm>
-#include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
 #include <sstream>
+#include <string>
 #include <string_view>
 
 namespace atperson {
@@ -17,29 +17,6 @@ namespace {
 
 [[noreturn]] void fail(const std::string &message) {
     throw ThoughtError("thought store: " + message);
-}
-
-/* fsync a directory so an atomically renamed record survives a crash after
- * the caller returns. */
-void sync_parent_directory(const std::filesystem::path &path) {
-    const auto parent = path.parent_path();
-    if (parent.empty()) {
-        return;
-    }
-    std::error_code ec;
-    std::filesystem::path canonical = std::filesystem::canonical(parent, ec);
-    if (ec) {
-        canonical = parent;
-    }
-#if defined(_WIN32)
-    (void)canonical;
-#else
-    const int fd = ::open(canonical.c_str(), O_RDONLY);
-    if (fd >= 0) {
-        ::fsync(fd);
-        ::close(fd);
-    }
-#endif
 }
 
 std::string required_string(const cJSON *entry, const char *name) {
@@ -68,16 +45,7 @@ bool thought_kind_is_valid(std::string_view kind) {
 }
 
 std::string new_thought_id() {
-    static constexpr char alphabet[] = "234567abcdefghijklmnopqrstuvwxyz";
-    const auto now = std::chrono::system_clock::now().time_since_epoch();
-    const std::uint64_t micros =
-        static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(now)
-                                       .count());
-    std::string id(13u, '2');
-    for (std::size_t i = 0u; i < 13u; ++i) {
-        id[12u - i] = alphabet[(micros >> (5u * static_cast<unsigned>(i))) & 0x1Fu];
-    }
-    return id;
+    return new_record_id();
 }
 
 std::string serialise_thought(const Thought &entry) {
@@ -157,66 +125,27 @@ Thought parse_thought(std::string_view json) {
 }
 
 std::filesystem::path thought_record_path(const std::filesystem::path &dir, std::string_view id) {
-    return dir / (std::string(id) + ".json");
+    return record_path(dir, id);
 }
 
 bool thought_record_exists(const std::filesystem::path &dir, std::string_view id) {
-    std::error_code ec;
-    return std::filesystem::exists(thought_record_path(dir, id), ec);
+    return record_exists(dir, id);
 }
 
 void write_thought(const std::filesystem::path &dir, const Thought &entry) {
     if (entry.id.empty()) {
         throw std::runtime_error("thought record requires an id");
     }
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    if (ec) {
-        throw std::runtime_error("cannot create thought store " + dir.string() + ": " +
-                                 ec.message());
-    }
-    const std::filesystem::path path = thought_record_path(dir, entry.id);
-    if (std::filesystem::exists(path, ec)) {
-        throw std::runtime_error("thought record " + path.string() + " already exists");
-    }
-    const std::filesystem::path tmp = path.string() + ".tmp";
-    const std::string payload = serialise_thought(entry);
-    {
-        std::ofstream output(tmp, std::ios::binary | std::ios::trunc);
-        if (!output) {
-            throw std::runtime_error("cannot create thought record " + tmp.string());
-        }
-        output.write(payload.data(), static_cast<std::streamsize>(payload.size()));
-        output.flush();
-        if (!output) {
-            std::error_code remove_ec;
-            std::filesystem::remove(tmp, remove_ec);
-            throw std::runtime_error("failed while writing thought record " + tmp.string());
-        }
-    }
-    std::error_code rename_ec;
-    std::filesystem::rename(tmp, path, rename_ec);
-    if (rename_ec) {
-        std::error_code remove_ec;
-        std::filesystem::remove(tmp, remove_ec);
-        throw std::runtime_error("could not commit thought record " + path.string() + ": " +
-                                 rename_ec.message());
-    }
-    sync_parent_directory(dir);
+    write_record(dir, entry.id, serialise_thought(entry));
 }
 
 ThoughtContents load_thoughts(const std::filesystem::path &dir) {
     ThoughtContents contents;
-    std::error_code ec;
-    for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end;
-         it.increment(ec)) {
-        std::error_code file_ec;
-        if (!it->is_regular_file(file_ec) || it->path().extension() != ".json") {
-            continue;
-        }
-        std::ifstream input(it->path(), std::ios::binary);
+    const std::vector<std::filesystem::path> files = list_record_files(dir);
+    for (const std::filesystem::path &path : files) {
+        std::ifstream input(path, std::ios::binary);
         if (!input) {
-            throw std::runtime_error("cannot open thought record " + it->path().string());
+            throw std::runtime_error("cannot open thought record " + path.string());
         }
         const std::string raw{std::istreambuf_iterator<char>(input),
                               std::istreambuf_iterator<char>()};
@@ -224,9 +153,9 @@ ThoughtContents load_thoughts(const std::filesystem::path &dir) {
             continue;
         }
         Thought entry = parse_thought(raw);
-        if (entry.id != it->path().stem().string()) {
+        if (entry.id != path.stem().string()) {
             fail("record id '" + entry.id + "' does not match file " +
-                 it->path().filename().string());
+                 path.filename().string());
         }
         contents.thoughts.push_back(std::move(entry));
     }

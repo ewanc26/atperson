@@ -14,6 +14,7 @@
 #include "cli/ingest.hpp"
 #include "cli/jetstream.hpp"
 #include "cli/ledger.hpp"
+#include "cli/metrics.hpp"
 #include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
@@ -209,6 +210,15 @@ int main(int argc, char **argv) {
                 arguments.emplace_back(argv[i]);
             }
             return atperson::cli::run_thoughts_list(
+                std::cout, atperson::cli::data_dir(), arguments.data(), arguments.size());
+        }
+
+        if (command == "metrics") {
+            std::vector<std::string_view> arguments;
+            for (int i = 2; i < argc; ++i) {
+                arguments.emplace_back(argv[i]);
+            }
+            return atperson::cli::run_metrics_list(
                 std::cout, atperson::cli::data_dir(), arguments.data(), arguments.size());
         }
 
@@ -446,6 +456,13 @@ int main(int argc, char **argv) {
         if (command == "reflect") {
             const auto now = static_cast<std::int64_t>(std::time(nullptr));
             return atperson::cli::run_reflect_command(
+                std::cout, atperson::cli::data_dir(), atperson::cli::action_journal_path(),
+                graph, now, atperson::control_now_rfc3339());
+        }
+
+        if (command == "selfeval") {
+            const auto now = static_cast<std::int64_t>(std::time(nullptr));
+            return atperson::cli::run_self_eval_command(
                 std::cout, atperson::cli::data_dir(), atperson::cli::action_journal_path(),
                 graph, now, atperson::control_now_rfc3339());
         }
