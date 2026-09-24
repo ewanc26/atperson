@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -111,7 +112,8 @@ void test_fresh_state_has_zero_drives() {
     assert(signals.size() == 1u);
     assert(signals[0].curiosity == 0.0f);
     assert(signals[0].reciprocity == 0.0f);
-    assert(signals[0].reciprocity_source == atperson::drives::kReciprocityNone);
+    assert(std::string_view(signals[0].reciprocity_source) ==
+           atperson::drives::kReciprocityNone);
 }
 
 void test_curiosity_ranks_partial_novelty() {
@@ -165,9 +167,11 @@ void test_reciprocity_prefers_the_referencing_record() {
     const std::vector<Signals> signals =
         compute_drive_signals(graph, {author, exact, other}, journal, NOW);
     assert(signals[0].reciprocity == 0.5f);
-    assert(signals[0].reciprocity_source == atperson::drives::kReciprocityAuthor);
+    assert(std::string_view(signals[0].reciprocity_source) ==
+           atperson::drives::kReciprocityAuthor);
     assert(signals[1].reciprocity == 1.0f);
-    assert(signals[1].reciprocity_source == atperson::drives::kReciprocityEvent);
+    assert(std::string_view(signals[1].reciprocity_source) ==
+           atperson::drives::kReciprocityEvent);
     assert(signals[2].reciprocity == 0.0f);
 
     /* Ordering: the referencing record first, then its author, then the
@@ -184,7 +188,8 @@ void test_reciprocity_author_window_expires() {
     const ContextCandidate author = candidate_at(1u, "alpha beta", "did:plc:fan");
     const std::vector<Signals> signals = compute_drive_signals(graph, {author}, journal, NOW);
     assert(signals[0].reciprocity == 0.0f);
-    assert(signals[0].reciprocity_source == atperson::drives::kReciprocityNone);
+    assert(std::string_view(signals[0].reciprocity_source) ==
+           atperson::drives::kReciprocityNone);
 }
 
 void test_order_is_deterministic_and_stable() {
