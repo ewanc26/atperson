@@ -14,10 +14,14 @@
 #include "daemon/signals.hpp"
 #include "engine.hpp"
 #include "ingestion/state.hpp"
+#include "journal/store.hpp"
 #include "linkage.hpp"
 #include "lock.hpp"
 #include "parallel.hpp"
+#include "reflect/config.hpp"
+#include "reflect/pass.hpp"
 #include "scheduler/cycle.hpp"
+#include "cli/thoughts.hpp"
 #include "worker/pool.hpp"
 
 #include <algorithm>
@@ -201,6 +205,24 @@ void print_scheduler_report(std::ostream &out, const SchedulerCycleReport &repor
     out << "\n";
 }
 
+/* Deterministic reflection step (#151) report: printed only when the cycle
+ * actually wrote thoughts, so an idle bound (cadence not yet elapsed, no
+ * triggers) stays silent. */
+void print_reflection_report(std::ostream &out, const ReflectionReport &report,
+                             const ReflectionConfig &config, std::string_view now_rfc3339) {
+    out << "reflect: wrote " << report.thoughts_written << " thought(s); window "
+        << config.window_seconds << "s ending " << now_rfc3339 << ": "
+        << report.valence_updates_in_window << " valence update(s) across "
+        << report.valence_tokens_in_window << " token(s), " << report.episodes_in_window
+        << " episode(s) from " << report.authors_in_window << " author(s), "
+        << report.events_in_window << " linked event(s), " << report.resolutions_in_window
+        << " resolution(s)\n";
+    for (const ReflectionResult &reflection : report.written) {
+        out << "  wrote " << reflection.thought.id << ' ' << reflection.thought.kind << " ("
+            << reflection.from << ") " << reflection.thought.text << '\n';
+    }
+}
+
 } // namespace
 
 int run_daemon_command(std::ostream &out, std::ostream &err,
@@ -336,6 +358,7 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
 
     unsigned long long cycle_number = 0;
     const SchedulerConfig scheduler_config = scheduler_config_from_environment();
+    const ReflectionConfig reflection_config = reflection_config_from_environment();
     std::uint64_t scheduler_cycles = 0;
     std::uint64_t scheduler_decisions = 0;
     std::uint64_t scheduler_abstentions = 0;
@@ -362,9 +385,9 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                 return true;
             }
         },
-        [&out, &data_dir, &cycle_number, &scheduler_config, &graph, &ledger, &scheduler_cycles,
-         &scheduler_decisions, &scheduler_abstentions,
-         &scheduler_executed](const SyncResult &result) {
+        [&out, &data_dir, &cycle_number, &scheduler_config, &reflection_config, &graph, &ledger,
+         &scheduler_cycles, &scheduler_decisions, &scheduler_abstentions, &scheduler_executed](
+            const SyncResult &result) {
             ++cycle_number;
             out << "daemon: cycle " << cycle_number << ": " << result.pages_completed
                 << " page(s), " << result.observations_seen << " observation(s), learned "
@@ -380,6 +403,18 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                 scheduler_abstentions += scheduler_report.abstentions;
                 scheduler_executed += scheduler_report.executed;
                 print_scheduler_report(out, scheduler_report);
+            }
+            if (reflection_config.enabled) {
+                const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+                const StateLock thoughts_lock(data_dir, "thoughts-lock");
+                const JournalContents journal = load_journal(action_journal_path());
+                const ReflectionReport reflection_report = run_reflection_pass(
+                    thoughts_path(data_dir), journal, graph, reflection_config,
+                    static_cast<std::uint64_t>(now));
+                if (reflection_report.thoughts_written > 0u) {
+                    print_reflection_report(out, reflection_report, reflection_config,
+                                             control_now_rfc3339());
+                }
             }
         },
         [&err](std::chrono::milliseconds delay, const RetryableError &error) {

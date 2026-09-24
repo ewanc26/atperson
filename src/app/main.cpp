@@ -19,6 +19,7 @@
 #include "cli/publish.hpp"
 #include "cli/protocol_command.hpp"
 #include "cli/sync.hpp"
+#include "cli/thoughts.hpp"
 #include "cli/usage.hpp"
 #include "control/state.hpp"
 #include "journal/command.hpp"
@@ -187,6 +188,28 @@ int main(int argc, char **argv) {
             }
             std::cout << "pending proposals: " << proposals << '\n';
             return 0;
+        }
+
+        /* Thought commands: a thought and a listing need only the thought
+         * store, never the model. `reflect` needs the graph and is
+         * dispatched after it loads. */
+        if (command == "thought") {
+            std::vector<std::string> text_parts;
+            for (int i = 2; i < argc; ++i) {
+                text_parts.emplace_back(argv[i]);
+            }
+            return atperson::cli::run_thought_record(
+                std::cout, atperson::cli::data_dir(), text_parts,
+                atperson::control_now_rfc3339());
+        }
+
+        if (command == "thoughts") {
+            std::vector<std::string_view> arguments;
+            for (int i = 2; i < argc; ++i) {
+                arguments.emplace_back(argv[i]);
+            }
+            return atperson::cli::run_thoughts_list(
+                std::cout, atperson::cli::data_dir(), arguments.data(), arguments.size());
         }
 
         if (command == "outbound") {
@@ -418,6 +441,13 @@ int main(int argc, char **argv) {
                 std::cout, graph, atperson::cli::action_journal_path(),
                 atperson::cli::data_dir(), path, sub, arguments.data(), arguments.size(),
                 now, atperson::control_now_rfc3339());
+        }
+
+        if (command == "reflect") {
+            const auto now = static_cast<std::int64_t>(std::time(nullptr));
+            return atperson::cli::run_reflect_command(
+                std::cout, atperson::cli::data_dir(), atperson::cli::action_journal_path(),
+                graph, now, atperson::control_now_rfc3339());
         }
 
         if (command == "ingest") {
