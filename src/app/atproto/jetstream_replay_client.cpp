@@ -2,7 +2,6 @@
 
 #include "jetstream_replay.hpp"
 
-#include "wolfram/agent.h"
 #include "wolfram/jetstream_replay.h"
 #include "wolfram/xrpc.h"
 
@@ -11,23 +10,51 @@
 
 namespace atperson {
 
-std::optional<std::uint64_t> JetstreamReplayClient::probe_sealed_tip() {
-    wf_xrpc_client *const client = wf_agent_get_xrpc_client(&agent_);
-    if (client == nullptr) {
-        throw std::runtime_error("Jetstream replay requires an authenticated agent client");
-    }
+namespace {
+
+/* Default public Jetstream archive host. The archive API (planSnapshot,
+ * getSegment, getBlock) is served here, not on the PDS. */
+inline constexpr const char *kDefaultJetstreamArchiveHost =
+    "https://jetstream.us-west.bsky.network";
+
+} // namespace
+
+void JetstreamReplayClient::XrpcClientDeleter::operator()(
+    wf_xrpc_client *client) const noexcept {
+    wf_xrpc_client_free(client);
+}
+
+JetstreamReplayClient::JetstreamReplayClient(std::string archive_host,
+                                             std::string archive_token)
+    : archive_token_(std::move(archive_token)) {
     if (archive_token_.empty()) {
-        throw std::runtime_error("Jetstream replay requires ATPERSON_JETSTREAM_ARCHIVE_TOKEN");
+        throw std::runtime_error(
+            "Jetstream replay requires ATPERSON_JETSTREAM_ARCHIVE_TOKEN");
     }
-    wf_xrpc_client_set_auth(client, archive_token_.c_str());
-    /* A minimal window still reports the archive's global sealed tip; no
-     * segments are downloaded. */
+    if (archive_host.empty()) {
+        archive_host = kDefaultJetstreamArchiveHost;
+    }
+    wf_xrpc_client *const client = wf_xrpc_client_new(archive_host.c_str());
+    if (client == nullptr) {
+        throw std::runtime_error("Jetstream replay failed to create transport");
+    }
+    client_.reset(client);
+    /* Archive endpoints use a raw archive API token, not the PDS session JWT. */
+    wf_xrpc_client_set_auth(client_.get(), archive_token_.c_str());
+}
+
+JetstreamReplayClient::~JetstreamReplayClient() = default;
+
+std::optional<std::uint64_t> JetstreamReplayClient::probe_sealed_tip() {
+    /* The archive clamps sealedTipSeq to the request's beforeSeq, so the
+     * probe sends no upper bound at all and starts beyond any reachable
+     * sequence (the JSON-safe exact integer cap, 2^53-1). Nothing matches,
+     * but the response carries the unclamped global tip. */
     wf_jetstream_replay_filter filter{};
-    filter.after_seq = 0u;
-    filter.before_seq = 1u;
-    filter.has_before_seq = 1;
+    filter.after_seq = 9007199254740991u;
+    filter.has_before_seq = 0;
     wf_jetstream_replay_plan_page page{};
-    if (wf_jetstream_replay_plan(client, &filter, &page) != WF_OK) {
+    if (wf_jetstream_replay_plan(client_.get(), &filter, &page) != WF_OK) {
         wf_jetstream_replay_plan_page_free(&page);
         throw std::runtime_error("Jetstream replay tip probe failed");
     }
@@ -48,6 +75,15 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
         throw std::invalid_argument("invalid Jetstream replay window arguments");
     }
     const bool caller_supplied_before = before_seq.has_value();
+    /* The archive clamps sealedTipSeq to the request's beforeSeq, so a window
+     * cannot learn the true tip from its own plan response. Probe it once:
+     * the tip drives both the auto-window clamp and the exhaustion signal. */
+    const std::optional<std::uint64_t> true_tip = probe_sealed_tip();
+    if (!caller_supplied_before) {
+        if (true_tip && *true_tip < before_seq) {
+            before_seq = *true_tip;
+        }
+    }
     const char *kinds[] = {"commit"};
     std::vector<const char *> collection_values;
     collection_values.reserve(collections.size());
@@ -70,27 +106,15 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
     filter.after_seq = after_seq;
     filter.before_seq = *before_seq;
     filter.has_before_seq = 1;
-    wf_xrpc_client *const client = wf_agent_get_xrpc_client(&agent_);
-    if (client == nullptr) {
-        throw std::runtime_error("Jetstream replay requires an authenticated agent client");
-    }
-    if (archive_token_.empty()) {
-        throw std::runtime_error("Jetstream replay requires ATPERSON_JETSTREAM_ARCHIVE_TOKEN");
-    }
-    /* Archive endpoints use a raw archive API token, not the PDS session JWT. */
-    wf_xrpc_client_set_auth(client, archive_token_.c_str());
-
+    wf_xrpc_client *const client = client_.get();
     JetstreamReplayWindow result;
     for (;;) {
         wf_jetstream_replay_plan_page page{};
-        if (wf_jetstream_replay_plan(client, &filter, &page) != WF_OK) {
+        if (wf_jetstream_replay_plan(client_.get(), &filter, &page) != WF_OK) {
             wf_jetstream_replay_plan_page_free(&page);
             throw std::runtime_error("Jetstream replay planSnapshot failed");
         }
-        if (!caller_supplied_before && page.sealed_tip_seq < *before_seq) {
-            before_seq = page.sealed_tip_seq;
-        }
-        result.sealed_tip_seq = *before_seq;
+        result.sealed_tip_seq = true_tip.value_or(*before_seq);
         try {
             for (std::size_t i = 0u; i < page.segments_count; ++i) {
                 const auto &segment = page.segments[i];

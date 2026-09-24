@@ -97,6 +97,7 @@ void print_usage(std::ostream &out) {
         << "  ATPERSON_DAEMON_ARCHIVE_AFTER        optional startup archive lower bound\n"
         << "  ATPERSON_DAEMON_ARCHIVE_BEFORE       optional startup archive upper bound\n"
         << "  ATPERSON_JETSTREAM_ARCHIVE_TOKEN     raw token for Jetstream archive replay\n"
+        << "  ATPERSON_JETSTREAM_ARCHIVE_HOST       archive service base URL (default https://jetstream.us-west.bsky.network)\n"
         << "  ATPERSON_DAEMON_PAGES_PER_CYCLE  pages per daemon sync cycle (default 1)\n"
         << "  ATPERSON_DAEMON_POLL_MS          wait after an exhausted cycle "
            "(default 300000)\n"

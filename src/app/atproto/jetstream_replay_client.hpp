@@ -7,11 +7,12 @@
 #include <functional>
 #include <limits>
 #include <optional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
-typedef struct wf_agent wf_agent;
+typedef struct wf_xrpc_client wf_xrpc_client;
 
 namespace atperson {
 
@@ -62,12 +63,21 @@ class JetstreamReplaySource {
         const std::function<void(const JetstreamEvent &)> &on_event) = 0;
 };
 
-/* Bounded authenticated archive reader. It owns no transport or ingestion
- * state; the caller checkpoints only after this method returns successfully. */
+/* Bounded authenticated archive reader. The archive API is a separate host
+ * from the PDS, so this client owns its own XRPC transport bound to the
+ * archive host and authenticates with the raw archive token. It owns no
+ * ingestion state; the caller checkpoints only after this method returns
+ * successfully. */
 class JetstreamReplayClient final : public JetstreamReplaySource {
   public:
-    JetstreamReplayClient(wf_agent &agent, std::string archive_token)
-        : agent_(agent), archive_token_(std::move(archive_token)) {}
+    /* archive_host: base URL of the Jetstream archive service, e.g.
+     * "https://jetstream.us-west.bsky.network". Throws std::runtime_error
+     * when the transport cannot be created or the token is empty. */
+    JetstreamReplayClient(std::string archive_host, std::string archive_token);
+    ~JetstreamReplayClient() override;
+
+    JetstreamReplayClient(const JetstreamReplayClient &) = delete;
+    JetstreamReplayClient &operator=(const JetstreamReplayClient &) = delete;
 
     [[nodiscard]] std::optional<std::uint64_t> probe_sealed_tip() override;
 
@@ -78,7 +88,11 @@ class JetstreamReplayClient final : public JetstreamReplaySource {
         const std::function<void(const JetstreamEvent &)> &on_event) override;
 
   private:
-    wf_agent &agent_;
+    struct XrpcClientDeleter {
+        void operator()(wf_xrpc_client *client) const noexcept;
+    };
+
+    std::unique_ptr<wf_xrpc_client, XrpcClientDeleter> client_;
     std::string archive_token_;
 };
 

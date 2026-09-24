@@ -75,6 +75,20 @@ int main() {
     assert(request.find("99") != std::string::npos);
     free(json);
 
+    /* Archive client contract: the raw archive token is required, and the
+     * transport is bound to the archive host (never the PDS session client).
+     * Construction performs no network I/O, so both cases are offline-safe. */
+    bool threw = false;
+    try {
+        const JetstreamReplayClient missing_token("", "");
+        (void)missing_token;
+    } catch (const std::runtime_error &) {
+        threw = true;
+    }
+    assert(threw);
+    const JetstreamReplayClient defaults_host("", "token");
+    (void)defaults_host;
+
     free(event.collection);
     free(event.did);
     free(event.rkey);
