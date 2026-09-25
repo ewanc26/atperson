@@ -51,6 +51,21 @@ int main() {
         });
     assert(delivered == 1);
 
+    /* Kind 7 (create_resync) is a commit create re-witnessed during a server
+     * repository resync; it must enter the learning path as a create. */
+    event.kind = 7u;
+    int resync_delivered = 0;
+    translate_jetstream_replay_events(
+        &event, 1u, "did:plc:self", [&](const JetstreamEvent &translated) {
+            ++resync_delivered;
+            assert(translated.source_uri ==
+                   "at://did:plc:archive/app.bsky.feed.post/3k");
+            assert(translated.text == "archive post");
+            assert(translated.seq == 42);
+        });
+    assert(resync_delivered == 1);
+    event.kind = 1u;
+
     const char *kinds[] = {"commit"};
     const char *collections[] = {"app.bsky.feed.post", "app.bsky.feed.like"};
     const char *dids[] = {"did:plc:archive"};
