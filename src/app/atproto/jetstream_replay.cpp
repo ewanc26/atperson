@@ -43,9 +43,14 @@ void translate_jetstream_replay_events(
     for (std::size_t i = 0u; i < event_count; ++i) {
         const auto &event = events[i];
         /* The replay API's commit rows are the only rows with record payloads.
-         * Kind 1 is create and kind 2 is update; other kinds are identity,
-         * handle, or account frames and do not enter the learning path. */
-        if ((event.kind != 1u && event.kind != 2u) || event.collection == nullptr ||
+         * Kind 1 is create, kind 2 is update, and kind 7 is create_resync: a
+         * commit create re-witnessed while the server rebuilt a repository
+         * slice. For a backfill from the archive head those re-witnessed
+         * rows can be the only witness of a record, so they enter the
+         * learning path as creates. Other kinds are identity, handle, or
+         * account frames and do not carry record payloads. */
+        const bool is_create = event.kind == 1u || event.kind == 7u;
+        if ((!is_create && event.kind != 2u) || event.collection == nullptr ||
             event.did == nullptr || event.rkey == nullptr || event.payload == nullptr ||
             event.payload_len == 0u) {
             continue;
@@ -67,7 +72,7 @@ void translate_jetstream_replay_events(
         }
         cJSON_AddStringToObject(root, "did", event.did);
         cJSON_AddStringToObject(root, "time", rfc3339_from_micros(event.witnessed_at).c_str());
-        cJSON_AddStringToObject(commit, "operation", event.kind == 1u ? "create" : "update");
+        cJSON_AddStringToObject(commit, "operation", is_create ? "create" : "update");
         cJSON_AddStringToObject(commit, "collection", event.collection);
         cJSON_AddStringToObject(commit, "rkey", event.rkey);
         cJSON_AddItemToObject(commit, "record", record);
