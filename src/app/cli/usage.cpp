@@ -51,6 +51,7 @@ void print_usage(std::ostream &out) {
         << "  atperson selfeval\n\n"
         << "  atperson protocol [status|resolve <handle>|explain <subject>|oauth-plan <scope>|oauth-metadata <scope>]\n\n"
         << "  atperson autonomy status\n"
+        << "  atperson autonomy health   (supervisor liveness; exit 0/1/2)\n"
         << "environment:\n"
         << "  ATPERSON_TRAINING_HOME    training data directory "
            "(default ~/.ewanc26/atperson/training)\n"

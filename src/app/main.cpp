@@ -1,6 +1,7 @@
 #include "atperson/bootstrap.h"
 #include "protocol.hpp"
 #include "atperson/graph.hpp"
+#include "autonomy/heartbeat.hpp"
 #include "autonomy/run_state.hpp"
 #include "inspection.hpp"
 #include "audit/command.hpp"
@@ -168,6 +169,35 @@ int main(int argc, char **argv) {
 
         if (command == "autonomy") {
             const std::string sub = argc >= 3 ? argv[2] : "status";
+            if (sub == "health") {
+                /* Supervisor surface (#143): machine-readable liveness.
+                 * Exit codes: 0 healthy, 1 stale, 2 unreadable/never
+                 * started — a watchdog restarts on non-zero. The
+                 * staleness threshold defaults to 15 minutes and is
+                 * overridable via ATPERSON_HEALTH_MAX_AGE_SECONDS. */
+                const char *raw_max = std::getenv("ATPERSON_HEALTH_MAX_AGE_SECONDS");
+                const std::int64_t max_age =
+                    raw_max != nullptr && raw_max[0] != '\0' ? std::stoll(raw_max)
+                                                             : 15 * 60;
+                const auto report = atperson::autonomy_health(
+                    atperson::cli::autonomy_heartbeat_path(),
+                    static_cast<std::int64_t>(std::time(nullptr)), max_age);
+                std::cout << "{\"health\":\"" << atperson::autonomy_health_name(report.health)
+                          << "\"";
+                if (report.heartbeat) {
+                    std::cout << ",\"run_id\":\"" << report.heartbeat->run_id
+                              << "\",\"cycle\":" << report.heartbeat->cycle
+                              << ",\"beat_at\":\"" << report.heartbeat->beat_at
+                              << "\",\"phase\":\"" << report.heartbeat->phase << "\"";
+                }
+                std::cout << ",\"detail\":\"" << report.detail << "\"}\n";
+                switch (report.health) {
+                case atperson::AutonomyHealth::Healthy: return 0;
+                case atperson::AutonomyHealth::Stale: return 1;
+                case atperson::AutonomyHealth::Unreadable: return 2;
+                }
+                return 2;
+            }
             if (sub != "status") {
                 usage(std::cerr);
                 return 2;

@@ -143,6 +143,11 @@ std::filesystem::path autonomy_run_state_path() {
                   (data_dir() / "autonomy-run.json").string());
 }
 
+std::filesystem::path autonomy_heartbeat_path() {
+    return env_or("ATPERSON_AUTONOMY_HEARTBEAT",
+                  (data_dir() / "autonomy-heartbeat.json").string());
+}
+
 std::filesystem::path scheduler_proposals_path() {
     return env_or("ATPERSON_SCHEDULER_PROPOSALS",
                   (data_dir() / "scheduler" / "proposals").string());
