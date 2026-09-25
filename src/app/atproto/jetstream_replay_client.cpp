@@ -6,6 +6,7 @@
 #include "wolfram/xrpc.h"
 
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace atperson {
@@ -16,6 +17,19 @@ namespace {
  * getSegment, getBlock) is served here, not on the PDS. */
 inline constexpr const char *kDefaultJetstreamArchiveHost =
     "https://jetstream.us-west.bsky.network";
+
+} // namespace
+
+namespace {
+
+/* Translates a rejected archive request into a distinct, greppable error so a
+ * dead/expired archive token fails the backfill fast instead of retrying as
+ * if it were a transient network failure. */
+[[noreturn]] void throw_archive_transport_error(const char *what) {
+    throw std::runtime_error(std::string("Jetstream archive ") + what +
+                             " failed: archive rejected credentials (WF_ERR_AUTH) — "
+                             "check ATPERSON_JETSTREAM_ARCHIVE_TOKEN");
+}
 
 } // namespace
 
@@ -54,8 +68,11 @@ std::optional<std::uint64_t> JetstreamReplayClient::probe_sealed_tip() {
     filter.after_seq = 9007199254740991u;
     filter.has_before_seq = 0;
     wf_jetstream_replay_plan_page page{};
-    if (wf_jetstream_replay_plan(client_.get(), &filter, &page) != WF_OK) {
+    const wf_status probe_status =
+        wf_jetstream_replay_plan(client_.get(), &filter, &page);
+    if (probe_status != WF_OK) {
         wf_jetstream_replay_plan_page_free(&page);
+        if (probe_status == WF_ERR_AUTH) throw_archive_transport_error("tip probe");
         throw std::runtime_error("Jetstream replay tip probe failed");
     }
     const std::uint64_t tip = page.sealed_tip_seq;
@@ -110,8 +127,10 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
     JetstreamReplayWindow result;
     for (;;) {
         wf_jetstream_replay_plan_page page{};
-        if (wf_jetstream_replay_plan(client_.get(), &filter, &page) != WF_OK) {
+        const wf_status plan_status = wf_jetstream_replay_plan(client_.get(), &filter, &page);
+        if (plan_status != WF_OK) {
             wf_jetstream_replay_plan_page_free(&page);
+            if (plan_status == WF_ERR_AUTH) throw_archive_transport_error("planSnapshot");
             throw std::runtime_error("Jetstream replay planSnapshot failed");
         }
         result.sealed_tip_seq = true_tip.value_or(*before_seq);
@@ -123,8 +142,13 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
                 }
                 if (segment.mode == WF_JETSTREAM_REPLAY_SEGMENT_WHOLE) {
                     wf_response response{};
-                    if (wf_jetstream_replay_get_segment(client, segment.name, &response) != WF_OK) {
+                    const wf_status segment_status =
+                        wf_jetstream_replay_get_segment(client, segment.name, &response);
+                    if (segment_status != WF_OK) {
                         wf_response_free(&response);
+                        if (segment_status == WF_ERR_AUTH) {
+                            throw_archive_transport_error("getSegment");
+                        }
                         throw std::runtime_error("Jetstream replay getSegment failed");
                     }
                     decode_jetstream_replay_segment(response.body, response.body_len, self_did,
@@ -134,9 +158,14 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
                     for (std::size_t b = 0u; b < segment.blocks_count; ++b) {
                         for (std::uint64_t index = segment.blocks[b].first;; ++index) {
                             wf_response response{};
-                            if (wf_jetstream_replay_get_block(client, segment.name, index,
-                                                              &response) != WF_OK) {
+                            const wf_status block_status =
+                                wf_jetstream_replay_get_block(client, segment.name, index,
+                                                              &response);
+                            if (block_status != WF_OK) {
                                 wf_response_free(&response);
+                                if (block_status == WF_ERR_AUTH) {
+                                    throw_archive_transport_error("getBlock");
+                                }
                                 throw std::runtime_error("Jetstream replay getBlock failed");
                             }
                             wf_jetstream_replay_event *events = nullptr;
