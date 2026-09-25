@@ -15,6 +15,16 @@ services:
       - atperson-data:/var/lib/atperson
     restart: unless-stopped
     command: daemon
+    # Supervisor health surface (#143/#168): the daemon refreshes
+    # <data>/autonomy-heartbeat.json every completed cycle; this poll
+    # exits 0 healthy, 1 stale, 2 unreadable/never started. start_period
+    # covers the first cycle before any heartbeat exists.
+    healthcheck:
+      test: ["CMD", "atperson", "autonomy", "health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10m
     # Optional resource limits: the atperson runtime probes cgroup memory/CPU
     # limits on Linux and dynamically scales its graph and write budgets.
     # deploy:
