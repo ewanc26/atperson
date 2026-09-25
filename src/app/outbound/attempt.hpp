@@ -54,6 +54,11 @@ struct OutboundAttemptPaths {
     /* Standing authorization envelopes (#141). Optional: when empty, the
      * attempt is per-digest approval exactly as before. */
     std::filesystem::path envelopes_dir;
+    /* Offline spool root (#154). Optional: when empty, no spool-first
+     * mirroring happens (tests that do not exercise the spool). When set,
+     * every reached network write is spooled before the transport call
+     * and removed after confirmed success. */
+    std::filesystem::path spool_root;
 };
 
 /* Run one attempt end to end. `now` is injected for determinism. The gates

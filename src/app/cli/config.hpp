@@ -52,6 +52,7 @@ std::filesystem::path control_state_path();
 std::filesystem::path outbound_policy_path();
 std::filesystem::path outbound_budget_path();
 std::filesystem::path outbound_audit_path();
+std::filesystem::path offline_spool_path();
 
 /* Action/outcome journal (#27): durable experience provenance for the
  * entity's own outbound attempts. */

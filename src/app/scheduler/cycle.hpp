@@ -120,6 +120,12 @@ struct SchedulerCycleReport {
     std::size_t expectations_evaluated{};
     std::size_t expectations_pending{};
     std::size_t resolutions_written{};
+    /* Offline spool drain (#154): entries published/denied/deferred by the
+     * cycle's restore drain. Zero when offline mode is on (spool-only) or
+     * the spool is empty. */
+    std::size_t spool_published{};
+    std::size_t spool_denied{};
+    std::size_t spool_deferred{};
     /* Pending social intent (#150): the intent sweep's accounting —
      * intents examined, and terminal intent lines it appended (expired when
      * the reply window closed, closed when the continuation budget was

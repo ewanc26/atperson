@@ -248,6 +248,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/evaluate.cpp
     src/app/outbound/execute.cpp
     src/app/outbound/attempt.cpp
+    src/app/outbound/spool.cpp
     src/app/outbound/expectation.cpp
     src/app/scheduler/cycle.cpp
     src/app/scheduler/drives.cpp
@@ -606,12 +607,24 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson-outbound-test
     tests/outbound/outbound.cpp
+    src/app/action/tokens.cpp
+    src/app/cli/config.cpp
     src/app/cli/outbound.cpp
+    src/app/control/envelope.cpp
     src/app/control/state.cpp
+    src/app/journal/store.cpp
+    src/app/state/records.cpp
+    src/app/state/time.cpp
+    src/app/outbound/action.cpp
+    src/app/outbound/spool.cpp
     src/app/outbound/actions.cpp
+    src/app/outbound/attempt.cpp
+    src/app/outbound/audit.cpp
     src/app/outbound/budget.cpp
     src/app/outbound/config.cpp
-    src/app/outbound/evaluate.cpp)
+    src/app/outbound/evaluate.cpp
+    src/app/outbound/execute.cpp
+    src/app/outbound/expectation.cpp)
   target_compile_features(atperson-outbound-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-outbound-test PRIVATE atperson-cpp)
   target_include_directories(atperson-outbound-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
@@ -646,6 +659,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/action/tokens.cpp
     src/app/control/state.cpp
     src/app/journal/store.cpp
+    src/app/state/records.cpp
     src/app/outbound/action.cpp
     src/app/outbound/actions.cpp
     src/app/outbound/audit.cpp
@@ -692,6 +706,8 @@ if(ATPERSON_BUILD_TESTS)
     src/app/outbound/action.cpp
     src/app/outbound/actions.cpp
     src/app/outbound/attempt.cpp
+    src/app/outbound/spool.cpp
+    src/app/state/records.cpp
     src/app/outbound/audit.cpp
     src/app/outbound/budget.cpp
     src/app/outbound/config.cpp
@@ -711,6 +727,34 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson-scheduler-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-scheduler COMMAND atperson-scheduler-test)
 
+  # Offline-safe network writes (#154): spool-first writes, offline mode,
+  # drain-on-restore, denied permanence, transport-failure suffix
+  # retention and inspection. Offline: fake OutboundWriter, real gates.
+  add_executable(
+    atperson-spool-test
+    tests/outbound/spool.cpp
+    src/app/action/tokens.cpp
+    src/app/control/envelope.cpp
+    src/app/control/state.cpp
+    src/app/journal/store.cpp
+    src/app/outbound/action.cpp
+    src/app/outbound/actions.cpp
+    src/app/outbound/attempt.cpp
+    src/app/outbound/spool.cpp
+    src/app/state/records.cpp
+    src/app/outbound/audit.cpp
+    src/app/outbound/budget.cpp
+    src/app/outbound/config.cpp
+    src/app/outbound/evaluate.cpp
+    src/app/outbound/execute.cpp
+    src/app/outbound/expectation.cpp
+    src/app/state/records.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-spool-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-spool-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-spool-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-spool COMMAND atperson-spool-test)
+
   # Standing authorization envelopes (#141): operator pre-approval bounded
   # by kind ceilings, score floors, scope terms and expiry, composing with
   # the existing gates and never widening them. Offline, no network.
@@ -724,6 +768,8 @@ if(ATPERSON_BUILD_TESTS)
     src/app/outbound/action.cpp
     src/app/outbound/actions.cpp
     src/app/outbound/attempt.cpp
+    src/app/outbound/spool.cpp
+    src/app/state/records.cpp
     src/app/outbound/audit.cpp
     src/app/outbound/budget.cpp
     src/app/outbound/config.cpp

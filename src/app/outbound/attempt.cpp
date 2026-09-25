@@ -7,6 +7,7 @@
 #include "control/state.hpp"
 #include "expectation.hpp"
 #include "journal/store.hpp"
+#include "spool.hpp"
 
 #include <cstdio>
 #include <ctime>
@@ -75,10 +76,44 @@ OutboundExecutionResult attempt_outbound_action(const OutboundAction &action,
             paths.envelopes_dir, policy, action.kind, action.text, evidence, budget, now)};
     }
 
-    const OutboundExecutionResult result =
-        execute_outbound_action(control, policy, budget, action, writer_for, now,
-                                 options.attest, options.external_publishing_allowed,
-                                 envelope_gate);
+    /* Spool-first (#154): when a spool root is configured, the network
+     * write is wrapped so the record is durably staged before any
+     * transport call. Offline mode never reaches the writer at all (the
+     * control gate refuses), so the spool wrapper alone covers the
+     * online-with-transport-failure case. Offline mode itself is handled
+     * by the caller: it spools the action directly and skips the
+     * attempt. */
+    const OutboundExecutionResult result = [&]() {
+        /* Offline mode (#154): the network write path becomes spool-only.
+         * The action is durably staged and the attempt reports a dry-run
+         * style outcome — learning, planning and journalling continue
+         * unchanged, nothing is dropped, nothing touches the network.
+         * Restoring online mode drains the spool through this same atom. */
+        if (control.offline_mode && !paths.spool_root.empty()) {
+            spool_append(SpoolPaths{paths.spool_root}, serialise_outbound_action(action),
+                         rfc3339_from_unix(now));
+            OutboundExecutionResult spooled;
+            spooled.outcome = OutboundExecutionOutcome::DryRun;
+            spooled.reason_code = "offline_spooled";
+            spooled.detail = "offline mode: action spooled locally for a later drain";
+            spooled.budget = outbound_budget_status(
+                policy, budget, action.kind, now);
+            return spooled;
+        }
+        if (paths.spool_root.empty()) {
+            return execute_outbound_action(control, policy, budget, action, writer_for, now,
+                                           options.attest, options.external_publishing_allowed,
+                                           envelope_gate);
+        }
+        SpoolFirstWriter spool_writer{SpoolPaths{paths.spool_root}, writer_for(), action,
+                                      rfc3339_from_unix(now)};
+        const OutboundWriterFactory spooled_for = [&spool_writer]() -> OutboundWriter & {
+            return spool_writer;
+        };
+        return execute_outbound_action(control, policy, budget, action, spooled_for, now,
+                                       options.attest, options.external_publishing_allowed,
+                                       envelope_gate);
+    }();
 
     if (result.budget_recorded) {
         budget.saved_at = now;

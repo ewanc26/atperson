@@ -11,6 +11,7 @@
 #include "journal/store.hpp"
 #include "outbound/budget.hpp"
 #include "outbound/config.hpp"
+#include "outbound/spool.hpp"
 #include "outbound/action.hpp"
 #include "outbound/actions.hpp"
 #include "state/lock.hpp"
@@ -105,6 +106,24 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
     }
 
     const std::string now_rfc3339 = rfc3339_from_unix(cycle.now);
+
+    /* Spool drain (#154): online mode with a non-empty spool flushes it
+     * first, in creation order, through the same attempt atom as every
+     * live write — restoring online mode never needs a manual step. The
+     * drain is bounded per cycle; offline mode never reaches here (the
+     * attempt spools instead of publishing). */
+    if (!cycle.attempt.spool_root.empty()) {
+        const ControlState drain_control =
+            load_control_state(cycle.attempt.control_file);
+        if (!drain_control.offline_mode) {
+            const SpoolDrainReport drained =
+                spool_drain(SpoolPaths{cycle.attempt.spool_root}, cycle.attempt,
+                            cycle.writer_for, cycle.now);
+            report.spool_published = drained.published;
+            report.spool_denied = drained.denied;
+            report.spool_deferred = drained.deferred + drained.failed;
+        }
+    }
 
     /* Intent sweep (#150): before any new decision, expire/close intents
      * whose window or continuation budget ended. Idempotent and journal-only;
