@@ -1,9 +1,11 @@
 #include "outbound.hpp"
 
 #include "control/state.hpp"
+#include "config.hpp"
 #include "outbound/budget.hpp"
 #include "outbound/config.hpp"
 #include "outbound/evaluate.hpp"
+#include "outbound/spool.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -18,7 +20,7 @@ namespace {
 [[noreturn]] void usage_error() {
     throw std::runtime_error(
         "outbound usage: outbound <status [kind]|rules|evaluate <kind> [target] [digest]|"
-        "admit <kind> [target] [digest]>");
+        "admit <kind> [target] [digest]|spool>");
 }
 
 std::string seconds_text(std::int64_t seconds) {
@@ -97,6 +99,23 @@ int run_outbound_command(std::ostream &out, const std::filesystem::path &policy_
                          const std::filesystem::path &budget_file,
                          const std::filesystem::path &control_file, std::string_view sub,
                          const std::vector<std::string_view> &arguments, std::int64_t now) {
+    if (sub == "spool") {
+        /* #154 inspection: pending count, earliest pending time, denied
+         * count and the last assigned sequence. Read-only. */
+        const SpoolPaths paths{offline_spool_path()};
+        const SpoolStatus status = spool_status(paths);
+        const ControlState control = load_control_state(control_file);
+        out << "offline mode: " << (control.offline_mode ? "on" : "off") << '\n'
+            << "pending: " << status.pending_count << '\n';
+        if (status.earliest_pending_at) {
+            out << "earliest pending: " << *status.earliest_pending_at << '\n';
+        }
+        out << "denied: " << status.denied_count << '\n'
+            << "last sequence: " << status.last_seq << '\n'
+            << "spool directory: " << paths.root.string() << '\n';
+        return 0;
+    }
+
     if (sub == "rules") {
         const OutboundPolicy policy = load_outbound_policy(policy_file);
         out << "policy file: " << policy_file.string()

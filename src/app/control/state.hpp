@@ -38,6 +38,11 @@ struct ControlState {
      * never execute the outbound action. */
     bool dry_run{true};
 
+    /* Offline mode (#154): network-bound records spool locally instead of
+     * publishing. Learning, planning and journalling continue unchanged;
+     * restoring online mode drains the spool through the same gates. */
+    bool offline_mode{false};
+
     /* Require manual approval for proposed outbound actions. When true, an
      * action may only execute once its exact digest has been approved. */
     bool approval_required{true};

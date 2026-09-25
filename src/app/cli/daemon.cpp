@@ -177,7 +177,7 @@ SchedulerCycleReport run_scheduler_after_cycle(const std::filesystem::path &data
         scheduler_proposals_path(),
         OutboundAttemptPaths{outbound_policy_path(), outbound_budget_path(),
                              control_state_path(), outbound_audit_path(), action_journal_path(),
-                             authorization_envelopes_path()},
+                             authorization_envelopes_path(), offline_spool_path()},
         writer_for,
         now,
         steady_ms};

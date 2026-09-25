@@ -89,7 +89,7 @@ int run_publish(std::ostream &out, const std::filesystem::path &data_dir,
      * outbound lock, the Wolfram writer and the environment-backed
      * attestation/MAC factories. */
     const OutboundAttemptPaths paths{policy_file, budget_file, control_file, audit_file,
-                                    journal_file, envelopes_dir};
+                                    journal_file, envelopes_dir, offline_spool_path()};
     const OutboundAttemptOptions options{
         attest,
         [&session](const OutboundAction &a) -> std::optional<JournalMac> {

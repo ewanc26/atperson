@@ -39,6 +39,8 @@ int run_control(std::ostream &out, const RuntimeResourceStatus &resource_status,
         out << "paused: " << (state.paused ? "yes" : "no") << '\n'
             << "writes: " << (state.writes_enabled ? "enabled" : "disabled") << '\n'
             << "dry-run: " << (state.dry_run ? "on" : "off") << '\n'
+            << "offline: " << (state.offline_mode ? "on (network writes spool locally)" : "off")
+            << '\n'
             << "approval: " << (state.approval_required ? "required" : "not required")
             << '\n'
             << "approved actions: " << state.approved_digests.size() << '\n';
@@ -88,6 +90,22 @@ int run_control(std::ostream &out, const RuntimeResourceStatus &resource_status,
         state.dry_run = argument == "on";
         save(state, control_file);
         out << "dry-run " << (state.dry_run ? "on" : "off") << '\n';
+        return 0;
+    }
+
+    if (sub == "offline") {
+        if (argument != "on" && argument != "off") {
+            usage_error();
+        }
+        const bool turning_off = argument == "off";
+        const bool was_offline = state.offline_mode;
+        state.offline_mode = !turning_off;
+        save(state, control_file);
+        out << "offline mode " << (state.offline_mode ? "on" : "off") << '\n';
+        if (was_offline && turning_off) {
+            out << "restoring online mode drains the spool automatically; "
+                << "`atperson outbound spool` inspects pending records\n";
+        }
         return 0;
     }
 

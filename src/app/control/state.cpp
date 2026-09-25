@@ -160,6 +160,14 @@ ControlState load_control_state(const std::filesystem::path &path) {
     state.paused = require_bool(root.get(), "paused");
     state.writes_enabled = require_bool(root.get(), "writes_enabled");
     state.dry_run = require_bool(root.get(), "dry_run");
+    /* Absent in control files written before #154; false is the correct
+     * default (online). */
+    if (cJSON *offline = cJSON_GetObjectItemCaseSensitive(root.get(), "offline_mode")) {
+        if (!cJSON_IsBool(offline)) {
+            invalid("field 'offline_mode' must be a boolean");
+        }
+        state.offline_mode = cJSON_IsTrue(offline);
+    }
     state.approval_required = require_bool(root.get(), "approval_required");
 
     cJSON *digests = cJSON_GetObjectItemCaseSensitive(root.get(), "approved_digests");
@@ -195,6 +203,8 @@ std::string serialise_control_state(const ControlState &state) {
     out.append(state.writes_enabled ? "true" : "false");
     out.append(",\"dry_run\":");
     out.append(state.dry_run ? "true" : "false");
+    out.append(",\"offline_mode\":");
+    out.append(state.offline_mode ? "true" : "false");
     out.append(",\"approval_required\":");
     out.append(state.approval_required ? "true" : "false");
     out.append(",\"approved_digests\":[");
