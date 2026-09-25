@@ -225,6 +225,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/atproto/writer.cpp
     src/app/atproto/record_source.cpp
     src/app/action/tokens.cpp
+    src/app/autonomy/heartbeat.cpp
     src/app/autonomy/run_state.cpp
     src/app/attestation/signer.cpp
     src/app/attestation/proof.cpp
@@ -1016,6 +1017,17 @@ if(ATPERSON_BUILD_TESTS)
   target_compile_features(atperson-lock-test PRIVATE cxx_std_23)
   target_include_directories(atperson-lock-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-lock COMMAND atperson-lock-test)
+
+  # Supervisor health surface (#143): heartbeat round-trip, atomic
+  # save, staleness verdicts and fail-closed unreadable cases. Offline.
+  add_executable(
+    atperson-heartbeat-test
+    tests/autonomy/heartbeat.cpp
+    src/app/autonomy/heartbeat.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-heartbeat-test PRIVATE cxx_std_23)
+  target_include_directories(atperson-heartbeat-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-heartbeat COMMAND atperson-heartbeat-test)
 
   add_executable(atperson-bootstrap-test tests/bootstrap/bootstrap.c)
   target_link_libraries(atperson-bootstrap-test PRIVATE atperson-core)

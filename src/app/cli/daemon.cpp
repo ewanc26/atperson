@@ -1,4 +1,5 @@
 #include "daemon.hpp"
+#include "autonomy/heartbeat.hpp"
 #include "autonomy/run_state.hpp"
 
 #include "client.hpp"
@@ -238,6 +239,7 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                        const std::filesystem::path &state_file, int max_cycles_override,
                        const std::function<void(const LanguageGraph &)> &print_stats) {
     const auto run_state_file = autonomy_run_state_path();
+    const auto heartbeat_file = autonomy_heartbeat_path();
     auto run_state = load_autonomy_run_state(run_state_file);
     run_state.run_id = control_now_rfc3339();
     run_state.phase = AutonomyPhase::Recovering;
@@ -391,8 +393,9 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                 return true;
             }
         },
-        [&out, &data_dir, &cycle_number, &scheduler_config, &reflection_config, &self_eval_config,
-         &graph, &ledger, &scheduler_cycles, &scheduler_decisions, &scheduler_abstentions,
+        [&out, &data_dir, &cycle_number, &run_state, &heartbeat_file, &scheduler_config,
+         &reflection_config, &self_eval_config, &graph, &ledger, &scheduler_cycles,
+         &scheduler_decisions, &scheduler_abstentions,
          &scheduler_executed](const SyncResult &result) {
             ++cycle_number;
             out << "daemon: cycle " << cycle_number << ": " << result.pages_completed
@@ -442,6 +445,17 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                             << ", " << snapshot.familiarity.authors << " author(s)\n";
                     }
                 }
+            }
+            /* Supervisor heartbeat (#143): refreshed at the end of every
+             * cycle so a watchdog can distinguish a live daemon from a
+             * hung one. Advisory liveness only — never authority. */
+            {
+                AutonomyHeartbeat beat;
+                beat.run_id = run_state.run_id;
+                beat.cycle = cycle_number;
+                beat.beat_at = control_now_rfc3339();
+                beat.phase = autonomy_phase_name(AutonomyPhase::Learning);
+                save_autonomy_heartbeat(beat, heartbeat_file);
             }
         },
         [&err](std::chrono::milliseconds delay, const RetryableError &error) {
