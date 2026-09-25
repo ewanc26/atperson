@@ -47,6 +47,7 @@ struct ReplicateCursor {
     std::uint64_t actions_published{0u};
     std::uint64_t valence_published{0u};
     std::uint64_t thoughts_published{0u};
+    std::uint64_t intents_published{0u};
 };
 
 [[nodiscard]] ReplicateCursor load_replicate_cursor(const std::filesystem::path &path);
@@ -62,6 +63,7 @@ struct ReplicateReport {
     std::uint64_t actions_published{0u};
     std::uint64_t valence_published{0u};
     std::uint64_t thoughts_published{0u};
+    std::uint64_t intents_published{0u};
     std::uint64_t withdrawal_updates{0u};
     bool network_failed{false};
     std::string failure_detail;

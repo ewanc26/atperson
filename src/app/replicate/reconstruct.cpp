@@ -189,6 +189,50 @@ ReconstructReport reconstruct_state(RecordSource &source,
         }
     }
 
+    /* 4. Intents (#161): replay to the journal in rkey order, restoring
+     * pending conversations on a new host. The record mirrors the journal
+     * line exactly, so the rebuilt journal is what a local one would have
+     * been; a corrupt record is reported and skipped, never replayed. */
+    const std::vector<std::string> intent_rkeys = source.list_records(kIntentCollection);
+    for (const std::string &rkey : intent_rkeys) {
+        const std::optional<std::string> json = source.get_record(kIntentCollection, rkey);
+        if (!json) {
+            report.failures.push_back("intent rkey " + rkey + " vanished mid-reconstruct");
+            ++report.records_corrupt;
+            continue;
+        }
+        try {
+            const IntentRecord record = parse_intent_record(*json);
+            if (record.id != rkey) {
+                report.failures.push_back("intent rkey " + rkey + " carries id " + record.id);
+                ++report.records_corrupt;
+                continue;
+            }
+            const std::optional<IntentState> state = intent_state_from_name(record.state);
+            if (!state.has_value()) {
+                report.failures.push_back("intent rkey " + rkey + " carries unknown state '" +
+                                          record.state + "'");
+                ++report.records_corrupt;
+                continue;
+            }
+            JournalIntent intent;
+            intent.id = record.id;
+            intent.actions = record.actions;
+            intent.responder = record.responder;
+            intent.expires_at_epoch = record.expires_at_epoch;
+            intent.expires_at = record.expires_at;
+            intent.max_continuations = record.max_continuations;
+            intent.state = *state;
+            intent.at_epoch = record.at_epoch;
+            intent.at = record.at;
+            append_journal_intent(journal_path, intent);
+            ++report.intents_replayed;
+        } catch (const std::exception &error) {
+            ++report.records_corrupt;
+            report.failures.push_back(std::string("corrupt intent: ") + error.what());
+        }
+    }
+
     return report;
 }
 

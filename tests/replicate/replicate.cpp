@@ -149,6 +149,42 @@ void test_record_round_trips() {
     assert(thought_parsed.text == thought.text);
     assert(thought_parsed.about_uri == thought.about_uri);
 
+    atperson::IntentRecord intent;
+    intent.id = "3lintent1";
+    intent.actions = {"3laction1"};
+    intent.responder = "anyone";
+    intent.expires_at_epoch = 1727136000u;
+    intent.expires_at = "2026-09-24T00:00:00Z";
+    intent.max_continuations = 3u;
+    intent.state = "open";
+    intent.at_epoch = 1727050000u;
+    intent.at = "2026-09-23T00:06:40Z";
+    const atperson::IntentRecord intent_parsed =
+        atperson::parse_intent_record(atperson::serialise_intent_record(intent));
+    assert(intent_parsed.id == intent.id);
+    assert(intent_parsed.actions == intent.actions);
+    assert(intent_parsed.responder == intent.responder);
+    assert(intent_parsed.expires_at_epoch == intent.expires_at_epoch);
+    assert(intent_parsed.expires_at == intent.expires_at);
+    assert(intent_parsed.max_continuations == intent.max_continuations);
+    assert(intent_parsed.state == intent.state);
+    assert(intent_parsed.at_epoch == intent.at_epoch);
+    assert(intent_parsed.at == intent.at);
+
+    /* An unknown intent state is corruption, not a new state. */
+    bool intent_state_threw = false;
+    try {
+        atperson::IntentRecord bad;
+        bad.id = "3lintent2";
+        bad.responder = "anyone";
+        bad.state = "dormant";
+        bad.at = "2026-09-24T00:00:00Z";
+        atperson::serialise_intent_record(bad);
+    } catch (const atperson::RecordError &) {
+        intent_state_threw = true;
+    }
+    assert(intent_state_threw);
+
     /* An unknown thought kind is corruption, not a new vocabulary. */
     bool kind_threw = false;
     try {
@@ -226,6 +262,19 @@ void test_drain_and_reconstruct() {
     thought.at = "2026-09-24T00:00:00Z";
     atperson::write_thought(thoughts_file, thought);
 
+    /* An intent: pending conversation state, mirrored to the network. */
+    atperson::JournalIntent journal_intent;
+    journal_intent.id = "3lintent1";
+    journal_intent.actions = {"3laction1"};
+    journal_intent.responder = "anyone";
+    journal_intent.expires_at_epoch = 1727136000u;
+    journal_intent.expires_at = "2026-09-24T00:00:00Z";
+    journal_intent.max_continuations = 3u;
+    journal_intent.state = atperson::IntentState::Open;
+    journal_intent.at_epoch = 1727050000u;
+    journal_intent.at = "2026-09-23T00:06:40Z";
+    atperson::append_journal_intent(journal_file, journal_intent);
+
     /* Drain: everything published, withdrawal propagated. */
     FakeWriter writer;
     atperson::ReplicateConfig config;
@@ -237,6 +286,7 @@ void test_drain_and_reconstruct() {
     assert(report.actions_published == 1u);
     assert(report.valence_published == 1u);
     assert(report.thoughts_published == 1u);
+    assert(report.intents_published == 1u);
     assert(report.withdrawal_updates == 0u);
 
     /* Second drain: the withdrawal of id2 propagates as an update. */
@@ -264,6 +314,7 @@ void test_drain_and_reconstruct() {
     assert(rebuilt.actions_replayed == 1u);
     assert(rebuilt.valence_replayed == 1u);
     assert(rebuilt.thoughts_replayed == 1u);
+    assert(rebuilt.intents_replayed == 1u);
     assert(rebuilt.failures.empty());
 
     /* The rebuilt ledger matches: same entries, same outcomes, same
@@ -281,6 +332,12 @@ void test_drain_and_reconstruct() {
     assert(journal.actions[0].text == "an outbound post");
     assert(journal.valence.size() == 1u);
     assert(journal.valence[0].token == "curious");
+    assert(journal.intents.size() == 1u);
+    assert(journal.intents[0].id == "3lintent1");
+    assert(journal.intents[0].actions == std::vector<std::string>{"3laction1"});
+    assert(journal.intents[0].responder == "anyone");
+    assert(journal.intents[0].state == atperson::IntentState::Open);
+    assert(journal.intents[0].max_continuations == 3u);
 
     const atperson::ThoughtContents rebuilt_thoughts =
         atperson::load_thoughts(fresh / "thoughts");

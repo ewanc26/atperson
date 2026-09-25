@@ -51,6 +51,7 @@ struct ReconstructReport {
     std::uint64_t actions_replayed{0u};
     std::uint64_t valence_replayed{0u};
     std::uint64_t thoughts_replayed{0u};
+    std::uint64_t intents_replayed{0u};
     std::uint64_t observations_skipped_withdrawn{0u};
     std::uint64_t observations_failed{0u};
     std::uint64_t records_corrupt{0u};
