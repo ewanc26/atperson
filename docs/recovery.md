@@ -109,6 +109,110 @@ defaults — so the recovered entity learns but publishes nothing until
 the operator explicitly re-enables writes
 (`atperson control writes on`, plus policy and approvals as before).
 
+### The kill-the-host drill
+
+The procedure above, run end to end, is the drill. Do it on a real
+deployment periodically and after any change to the publication or
+reconstruction path: it is the only test that proves the network copy is
+actually sufficient. The steps below are ordered so that a failure names
+the stage that broke rather than "recovery did not work".
+
+Preconditions: entity credentials in the environment
+(`ATPERSON_IDENTIFIER`, `ATPERSON_APP_PASSWORD`, `ATPERSON_SERVICE`),
+`writes_enabled` on (`atperson control writes on` — the drain is an
+outbound write and the gate is fail-closed), and a **stopped** daemon so
+nothing races the wipe. Record the current state first; that record is the
+pass criterion.
+
+```sh
+# 0. Baseline the host you are about to destroy.
+atperson control status
+atperson stats                 # observations, vocabulary, associations
+atperson journal valence       # self-authored experience the ledger lacks
+atperson statepub status       # publication backlog
+```
+
+If `statepub status` reports a backlog, drain it now (step 1) and check it
+is empty: an un-drained prefix exists only on the host you are about to
+lose, and the drill cannot recover it.
+
+```sh
+# 1. Publish. Only the network copy survives the next step.
+atperson statepub drain        # repeat until statepub status is caught up
+atperson statepub status
+```
+
+```sh
+# 2. Record a self-authored valence event the ledger alone would lose.
+atperson journal apply <token> action 0.75 <source-uri>
+atperson journal valence
+atperson statepub drain        # the journal drains on the same pass
+```
+
+```sh
+# 3. Kill the host. Do this for real; a copy is not a drill.
+docker compose down -v         # or: the host's data directory, deleted
+```
+
+On the replacement host, with credentials in the environment and
+`ATPERSON_HOME` pointing at an **empty** directory:
+
+```sh
+# 4. Reconstruct from the network alone. Reconstruct never merges.
+atperson reconstruct --into ./recovered
+```
+
+Exit 0 only when nothing failed. The report line gives replayed/skipped/
+failed counts per kind plus `records_corrupt`. Any failure is printed; stop
+here and read it — a corrupt or unverifiable record is a real problem, not
+something to retry past.
+
+```sh
+# 5. Put the recovered files at their configured paths.
+#    ledger.bin (ATPERSON_LEDGER), action-journal.jsonl
+#    (ATPERSON_ACTION_JOURNAL) and thoughts/ under the data directory.
+
+# 6. Retrain. The model is never published; it is replayed.
+atperson rebuild
+atperson stats
+```
+
+Pass criterion: `stats` and `journal valence` match the step-0 record.
+The learned state — observations, vocabulary, associations, valence — came
+back from the network and nothing else.
+
+The recovered host starts closed (above). Re-enable writes deliberately,
+not as part of the drill:
+
+```sh
+atperson control status         # expect writes off, dry-run on, approval required
+atperson control writes on
+atperson control dry-run off    # if the deployment is not approval-gated
+```
+
+What the drill cannot cover, and why:
+
+- **Credential storage.** Credentials are host-local and are never
+  published. Losing them loses nothing recoverable, but a new host without
+  them cannot read or write the repository; have a second one before you
+  need it.
+- **The un-drained backlog.** Only the last drain is the recovery
+  boundary. Step 1 is not optional.
+- **Content availability.** Observations carry provenance and a digest,
+  never third-party text. Reconstruction re-fetches from the source URI
+  and verifies the digest, so a source that has since been deleted is
+  reported as failed and not replayed. Fewer replayed observations than
+  step 0 recorded is a *content* loss, and the report says so.
+- **Learned model bytes.** They are not published; the rebuild in step 6
+  regenerates them by replay. Snapshot bytes may differ from the lost
+  host's; learned state must not.
+
+This drill is pinned automatically as an end-to-end scenario against an
+in-memory fake PDS — `tests/recovery/host_loss.cpp`, run by the `atperson-e2e`
+test. It also asserts the boundary case: a host that lost an un-drained
+backlog recovers a *shorter* history and the scenario requires the
+difference to be visible rather than silently matching.
+
 ## Lifecycle checkpoint recovery
 
 The daemon checkpoints its lifecycle in `<data>/autonomy-run.json`

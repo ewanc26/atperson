@@ -52,6 +52,22 @@ Start the configured daemon:
 docker compose up -d
 ```
 
+To drive the entity from a headless host, export the remote operator
+channel too and restart the service. `ATPERSON_OPERATOR_DID` is the only
+required value, and it must be a **different** account from the entity's
+own: a collision is refused, because an entity that can command itself has
+no operator. The channel is inert while the DID is unset.
+
+```sh
+export ATPERSON_OPERATOR_DID="did:plc:operator"          # not the entity's DID
+export ATPERSON_OPERATOR_IDENTIFIER="operator.example"   # used only by `control remote emit`
+export ATPERSON_OPERATOR_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx" # used only to publish
+docker compose up -d
+```
+
+See [`remote-control.md`](remote-control.md) for the request format and the
+full trust model.
+
 Useful inspection commands:
 
 ```sh
