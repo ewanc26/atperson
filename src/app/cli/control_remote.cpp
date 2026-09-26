@@ -18,8 +18,8 @@ namespace cli {
 namespace {
 
 /* The trusted authority. Empty means the channel is inert: no DID, no
- * commands. The daemon's own account is never an implicit default —
- * self-authorised control is a deliberate deployment choice. */
+ * commands. The daemon's own account is never an implicit default, and
+ * setting it here is refused downstream rather than honoured. */
 std::string operator_did() {
     const char *raw = std::getenv("ATPERSON_OPERATOR_DID");
     return raw != nullptr && raw[0] != '\0' ? std::string(raw) : std::string{};
@@ -44,8 +44,15 @@ std::size_t env_size(const char *name, std::size_t fallback) {
 }
 
 void print_report(std::ostream &out, const RemotePollReport &report) {
-    out << "examined " << report.examined << " record(s), applied " << report.applied
-        << ", watermark " << report.watermark << '\n';
+    if (report.conflict) {
+        /* A refusal, not a quiet pass. Say so and print no counts: a
+         * watermark of zero would read as "seq 1 is next", which is the
+         * opposite of what a refused pass means. */
+        out << "remote control: refused, nothing read or written\n";
+    } else {
+        out << "examined " << report.examined << " record(s), applied " << report.applied
+            << ", watermark " << report.watermark << '\n';
+    }
     if (!report.last_op.empty()) {
         out << "last applied: " << report.last_op << '\n';
     }
@@ -55,8 +62,10 @@ void print_report(std::ostream &out, const RemotePollReport &report) {
     }
 }
 
-/* `emit` writes the request as a record under a TID rkey, so the operator
- * can issue commands from any host that has these credentials. */
+/* `emit` publishes as the operator account, so the operator can issue
+ * commands from any host that holds the operator credentials. The entity's
+ * own credentials are not accepted: it must not be able to author a request
+ * it then obeys. */
 std::string emit(const std::string &op_name, const std::string &arg) {
     const std::optional<ControlOp> op = control_op_from_name(op_name);
     if (!op.has_value()) {
@@ -84,18 +93,28 @@ std::string emit(const std::string &op_name, const std::string &arg) {
     request.arg = arg;
     request.at = control_now_rfc3339();
 
+    /* Rule first, credentials second: the reason the entity's own
+     * credentials are not accepted is a policy, and reporting a missing
+     * operator credential before stating it would bury the reason. */
+    const std::string trusted = operator_did();
+    if (trusted.empty()) {
+        throw std::runtime_error(
+            "remote control: set ATPERSON_OPERATOR_DID to the operator account you are "
+            "publishing as");
+    }
+
+    /* The publisher authenticates as the OPERATOR, never as the entity.
+     * The entity's own credentials are refused by construction: if they
+     * could author a request, the runtime could command itself, which is
+     * the one thing this channel exists to prevent. */
     const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
-    WolframSession session(service, required_env("ATPERSON_IDENTIFIER"),
-                           required_env("ATPERSON_APP_PASSWORD"));
+    WolframSession session(service, required_env("ATPERSON_OPERATOR_IDENTIFIER"),
+                           required_env("ATPERSON_OPERATOR_APP_PASSWORD"));
     const std::string did = session.did();
     if (did.empty()) {
         throw std::runtime_error("remote control: session has no authenticated DID");
     }
-    /* Refuse to emit into a repo the daemon does not trust: a request
-     * published anywhere else is inert by design, so failing loudly here
-     * beats a silent no-op. */
-    const std::string trusted = operator_did();
-    if (!trusted.empty() && trusted != did) {
+    if (trusted != did) {
         throw std::runtime_error("remote control: this session is " + did +
                                  " but ATPERSON_OPERATOR_DID is " + trusted +
                                  "; publish from the operator's own account");
@@ -105,7 +124,8 @@ std::string emit(const std::string &op_name, const std::string &arg) {
     const std::string json = serialise_control_request(request);
     const OutboundWriteResult result =
         writer.put_record(std::string(kControlCollection), control_request_rkey(seq), json);
-    return "published " + result.uri + " (" + op_name + ", seq " + std::to_string(seq) + ")";
+    return "published " + result.uri + " (" + op_name + ", seq " + std::to_string(seq) +
+           ") as operator " + did;
 }
 
 } // namespace
@@ -123,9 +143,39 @@ int run_control_remote(std::ostream &out, const RuntimeResourceStatus &resource_
         } catch (const std::exception &error) {
             cursor_error = error.what();
         }
-        out << "remote control: " << (trusted.empty() ? "disabled" : "enabled") << '\n';
+
+        /* Report the separation status even when no session is available:
+         * the operator DID is in the environment, and being told "enabled"
+         * when it collides with the account would be a lie. Credentials
+         * are optional here, so an unset pair reports the configured DID
+         * against no account and leaves the verdict to `poll`. */
+        std::string account_did;
+        const char *raw_account = std::getenv("ATPERSON_IDENTIFIER");
+        if (raw_account != nullptr && raw_account[0] != '\0') {
+            try {
+                const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
+                WolframSession probe(service, raw_account,
+                                     required_env("ATPERSON_APP_PASSWORD"));
+                account_did = probe.did();
+            } catch (const std::exception &) {
+                account_did.clear();
+            }
+        }
+        const OperatorChannelStatus channel =
+            check_operator_channel(account_did, trusted);
+        if (channel == OperatorChannelStatus::Conflict) {
+            out << "remote control: refused\n";
+            out << operator_channel_denial(account_did, trusted) << '\n';
+            return 1;
+        }
+        out << "remote control: " << (channel == OperatorChannelStatus::Disabled ? "disabled"
+                                                                                 : "enabled")
+            << '\n';
         if (!trusted.empty()) {
             out << "operator DID: " << trusted << '\n';
+        }
+        if (!account_did.empty()) {
+            out << "account DID: " << account_did << " (must differ from the operator DID)\n";
         }
         if (cursor_error.empty()) {
             out << "last applied sequence: " << last_seq << '\n';
@@ -146,11 +196,15 @@ int run_control_remote(std::ostream &out, const RuntimeResourceStatus &resource_
                                required_env("ATPERSON_APP_PASSWORD"));
         RemotePollConfig config;
         config.operator_did = trusted;
+        config.account_did = session.did();
         config.max_records = env_size("ATPERSON_REMOTE_MAX_RECORDS", 32u);
         config.max_applies = env_size("ATPERSON_REMOTE_MAX_APPLIES", 8u);
         RemoteControlChannel channel(session, config, control_state_path(), cursor_path);
-        print_report(out, channel.poll());
-        return 0;
+        const RemotePollReport report = channel.poll();
+        print_report(out, report);
+        /* A collision is a misconfiguration, not a clean no-op: exit
+         * non-zero so a deployment check catches it. */
+        return report.conflict ? 1 : 0;
     }
 
     if (sub == "emit") {

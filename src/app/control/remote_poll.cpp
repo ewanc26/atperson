@@ -45,9 +45,22 @@ std::string uri_authority(const std::string &at_uri) {
 
 RemotePollReport RemoteControlChannel::poll() {
     RemotePollReport report;
+
+    /* Separation before anything else. A channel whose operator is the
+     * account is not a channel: the entity could command itself. Refuse
+     * the pass loudly rather than quietly applying self-authored records. */
+    const OperatorChannelStatus channel =
+        check_operator_channel(config_.account_did, config_.operator_did);
+    if (channel == OperatorChannelStatus::Conflict) {
+        report.conflict = true;
+        report.refusals.push_back(
+            {"", operator_channel_denial(config_.account_did, config_.operator_did)});
+        return report;
+    }
     report.enabled = !config_.operator_did.empty();
     if (!report.enabled) {
-        report.refusals.push_back({"", "no operator DID configured (ATPERSON_OPERATOR_DID)"});
+        report.refusals.push_back({"", operator_channel_denial(config_.account_did,
+                                                               config_.operator_did)});
         return report;
     }
 

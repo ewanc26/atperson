@@ -41,10 +41,18 @@
 
 namespace atperson {
 
-/* How the poller is configured. `operator_did` empty disables the channel
- * entirely: no DID, no commands, and the pass reports why. */
+/* How the poller is configured.
+ *
+ * `operator_did` empty disables the channel entirely: no DID, no commands,
+ * and the pass reports why.
+ *
+ * `account_did` is the DID the runtime authenticates as, and it MUST differ
+ * from `operator_did`. The poller re-checks that itself and refuses the
+ * pass on a collision, so no caller can skip the separation by passing the
+ * wrong pair. */
 struct RemotePollConfig {
     std::string operator_did;
+    std::string account_did;
     std::size_t max_records{32u};
     std::size_t max_applies{8u};
 };
@@ -57,12 +65,16 @@ struct RemoteRefusal {
 
 struct RemotePollReport {
     bool enabled{false};
+    /* True when the configured operator DID is also the runtime's own
+     * account DID. The pass was refused and nothing was read or written. */
+    bool conflict{false};
     std::size_t examined{0};
     std::size_t applied{0};
-    std::uint64_t watermark{}; /* after the pass */
-    std::string last_op;       /* canonical op name, when anything applied */
+    std::uint64_t watermark{};    /* after the pass */
+    std::string last_op;          /* canonical op name, when anything applied */
     std::vector<RemoteRefusal> refusals;
 };
+
 
 class RemoteControlChannel final {
   public:

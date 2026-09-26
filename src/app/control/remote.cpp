@@ -156,6 +156,39 @@ bool control_op_takes_argument(ControlOp op) noexcept {
     return op == ControlOp::Approve || op == ControlOp::Revoke;
 }
 
+OperatorChannelStatus check_operator_channel(std::string_view account_did,
+                                             std::string_view operator_did) {
+    if (operator_did.empty()) {
+        return OperatorChannelStatus::Disabled;
+    }
+    /* The runtime must not be able to command itself. Same DID means the
+     * entity's own credentials could author every request it then obeys,
+     * so the channel would grant the governed party the authority that is
+     * supposed to sit outside it. */
+    if (!account_did.empty() && account_did == operator_did) {
+        return OperatorChannelStatus::Conflict;
+    }
+    return OperatorChannelStatus::Ready;
+}
+
+std::string operator_channel_denial(std::string_view account_did,
+                                    std::string_view operator_did) {
+    switch (check_operator_channel(account_did, operator_did)) {
+    case OperatorChannelStatus::Disabled:
+        return "remote control is disabled: set ATPERSON_OPERATOR_DID to a DID that is "
+               "not this entity's account";
+    case OperatorChannelStatus::Ready:
+        return {};
+    case OperatorChannelStatus::Conflict:
+        return "remote control refused: ATPERSON_OPERATOR_DID is " + std::string(operator_did) +
+               ", which is also this entity's own account DID. The operator must be a "
+               "separate account, or the entity could command itself; set "
+               "ATPERSON_OPERATOR_DID to a different DID or unset it to disable the "
+               "channel";
+    }
+    return "remote control is unavailable";
+}
+
 std::string serialise_control_request(const ControlRequest &request) {
     if (control_op_takes_argument(request.op)) {
         if (request.arg.empty()) {

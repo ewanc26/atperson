@@ -50,9 +50,41 @@ suffix convention used by `writes`, `dry-run` and `offline`. `approve` and
 `revoke` carry the action digest in `arg`, and are subject to the same
 64-entry bound the local CLI applies.
 
+## The operator must be a separate account
+
+**`ATPERSON_OPERATOR_DID` must not be the entity's own account DID.** This is
+enforced, not advised. If the two are the same, the pass is refused: the
+entity could author every request it then obeys, so the channel would place
+the authority it exists to keep outside the runtime *inside* it.
+
+Nothing is read and nothing is written when they collide. The daemon prints
+the reason once per cycle, and `control remote status` and `control remote
+poll` both exit non-zero, so a deployment check catches the misconfiguration
+rather than discovering it later as an unexplained authority.
+
+The check runs in two places, deliberately. The daemon compares before
+opening a session, so a collision costs nothing. The poller compares again
+against the DID that actually authenticated, so no caller can pass a
+mismatched pair and skip the rule.
+
+| configuration | verdict |
+| --- | --- |
+| `ATPERSON_OPERATOR_DID` unset | disabled — off by choice, no DID and no session |
+| set, and different from the account DID | ready |
+| set, and equal to the account DID | **refused** |
+
+Because the operator is always a different account, the entity's own
+credentials can never author a control record. `control remote emit`
+authenticates as the *operator* — `ATPERSON_OPERATOR_IDENTIFIER` and
+`ATPERSON_OPERATOR_APP_PASSWORD` — and the entity's `ATPERSON_IDENTIFIER` /
+`ATPERSON_APP_PASSWORD` are not accepted for it. The runtime is structurally
+incapable of commanding itself.
+
 ## Trust model
 
-Three checks, in this order. The first failure refuses the record entirely.
+Four checks, in this order. The first failure refuses outright.
+
+**0. Separation.** The operator DID is not the account DID. See above.
 
 **1. Provenance.** A record counts only if the at-URI the service returned
 carries the configured operator DID as its authority. The authority is read
@@ -109,36 +141,35 @@ A remote operator can pause the entity from any client. They cannot make it
 learn something new, and they cannot widen the rate or scope of what it is
 allowed to publish beyond what the local CLI would allow from the same host.
 
-## The self-authorisation caveat
-
-If `ATPERSON_OPERATOR_DID` is the entity's **own** account, the channel is
-self-authorised: anything that can write to the entity's repo can command
-the entity. That is no weaker than the local CLI, but it is not a second
-factor, and it should not be mistaken for one.
-
-For a genuinely separate authority, set `ATPERSON_OPERATOR_DID` to a second
-account whose credentials only the operator holds. The daemon's own session
-then cannot publish requests at all — `control remote emit` refuses when the
-session DID is not the configured operator, so a request cannot be
-self-issued by mistake.
-
 ## Usage
 
 The channel is inert unless `ATPERSON_OPERATOR_DID` is set. There is no
 default: an unset variable means no DID, no commands, and no session opened
 for polling.
 
-```sh
-# is the channel on, and how far has it advanced?
-ATPERSON_OPERATOR_DID=did:plc:operator atperson control remote status
+The operator account is separate from the entity account, so publishing
+needs the operator's credentials:
 
-# issue a command from this host (needs the operator's credentials)
-ATPERSON_OPERATOR_DID=did:plc:operator atperson control remote emit pause
-ATPERSON_OPERATOR_DID=did:plc:operator atperson control remote emit resume
-ATPERSON_OPERATOR_DID=did:plc:operator atperson control remote emit approve 0123456789abcdef
+```sh
+# the entity's own credentials (the daemon's)
+export ATPERSON_IDENTIFIER=entity.example.com
+export ATPERSON_APP_PASSWORD=...
+
+# the operator's, used only to publish
+export ATPERSON_OPERATOR_IDENTIFIER=operator.example.com
+export ATPERSON_OPERATOR_APP_PASSWORD=...
+export ATPERSON_OPERATOR_DID=did:plc:operator
+
+# is the channel on, and how far has it advanced?
+atperson control remote status
+
+# issue a command from this host, as the operator
+atperson control remote emit pause
+atperson control remote emit resume
+atperson control remote emit approve 0123456789abcdef
 
 # apply now instead of waiting for the next daemon cycle
-ATPERSON_OPERATOR_DID=did:plc:operator atperson control remote poll
+atperson control remote poll
 ```
 
 The daemon runs one bounded poll per cycle, before the scheduler, so a
@@ -148,7 +179,9 @@ untouched and the next cycle retries from the same watermark.
 
 | variable | default | meaning |
 | --- | --- | --- |
-| `ATPERSON_OPERATOR_DID` | *(unset — channel disabled)* | the only DID whose records are commands |
+| `ATPERSON_OPERATOR_DID` | *(unset — channel disabled)* | the only DID whose records are commands. **Must differ from the account DID**; equal is refused |
+| `ATPERSON_OPERATOR_IDENTIFIER` | — | operator handle, used only by `control remote emit` |
+| `ATPERSON_OPERATOR_APP_PASSWORD` | — | operator credential, used only by `control remote emit` |
 | `ATPERSON_REMOTE_MAX_RECORDS` | `32` | records fetched per pass |
 | `ATPERSON_REMOTE_MAX_APPLIES` | `8` | requests applied per pass; the rest continue next pass |
 | `ATPERSON_REMOTE_CONTROL_CURSOR` | `<data>/remote-control-cursor.json` | watermark path |
@@ -164,9 +197,10 @@ and it is deterministic, so re-emitting a sequence is idempotent under
 ## Testing
 
 The trust logic is pure and offline: no service, no clock, `operator_did`
-injected. `tests/control/remote.cpp` covers provenance, the exact-next
-sequence rule in both directions (gap and replay), every op mapping onto
-`ControlState`, the local approval bound, the argument rule re-checked at
-apply time, at-URI parsing, cursor round-trip and restart behaviour, and the
-rkey/sequence ordering property the poller depends on. It builds and runs
-with `ATPERSON_BUILD_NETWORK=OFF`.
+injected. `tests/control/remote.cpp` covers the operator/account separation
+rule and its denial text, provenance, the exact-next sequence rule in both
+directions (gap and replay), every op mapping onto `ControlState`, the local
+approval bound, the argument rule re-checked at apply time, at-URI parsing,
+cursor round-trip and restart behaviour, and the rkey/sequence ordering
+property the poller depends on. It builds and runs with
+`ATPERSON_BUILD_NETWORK=OFF`.

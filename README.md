@@ -243,10 +243,12 @@ See [`docs/daemon.md`](docs/daemon.md).
 
 ### Remote operator control
 
-On a headless host there is no shell to run `atperson control pause` from. With `ATPERSON_OPERATOR_DID` set, the operator publishes a control record to their own repo and the daemon applies it on its next cycle:
+On a headless host there is no shell to run `atperson control pause` from. With `ATPERSON_OPERATOR_DID` set, the operator publishes a control record to their own repo and the daemon applies it on its next cycle. The operator must be a **separate account**: a DID equal to the entity's own account is refused, so the entity can never command itself.
 
 ```sh
-export ATPERSON_OPERATOR_DID=did:plc:operator
+export ATPERSON_OPERATOR_DID=did:plc:operator   # not the entity's own DID
+export ATPERSON_OPERATOR_IDENTIFIER=operator.example.com
+export ATPERSON_OPERATOR_APP_PASSWORD=...      # used only to publish
 
 ./build/atperson control remote status
 ./build/atperson control remote emit pause

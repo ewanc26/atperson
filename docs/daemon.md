@@ -58,7 +58,7 @@ SIGINT and SIGTERM interrupt waits immediately rather than waiting for the next 
 
 The outbound write gate, dry-run mode and approval state are also operator control metadata. They do not turn the ingestion daemon into a network-writing process.
 
-On a headless host there is no shell to run those subcommands from. When `ATPERSON_OPERATOR_DID` is set, the daemon also runs one bounded remote-control poll per cycle, before the scheduler, and applies operator-authored AT Protocol records to the same control state. It is inert — and opens no session — while that variable is unset. See [`remote-control.md`](remote-control.md).
+On a headless host there is no shell to run those subcommands from. When `ATPERSON_OPERATOR_DID` is set, the daemon also runs one bounded remote-control poll per cycle, before the scheduler, and applies operator-authored AT Protocol records to the same control state. It is inert — and opens no session — while that variable is unset. The operator DID must differ from the entity's own account DID: if they match the pass is refused and the daemon says so each cycle, because an entity that can command itself has no operator. See [`remote-control.md`](remote-control.md).
 
 ## Configuration
 

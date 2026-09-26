@@ -20,6 +20,11 @@
 //
 // Trust model, in the order it is checked:
 //
+//   0. Separation. The operator DID must NOT be the account DID. This is a
+//      hard requirement, not a recommendation: if they match, the entity
+//      could command itself, and a channel that can be driven by the thing
+//      it governs is not a control channel. See
+//      validate_operator_channel.
 //   1. Provenance. A record counts only if its at-URI authority is the
 //      configured operator DID. Anything else is not a command; it is
 //      another account's data that happens to be visible.
@@ -99,6 +104,33 @@ enum class ControlOp {
 
 /* True for the two ops that carry a digest in `arg`. */
 [[nodiscard]] bool control_op_takes_argument(ControlOp op) noexcept;
+
+/* Whether the channel may run at all, given the runtime's own account DID
+ * and the configured operator DID.
+ *
+ * `account_did` is the DID the daemon authenticates as; `operator_did` is
+ * the DID whose records are commands. Three outcomes:
+ *
+ *   Disabled   operator_did is empty. The channel is inert: no DID, no
+ *              commands, and no session should be opened.
+ *   Ready      the two DIDs are both present and different.
+ *   Conflict   they are the same. Refused, because an entity that can
+ *              command itself has no operator: anyone who can write to the
+ *              entity's own repo could drive it, which is exactly the
+ *              authority the channel exists to keep outside the runtime.
+ *
+ * A DID is a case-sensitive, method-specific identifier; comparison is
+ * therefore exact. */
+enum class OperatorChannelStatus { Disabled, Ready, Conflict };
+
+[[nodiscard]] OperatorChannelStatus check_operator_channel(
+    std::string_view account_did, std::string_view operator_did);
+
+/* The reason a channel is not Ready, in the words an operator needs.
+ * Empty for Ready. For Disabled it explains that the channel is off by
+ * choice; for Conflict it names both DIDs and says what to do. */
+[[nodiscard]] std::string operator_channel_denial(
+    std::string_view account_did, std::string_view operator_did);
 
 struct ControlRequest {
     std::uint64_t seq{};

@@ -173,8 +173,13 @@ int main(int argc, char **argv) {
                     }
                     argument += argv[i];
                 }
+                /* argv[3] is the remote subcommand, and reading it
+                 * unconditionally ran off the end of argv for a bare
+                 * `control remote`. Default it, so the caller's usage
+                 * error is what a user sees. */
+                const char *remote_sub = argc >= 4 ? argv[3] : "";
                 return atperson::cli::run_control_remote(std::cout, resource_status,
-                                                         argv[3], argument);
+                                                         remote_sub, argument);
             }
             return atperson::cli::run_control(std::cout, resource_status,
                                               atperson::cli::control_state_path(), sub,

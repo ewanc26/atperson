@@ -193,10 +193,18 @@ SchedulerCycleReport run_scheduler_after_cycle(const std::filesystem::path &data
  * DID the channel is inert, and this never opens a session, so a
  * deployment without the channel configured pays nothing. */
 void run_remote_control_poll(std::ostream &out, const RuntimeResourceStatus &resource_status,
+                             const std::string &account_did,
                              const std::filesystem::path &control_file,
                              const std::filesystem::path &cursor_file) {
     const char *raw_did = std::getenv("ATPERSON_OPERATOR_DID");
     if (raw_did == nullptr || raw_did[0] == '\0') {
+        return;
+    }
+    /* Separation, before any session is opened: the operator must not be
+     * this entity's own account, or the entity could command itself. */
+    if (check_operator_channel(account_did, raw_did) == OperatorChannelStatus::Conflict) {
+        out << "remote control: refused — "
+            << operator_channel_denial(account_did, raw_did) << '\n';
         return;
     }
     try {
@@ -222,9 +230,16 @@ void run_remote_control_poll(std::ostream &out, const RuntimeResourceStatus &res
 
     RemotePollConfig config;
     config.operator_did = raw_did;
+    /* The session's own DID, not the caller's: the poller re-checks
+     * separation against what actually authenticated. */
+    config.account_did = session->did();
     RemoteControlChannel channel(*session, config, control_file, cursor_file);
     try {
         const RemotePollReport report = channel.poll();
+        if (report.conflict) {
+            out << "remote control: refused — " << report.refusals.front().reason << '\n';
+            return;
+        }
         if (report.applied > 0u) {
             out << "remote control: applied " << report.applied << " request(s) ("
                 << report.last_op << "), watermark " << report.watermark << '\n';
@@ -451,11 +466,11 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         [&out, &data_dir, &cycle_number, &run_state, &heartbeat_file, &scheduler_config,
          &reflection_config, &self_eval_config, &graph, &ledger, &scheduler_cycles,
          &scheduler_decisions, &scheduler_abstentions, &scheduler_executed,
-         &resource_status, &control_file](const SyncResult &result) {
+         &resource_status, &control_file, &client](const SyncResult &result) {
             ++cycle_number;
             /* Remote operator channel (#143): before the scheduler, so a
              * pause issued since the last cycle is in force for this one. */
-            run_remote_control_poll(out, resource_status, control_file,
+            run_remote_control_poll(out, resource_status, client.account_did(), control_file,
                                     remote_control_cursor_path());
             out << "daemon: cycle " << cycle_number << ": " << result.pages_completed
                 << " page(s), " << result.observations_seen << " observation(s), learned "

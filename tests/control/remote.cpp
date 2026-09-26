@@ -15,6 +15,7 @@ namespace {
 
 constexpr std::string_view kOperator = "did:plc:operator123";
 constexpr std::string_view kOther = "did:plc:someonelse";
+constexpr std::string_view kAccount = "did:plc:entityaccount";
 /* Control state requires a 16-digit lowercase hex digest. */
 constexpr std::string_view kDigest = "0123456789abcdef";
 constexpr std::string_view kOtherDigest = "fedcba9876543210";
@@ -207,8 +208,8 @@ void test_sequence_must_be_exactly_next() {
 
     /* Replaying seq 1 is refused: a pause cannot be re-applied after a
      * resume to re-pause the runtime by replaying an old record. */
-    atperson::apply_control_request(state, watermark, request(2, atperson::ControlOp::Resume),
-                                    kOperator, kOperator);
+    (void)atperson::apply_control_request(
+        state, watermark, request(2, atperson::ControlOp::Resume), kOperator, kOperator);
     assert(!state.paused);
     report = atperson::apply_control_request(
         state, watermark, request(1, atperson::ControlOp::Pause), kOperator, kOperator);
@@ -458,6 +459,50 @@ void test_watermark_survives_restart() {
     std::printf("ok watermark survives restart\n");
 }
 
+void test_operator_must_differ_from_account() {
+    using atperson::OperatorChannelStatus;
+    using atperson::check_operator_channel;
+
+    /* Unset operator DID: the channel is off by choice, not broken. */
+    assert(check_operator_channel(kOperator, "") == OperatorChannelStatus::Disabled);
+    assert(check_operator_channel("", "") == OperatorChannelStatus::Disabled);
+
+    /* The rule: a separate operator account is Ready. */
+    assert(check_operator_channel(kAccount, kOperator) == OperatorChannelStatus::Ready);
+    assert(check_operator_channel(kOperator, kAccount) == OperatorChannelStatus::Ready);
+
+    /* The entity may not be its own operator. This is the case that would
+     * otherwise let the runtime author every request it obeys. */
+    assert(check_operator_channel(kOperator, kOperator) == OperatorChannelStatus::Conflict);
+    assert(check_operator_channel(kAccount, kAccount) == OperatorChannelStatus::Conflict);
+
+    /* DIDs are case-sensitive and method-specific, so a near-miss is still
+     * a collision only when it really is one. */
+    assert(check_operator_channel("did:plc:Operator", "did:plc:operator") ==
+           OperatorChannelStatus::Ready);
+    assert(check_operator_channel("did:web:operator", "did:plc:operator") ==
+           OperatorChannelStatus::Ready);
+
+    /* An unknown account cannot be proven distinct, but it is also not
+     * proven equal: the poller re-checks against the session that actually
+     * authenticated, so this stays Ready and is caught there. */
+    assert(check_operator_channel("", kOperator) == OperatorChannelStatus::Ready);
+
+    /* Ready has no denial text; the other two explain themselves, and the
+     * conflict names both DIDs so the fix is obvious. */
+    assert(atperson::operator_channel_denial(kAccount, kOperator).empty());
+    const std::string disabled = atperson::operator_channel_denial(kAccount, "");
+    assert(!disabled.empty());
+    assert(disabled.find("ATPERSON_OPERATOR_DID") != std::string::npos);
+
+    const std::string conflict = atperson::operator_channel_denial(kOperator, kOperator);
+    assert(!conflict.empty());
+    assert(conflict.find(kOperator) != std::string::npos);
+    assert(conflict.find("command itself") != std::string::npos);
+    assert(conflict.find("ATPERSON_OPERATOR_DID") != std::string::npos);
+    std::printf("ok operator DID must differ from the account DID\n");
+}
+
 void test_rkey_order_matches_sequence_order() {
     /* The poller relies on the service returning the collection in reverse
      * rkey order and reversing it locally, so lexicographic record order
@@ -492,6 +537,7 @@ int main() {
     test_uri_provenance_parsing();
     test_cursor_round_trip_and_defaults();
     test_watermark_survives_restart();
+    test_operator_must_differ_from_account();
     test_rkey_order_matches_sequence_order();
     std::printf("remote control tests passed\n");
     return 0;
