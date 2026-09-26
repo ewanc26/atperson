@@ -11,6 +11,15 @@ services:
       - ATPERSON_APP_PASSWORD=${ATPERSON_APP_PASSWORD:-}
       - ATPERSON_SERVICE=${ATPERSON_SERVICE:-https://bsky.social}
       - ATPERSON_TYPESAFE_API_KEY=${ATPERSON_TYPESAFE_API_KEY:-}
+      # Remote operator channel (#143). Inert unless ATPERSON_OPERATOR_DID
+      # names a DID that is not the entity's own account, so an unset value
+      # costs nothing: no DID, no commands, no session. The operator
+      # credential is used only to publish requests from the operator's own
+      # client; the daemon authenticates as the entity and never as the
+      # operator.
+      - ATPERSON_OPERATOR_DID=${ATPERSON_OPERATOR_DID:-}
+      - ATPERSON_OPERATOR_IDENTIFIER=${ATPERSON_OPERATOR_IDENTIFIER:-}
+      - ATPERSON_OPERATOR_APP_PASSWORD=${ATPERSON_OPERATOR_APP_PASSWORD:-}
     volumes:
       - atperson-data:/var/lib/atperson
     restart: unless-stopped
