@@ -565,14 +565,16 @@ if(ATPERSON_BUILD_TESTS)
   # tests/support owns the fixtures they share, so no one file owns more
   # than one story and the shared fixtures are not copied per scenario.
   #
-  # #143 adds the drill that needs a whole host rather than a sync run:
-  # publish, wipe the data directory, reconstruct from the network alone.
+  # #143 adds the drills that need a whole host rather than a sync run:
+  # publish, wipe the data directory, reconstruct from the network alone;
+  # and the remote operator channel applied across a restart.
   add_executable(
     atperson-e2e-test
     tests/sync/lifecycle.cpp
     tests/sync/lifecycle_ingestion.cpp
     tests/sync/lifecycle_derived_state.cpp
     tests/recovery/host_loss.cpp
+    tests/control/remote_lifecycle.cpp
     tests/support/lifecycle_harness.cpp
     tests/support/fake_pds.cpp
     src/app/ingestion/policy.cpp
@@ -585,6 +587,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/replicate/records.cpp
     src/app/replicate/reconstruct.cpp
     src/app/control/state.cpp
+    src/app/control/remote.cpp
     src/app/thought/store.cpp
     src/app/state/records.cpp)
   target_link_libraries(atperson-e2e-test PRIVATE atperson-cpp)
