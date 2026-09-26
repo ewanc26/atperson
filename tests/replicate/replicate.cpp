@@ -8,6 +8,7 @@
 #include "replicate/reconstruct.hpp"
 #include "replicate/records.hpp"
 #include "replicate/file_writer.hpp"
+#include "support/fake_pds.hpp"
 #include "thought/store.hpp"
 
 #include <cassert>
@@ -28,62 +29,6 @@ std::filesystem::path scratch_dir(const char *tag) {
     std::filesystem::create_directories(root);
     return root;
 }
-
-/* Fake writer: records every put in a map keyed by (collection, rkey). */
-struct FakeWriter final : atperson::OutboundWriter {
-    std::map<std::pair<std::string, std::string>, std::string> records;
-    bool fail_next = false;
-
-    std::string resolve_record_cid(const std::string &at_uri) override { return "fake-cid"; }
-
-    atperson::OutboundWriteResult put_record(const std::string &collection,
-                                             const std::string &rkey,
-                                             const std::string &record_json) override {
-        if (fail_next) {
-            throw std::runtime_error("network down");
-        }
-        records[{collection, rkey}] = record_json;
-        atperson::OutboundWriteResult result;
-        result.uri = "at://did:fake/" + collection + "/" + rkey;
-        result.cid = "fake-cid";
-        return result;
-    }
-};
-
-/* Fake record source: serves exactly what a FakeWriter collected, plus a
- * content map for fetch_content. */
-struct FakeSource final : atperson::RecordSource {
-    std::map<std::pair<std::string, std::string>, std::string> records;
-    std::map<std::string, std::string> content;
-
-    std::vector<std::string> list_records(std::string_view collection) override {
-        std::vector<std::string> rkeys;
-        for (const auto &[key, value] : records) {
-            (void)value;
-            if (key.first == collection) {
-                rkeys.push_back(key.second);
-            }
-        }
-        return rkeys;
-    }
-
-    std::optional<std::string> get_record(std::string_view collection,
-                                          std::string_view rkey) override {
-        const auto it = records.find({std::string(collection), std::string(rkey)});
-        if (it == records.end()) {
-            return std::nullopt;
-        }
-        return it->second;
-    }
-
-    std::optional<std::string> fetch_content(std::string_view source_uri) override {
-        const auto it = content.find(std::string(source_uri));
-        if (it == content.end()) {
-            return std::nullopt;
-        }
-        return it->second;
-    }
-};
 
 void test_record_round_trips() {
     atperson::ObservationRecord observation;
@@ -276,7 +221,7 @@ void test_drain_and_reconstruct() {
     atperson::append_journal_intent(journal_file, journal_intent);
 
     /* Drain: everything published, withdrawal propagated. */
-    FakeWriter writer;
+    atperson::e2e::FakePds writer;
     atperson::ReplicateConfig config;
     const atperson::ReplicateReport report =
         atperson::replicate_drain(cursor_file, journal_file, ledger, thoughts_file, writer,
@@ -296,14 +241,12 @@ void test_drain_and_reconstruct() {
     assert(second.withdrawal_updates == 1u);
     assert(second.observations_published == 0u);
 
-    /* Reconstruct into a fresh directory. */
-    FakeSource source;
-    source.records = writer.records;
-    source.content = {
-        {"at://did:plc:a/app.bsky.feed.post/1", "first observation text"},
-        {"at://did:plc:b/app.bsky.feed.post/2", "second observation text"},
-        {"at://did:plc:a/app.bsky.feed.post/3", "third observation text"},
-    };
+    /* Reconstruct into a fresh directory, reading the same store the
+     * publisher wrote to. */
+    atperson::e2e::FakePds &source = writer;
+    source.serve_content("at://did:plc:a/app.bsky.feed.post/1", "first observation text");
+    source.serve_content("at://did:plc:b/app.bsky.feed.post/2", "second observation text");
+    source.serve_content("at://did:plc:a/app.bsky.feed.post/3", "third observation text");
     const std::filesystem::path fresh = root / "fresh";
     std::filesystem::create_directories(fresh);
     const atperson::ReconstructReport rebuilt =
@@ -359,8 +302,8 @@ void test_drain_network_failure_retains_backlog() {
                   atperson::Ledger::digest("text"), 2u,
                   atp_ledger_outcome::ATP_LEDGER_OUTCOME_LEARNED, "text", {}, &id);
 
-    FakeWriter writer;
-    writer.fail_next = true;
+    atperson::e2e::FakePds writer;
+    writer.fail_next_put();
     atperson::ReplicateConfig config;
     const atperson::ReplicateReport failed =
         atperson::replicate_drain(cursor_file, journal_file, ledger, root / "thoughts",
@@ -368,8 +311,8 @@ void test_drain_network_failure_retains_backlog() {
     assert(failed.network_failed);
     assert(failed.observations_published == 0u);
 
-    /* The cursor stayed at the start, so a later drain republishes. */
-    writer.fail_next = false;
+    /* The cursor stayed at the start, so a later drain republishes. The
+     * fixture clears its own failure when it throws, so nothing to reset. */
     const atperson::ReplicateReport retried =
         atperson::replicate_drain(cursor_file, journal_file, ledger, root / "thoughts",
                                   writer, config);
@@ -386,15 +329,16 @@ void test_reconstruct_fail_closed() {
                   atperson::Ledger::digest("original text"), 2u,
                   atp_ledger_outcome::ATP_LEDGER_OUTCOME_LEARNED, "original text", {}, &id);
 
-    FakeWriter writer;
+    atperson::e2e::FakePds writer;
     atperson::ReplicateConfig config;
     atperson::replicate_drain(root / "cursor.json", root / "journal.jsonl", ledger,
                               root / "thoughts", writer, config);
 
-    /* Source serves TAMPERED content: digest mismatch must fail closed. */
-    FakeSource source;
-    source.records = writer.records;
-    source.content = {{"at://did:plc:a/app.bsky.feed.post/1", "tampered text"}};
+    /* The source now serves TAMPERED content for that URI: a digest
+     * mismatch must fail closed. The records are untouched, so this is
+     * tampering with the source, not with the network copy. */
+    atperson::e2e::FakePds &source = writer;
+    source.serve_content("at://did:plc:a/app.bsky.feed.post/1", "tampered text");
     const std::filesystem::path fresh = root / "fresh";
     std::filesystem::create_directories(fresh);
     const atperson::ReconstructReport rebuilt =
