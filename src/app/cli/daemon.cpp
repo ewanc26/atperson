@@ -8,6 +8,7 @@
 #include "atproto/jetstream_filter.hpp"
 #include "atproto/writer.hpp"
 #include "config.hpp"
+#include "control/remote_poll.hpp"
 #include "control/state.hpp"
 #include "daemon/config.hpp"
 #include "daemon/failure.hpp"
@@ -184,6 +185,60 @@ SchedulerCycleReport run_scheduler_after_cycle(const std::filesystem::path &data
     const SchedulerCycleReport report =
         run_scheduler_cycle(config, cycle, graph, ledger);
     return report;
+}
+
+/* One remote operator poll (#143) per cycle, before the scheduler so a
+ * pause the operator just issued is honoured by this cycle rather than the
+ * next one. Off unless ATPERSON_OPERATOR_DID names a trusted DID — with no
+ * DID the channel is inert, and this never opens a session, so a
+ * deployment without the channel configured pays nothing. */
+void run_remote_control_poll(std::ostream &out, const RuntimeResourceStatus &resource_status,
+                             const std::filesystem::path &control_file,
+                             const std::filesystem::path &cursor_file) {
+    const char *raw_did = std::getenv("ATPERSON_OPERATOR_DID");
+    if (raw_did == nullptr || raw_did[0] == '\0') {
+        return;
+    }
+    try {
+        require_runtime_write_headroom(resource_status);
+    } catch (const std::exception &) {
+        /* No headroom to persist a change: skip the poll rather than queue
+         * commands. The operator's records stay on their PDS. */
+        out << "remote control: skipped, insufficient write headroom\n";
+        return;
+    }
+
+    const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
+    std::unique_ptr<WolframSession> session;
+    try {
+        session = std::make_unique<WolframSession>(service, required_env("ATPERSON_IDENTIFIER"),
+                                                    required_env("ATPERSON_APP_PASSWORD"));
+    } catch (const std::exception &error) {
+        /* A channel that cannot authenticate is a channel that cannot
+         * command. The daemon keeps running on local control. */
+        out << "remote control: unavailable (" << error.what() << ")\n";
+        return;
+    }
+
+    RemotePollConfig config;
+    config.operator_did = raw_did;
+    RemoteControlChannel channel(*session, config, control_file, cursor_file);
+    try {
+        const RemotePollReport report = channel.poll();
+        if (report.applied > 0u) {
+            out << "remote control: applied " << report.applied << " request(s) ("
+                << report.last_op << "), watermark " << report.watermark << '\n';
+        }
+        for (const RemoteRefusal &refusal : report.refusals) {
+            out << "remote control: refused"
+                << (refusal.rkey.empty() ? "" : " " + refusal.rkey) << ": " << refusal.reason
+                << '\n';
+        }
+    } catch (const std::exception &error) {
+        /* Transport failure or an unusable cursor: nothing was written, and
+         * the next cycle retries from the same watermark. */
+        out << "remote control: pass failed (" << error.what() << ")\n";
+    }
 }
 
 void print_scheduler_report(std::ostream &out, const SchedulerCycleReport &report) {
@@ -395,9 +450,13 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         },
         [&out, &data_dir, &cycle_number, &run_state, &heartbeat_file, &scheduler_config,
          &reflection_config, &self_eval_config, &graph, &ledger, &scheduler_cycles,
-         &scheduler_decisions, &scheduler_abstentions,
-         &scheduler_executed](const SyncResult &result) {
+         &scheduler_decisions, &scheduler_abstentions, &scheduler_executed,
+         &resource_status, &control_file](const SyncResult &result) {
             ++cycle_number;
+            /* Remote operator channel (#143): before the scheduler, so a
+             * pause issued since the last cycle is in force for this one. */
+            run_remote_control_poll(out, resource_status, control_file,
+                                    remote_control_cursor_path());
             out << "daemon: cycle " << cycle_number << ": " << result.pages_completed
                 << " page(s), " << result.observations_seen << " observation(s), learned "
                 << result.learned << " (skipped " << result.skipped << ", duplicate "

@@ -54,6 +54,10 @@ std::filesystem::path outbound_budget_path();
 std::filesystem::path outbound_audit_path();
 std::filesystem::path offline_spool_path();
 
+/* Remote operator channel (#143): the durable replay watermark. Separate
+ * from the control state because it is channel bookkeeping, not a switch. */
+std::filesystem::path remote_control_cursor_path();
+
 /* Action/outcome journal (#27): durable experience provenance for the
  * entity's own outbound attempts. */
 std::filesystem::path action_journal_path();
