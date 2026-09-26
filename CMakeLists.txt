@@ -564,18 +564,29 @@ if(ATPERSON_BUILD_TESTS)
   # Scenarios are grouped by concern into their own translation units, and
   # tests/support owns the fixtures they share, so no one file owns more
   # than one story and the shared fixtures are not copied per scenario.
+  #
+  # #143 adds the drill that needs a whole host rather than a sync run:
+  # publish, wipe the data directory, reconstruct from the network alone.
   add_executable(
     atperson-e2e-test
     tests/sync/lifecycle.cpp
     tests/sync/lifecycle_ingestion.cpp
     tests/sync/lifecycle_derived_state.cpp
+    tests/recovery/host_loss.cpp
     tests/support/lifecycle_harness.cpp
+    tests/support/fake_pds.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/sync/engine.cpp
     src/app/state/time.cpp
     src/app/sync/linkage.cpp
-    src/app/journal/store.cpp)
+    src/app/journal/store.cpp
+    src/app/replicate/publish.cpp
+    src/app/replicate/records.cpp
+    src/app/replicate/reconstruct.cpp
+    src/app/control/state.cpp
+    src/app/thought/store.cpp
+    src/app/state/records.cpp)
   target_link_libraries(atperson-e2e-test PRIVATE atperson-cpp)
   # tests/ is on the include path so the shared fixtures under
   # tests/support are includable by name from every scenario file.

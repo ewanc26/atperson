@@ -16,6 +16,7 @@
  *   tests/sync/lifecycle_ingestion.cpp     catch-up, crash recovery, retry,
  *                                          dedup, withdrawal, determinism
  *   tests/sync/lifecycle_derived_state.cpp conversation context, valence
+ *   tests/recovery/host_loss.cpp           publish, wipe, reconstruct
  *
  * The shared fixtures are in tests/support/lifecycle_harness.hpp. This file
  * is the driver: it owns no fixture of its own. */
@@ -27,6 +28,7 @@
 int main() {
     atperson::e2e::run_ingestion_scenarios();
     atperson::e2e::run_derived_state_scenarios();
+    atperson::e2e::run_host_loss_scenarios();
 
     std::printf("e2e harness passed\n");
     return 0;

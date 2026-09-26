@@ -88,6 +88,22 @@ struct Scenario {
      * between the ledger commits and the snapshot write). */
     SyncResult run(const SyncPageFetcher &feed, int max_pages, bool crash_after_sync = false);
 
+    /* One daemon cycle, pause gate included: the operator gate in the
+     * daemon (src/app/cli/daemon.cpp) is a durable read of
+     * `load_control_state(control_file).paused`, so a paused host opens
+     * nothing, fetches nothing and writes nothing for that cycle. This
+     * harness reads the same file through the same production function, so
+     * a scenario asserting on a pause is asserting on the real gate rather
+     * than on a fixture's copy of it.
+     *
+     * `paused` is true when the gate stopped the cycle, in which case
+     * `result` is the zero value and no durable file was touched. */
+    struct Cycle {
+        SyncResult result;
+        bool paused{false};
+    };
+    Cycle run_cycle(const SyncPageFetcher &feed, int max_pages, bool crash_after_sync = false);
+
     /* The additional durable files the recovery scenarios need, derived
      * from this host's directory so a scenario never hard-codes a layout
      * the harness and the CLI disagree about. */
@@ -112,6 +128,14 @@ void run_ingestion_scenarios();
 /* Derived and self-authored state through the durable pipeline:
  * conversation context and journal valence. */
 void run_derived_state_scenarios();
+
+/* Issue #143 host loss: publish to the network, destroy the host,
+ * reconstruct from the network alone, and require the learned state back. */
+void run_host_loss_scenarios();
+
+/* Issue #143 remote operator control: pause, resume and approve applied
+ * through the AT Protocol operator channel across a restart. */
+void run_remote_control_scenarios();
 
 } // namespace atperson::e2e
 

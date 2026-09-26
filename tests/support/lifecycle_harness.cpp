@@ -7,6 +7,7 @@
 
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
+#include "control/state.hpp"
 #include "ingestion/state.hpp"
 
 #include <cstdlib>
@@ -69,6 +70,18 @@ SyncResult Scenario::run(const SyncPageFetcher &feed, int max_pages, bool crash_
     state.checkpoint.generation++;
     save_ingestion_state(state, state_file);
     return result;
+}
+
+Scenario::Cycle Scenario::run_cycle(const SyncPageFetcher &feed, int max_pages,
+                                    bool crash_after_sync) {
+    /* The gate is the daemon's: one durable read of the control file's
+     * paused flag, from a cold open, before any ingestion work. A missing
+     * control file is not paused — the fail-closed defaults leave the host
+     * running and closed for writes. */
+    if (load_control_state(control_file()).paused) {
+        return Cycle{.result = SyncResult{}, .paused = true};
+    }
+    return Cycle{.result = run(feed, max_pages, crash_after_sync), .paused = false};
 }
 
 std::filesystem::path Scenario::journal_file() const {
