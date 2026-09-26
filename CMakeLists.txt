@@ -195,6 +195,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/inspection.cpp
     src/app/cli/ingest.cpp
     src/app/cli/control.cpp
+    src/app/cli/control_remote.cpp
     src/app/cli/cursor.cpp
     src/app/cli/daemon.cpp
     src/app/cli/drives.cpp
@@ -236,6 +237,8 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/journal/resolve.cpp
     src/app/control/state.cpp
     src/app/control/envelope.cpp
+    src/app/control/remote.cpp
+    src/app/control/remote_poll.cpp
     src/app/daemon/backoff.cpp
     src/app/daemon/config.cpp
     src/app/daemon/loop.cpp
@@ -543,6 +546,15 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-control-test PRIVATE atperson-cpp)
   target_include_directories(atperson-control-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-control COMMAND atperson-control-test)
+
+  # Remote operator control channel (#143): operator DID provenance, strict
+  # sequencing, argument rules and the durable replay cursor. Offline.
+  add_executable(atperson-remote-control-test tests/control/remote.cpp
+                                        src/app/control/state.cpp
+                                        src/app/control/remote.cpp)
+  target_link_libraries(atperson-remote-control-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-remote-control-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-remote-control COMMAND atperson-remote-control-test)
 
   # Deterministic end-to-end lifecycle harness (issue #28): multi-run
   # scenarios over the real ledger/snapshot/state files with a scripted

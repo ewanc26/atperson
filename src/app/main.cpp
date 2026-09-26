@@ -7,6 +7,7 @@
 #include "audit/command.hpp"
 #include "cli/config.hpp"
 #include "cli/control.hpp"
+#include "cli/control_remote.hpp"
 #include "cli/envelope.hpp"
 #include "cli/cursor.hpp"
 #include "cli/daemon.hpp"
@@ -161,6 +162,24 @@ int main(int argc, char **argv) {
                     atperson::cli::authorization_envelopes_path(),
                     atperson::cli::outbound_policy_path(), argv[3], envelope_arguments,
                     static_cast<std::int64_t>(std::time(nullptr)));
+            }
+            if (sub == "remote") {
+                /* Remote operator channel (#143). The argument is the rest
+                 * of the line, so `emit approve <digest>` arrives intact. */
+                std::string argument;
+                for (int i = 4; i < argc; ++i) {
+                    if (!argument.empty()) {
+                        argument += ' ';
+                    }
+                    argument += argv[i];
+                }
+                /* argv[3] is the remote subcommand, and reading it
+                 * unconditionally ran off the end of argv for a bare
+                 * `control remote`. Default it, so the caller's usage
+                 * error is what a user sees. */
+                const char *remote_sub = argc >= 4 ? argv[3] : "";
+                return atperson::cli::run_control_remote(std::cout, resource_status,
+                                                         remote_sub, argument);
             }
             return atperson::cli::run_control(std::cout, resource_status,
                                               atperson::cli::control_state_path(), sub,

@@ -113,6 +113,11 @@ std::filesystem::path control_state_path() {
                   (data_dir() / "control-state.json").string());
 }
 
+std::filesystem::path remote_control_cursor_path() {
+    return env_or("ATPERSON_REMOTE_CONTROL_CURSOR",
+                  (data_dir() / "remote-control-cursor.json").string());
+}
+
 std::filesystem::path outbound_policy_path() {
     return env_or("ATPERSON_OUTBOUND_POLICY",
                   (data_dir() / "outbound-policy.json").string());

@@ -31,6 +31,7 @@ The project has one architectural rule running through all of them: **learned st
 - [`attestation.md`](attestation.md) — operator-owned signing-key and audit metadata contract for future outbound record attestation.
 - [`docker.md`](docker.md) — container builds and deployment.
 - [`recovery.md`](recovery.md) — operator runbook: entity health, lost state, host loss, checkpoints and the offline spool.
+- [`remote-control.md`](remote-control.md) — operator DID-anchored AT Protocol control records, applied by the daemon for headless hosts (#143).
 
 ## Repository operation
 
