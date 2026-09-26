@@ -60,6 +60,13 @@ docker compose exec atperson atperson stats
 docker compose exec atperson atperson control status
 ```
 
+The Compose service defines a `healthcheck` that polls the supervisor
+health surface (`atperson autonomy health`; exit 0 healthy, 1 stale, 2
+unreadable/never started) with a `start_period` covering the gap before
+the daemon's first completed cycle. `docker compose ps` reports the
+result. See [`recovery.md`](recovery.md) for the health contract and
+recovery procedures.
+
 `docker compose stop` gives the daemon a normal container stop signal, which follows the daemon's graceful flush path.
 
 ## Container limits
