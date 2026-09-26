@@ -560,17 +560,41 @@ if(ATPERSON_BUILD_TESTS)
   # scenarios over the real ledger/snapshot/state files with a scripted
   # feed fixture — restarts, crash recovery, withdrawal flows, planning
   # abstention, and cross-run determinism. Offline, no network.
+  #
+  # Scenarios are grouped by concern into their own translation units, and
+  # tests/support owns the fixtures they share, so no one file owns more
+  # than one story and the shared fixtures are not copied per scenario.
+  #
+  # #143 adds the drills that need a whole host rather than a sync run:
+  # publish, wipe the data directory, reconstruct from the network alone;
+  # and the remote operator channel applied across a restart.
   add_executable(
     atperson-e2e-test
     tests/sync/lifecycle.cpp
+    tests/sync/lifecycle_ingestion.cpp
+    tests/sync/lifecycle_derived_state.cpp
+    tests/recovery/host_loss.cpp
+    tests/control/remote_lifecycle.cpp
+    tests/support/lifecycle_harness.cpp
+    tests/support/fake_pds.cpp
     src/app/ingestion/policy.cpp
     src/app/ingestion/state.cpp
     src/app/sync/engine.cpp
     src/app/state/time.cpp
     src/app/sync/linkage.cpp
-    src/app/journal/store.cpp)
+    src/app/journal/store.cpp
+    src/app/replicate/publish.cpp
+    src/app/replicate/records.cpp
+    src/app/replicate/reconstruct.cpp
+    src/app/control/state.cpp
+    src/app/control/remote.cpp
+    src/app/thought/store.cpp
+    src/app/state/records.cpp)
   target_link_libraries(atperson-e2e-test PRIVATE atperson-cpp)
-  target_include_directories(atperson-e2e-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  # tests/ is on the include path so the shared fixtures under
+  # tests/support are includable by name from every scenario file.
+  target_include_directories(atperson-e2e-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS}
+                                                        ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   add_test(NAME atperson-e2e COMMAND atperson-e2e-test)
 
   # Long-running ingestion daemon (#21): scheduling, bounded per-cycle work,
@@ -651,6 +675,7 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson-replicate-test
     tests/replicate/replicate.cpp
+    tests/support/fake_pds.cpp
     src/app/replicate/records.cpp
     src/app/replicate/file_writer.cpp
     src/app/replicate/publish.cpp
@@ -660,7 +685,8 @@ if(ATPERSON_BUILD_TESTS)
     src/app/journal/store.cpp)
   target_compile_features(atperson-replicate-test PRIVATE cxx_std_23)
   target_link_libraries(atperson-replicate-test PRIVATE atperson-cpp)
-  target_include_directories(atperson-replicate-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  target_include_directories(atperson-replicate-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS}
+                                                         ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   add_test(NAME atperson-replicate COMMAND atperson-replicate-test)
 
   # Outbound execution (#25): the ordered gate chain (pause, policy, dry-run,

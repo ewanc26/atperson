@@ -204,3 +204,14 @@ approval bound, the argument rule re-checked at apply time, at-URI parsing,
 cursor round-trip and restart behaviour, and the rkey/sequence ordering
 property the poller depends on. It builds and runs with
 `ATPERSON_BUILD_NETWORK=OFF`.
+
+Those tests are unit-level: they prove the trust logic, not that a paused
+host stops ingesting. `tests/control/remote_lifecycle.cpp` is the
+end-to-end version, run by the `atperson-e2e` test over real durable
+files. It applies pause/resume/approve through the same save order the
+poller uses, then requires that a remote pause actually stops the next
+cycle's ingestion on a host that has to read the pause back from disk; that
+the watermark survives a restart so an old pause record cannot replay over
+a later resume; and that a remote approve binds one exact digest and no
+other. The record *fetch* needs a service and stays in the poll tests; what
+this scenario drives is the part that touches durable state.
