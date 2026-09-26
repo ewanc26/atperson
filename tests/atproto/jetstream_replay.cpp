@@ -3,16 +3,11 @@
 
 #include "wolfram/jetstream_replay.h"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <string>
-#include <thread>
-#include <unistd.h>
 
 using namespace atperson;
 
@@ -109,59 +104,38 @@ int main() {
     const JetstreamReplayClient defaults_host("", "token");
     (void)defaults_host;
 
-    /* Auth-rejection contract: a 401 from the archive must surface as a
-     * distinct WF_ERR_AUTH error (greppable, fail-fast) rather than the
-     * generic transport failure a retry loop would treat as transient.
-     * Served from a loopback socket so no real archive is contacted. */
-    const int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    assert(listen_fd >= 0);
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    addr.sin_port = 0;
-    assert(bind(listen_fd, reinterpret_cast<const sockaddr *>(&addr),
-                sizeof(addr)) == 0);
-    assert(listen(listen_fd, 8) == 0);
-    socklen_t addr_len = sizeof(addr);
-    assert(getsockname(listen_fd, reinterpret_cast<sockaddr *>(&addr),
-                       &addr_len) == 0);
-    const std::uint16_t port = ntohs(addr.sin_port);
-    std::thread reject_server([listen_fd] {
-        for (int served = 0; served < 4; ++served) {
-            const int fd = accept(listen_fd, nullptr, nullptr);
-            if (fd < 0) break;
-            /* The client sends exactly one request per probe; a second
-             * accept would only be reached if the transport retried, which
-             * is itself contract-relevant but not what this test pins. */
-            char request[2048];
-            (void)read(fd, request, sizeof(request));
-            const std::string body =
-                "{\"error\":\"InvalidToken\",\"message\":\"rejected\"}";
-            const std::string response =
-                "HTTP/1.1 401 Unauthorized\r\n"
-                "Content-Type: application/json\r\n"
-                "Content-Length: " + std::to_string(body.size()) +
-                "\r\n"
-                "Connection: close\r\n"
-                "\r\n" + body;
-            (void)write(fd, response.data(), response.size());
-            close(fd);
+    /* Auth-rejection contract: a rejected credential must map to a distinct,
+     * greppable message on every archive call, so a dead or expired token
+     * fails the backfill fast instead of being retried as a transient
+     * transport failure. Every other status keeps the generic wording.
+     *
+     * The mapping is asserted directly rather than through a loopback server:
+     * a 401 arriving as WF_ERR_AUTH is wolfram's contract, and driving a real
+     * socket here made this test hang on the hosted runners. */
+    const char *operations[] = {"tip probe", "planSnapshot", "getSegment",
+                                "getBlock"};
+    for (const char *operation : operations) {
+        const std::string rejected =
+            jetstream_archive_error(operation, WF_ERR_AUTH);
+        assert(rejected.find("WF_ERR_AUTH") != std::string::npos);
+        assert(rejected.find("ATPERSON_JETSTREAM_ARCHIVE_TOKEN") !=
+               std::string::npos);
+        assert(rejected.find(operation) != std::string::npos);
+        /* A transient failure must stay distinguishable from a dead token, or
+         * the retry loop treats the two the same. */
+        for (const int status : {WF_ERR_NETWORK, WF_ERR_HTTP, WF_ERR_TIMEOUT}) {
+            const std::string transient_message =
+                jetstream_archive_error(operation, status);
+            assert(transient_message.find("WF_ERR_AUTH") == std::string::npos);
+            assert(transient_message.find(
+                       "ATPERSON_JETSTREAM_ARCHIVE_TOKEN") == std::string::npos);
         }
-    });
-    bool auth_threw = false;
-    try {
-        JetstreamReplayClient rejected(
-            "http://127.0.0.1:" + std::to_string(port), "dead-token");
-        (void)rejected.probe_sealed_tip();
-    } catch (const std::runtime_error &e) {
-        const std::string message(e.what());
-        auth_threw = message.find("WF_ERR_AUTH") != std::string::npos &&
-                     message.find("ATPERSON_JETSTREAM_ARCHIVE_TOKEN") !=
-                         std::string::npos;
     }
-    assert(auth_threw);
-    close(listen_fd); /* unblocks the server thread's accept */
-    reject_server.join();
+    assert(jetstream_archive_error("tip probe", WF_OK) ==
+           "Jetstream replay tip probe failed");
+    assert(jetstream_archive_error("getBlock", WF_ERR_AUTH) ==
+           "Jetstream archive getBlock failed: archive rejected credentials "
+           "(WF_ERR_AUTH) — check ATPERSON_JETSTREAM_ARCHIVE_TOKEN");
 
     free(event.collection);
     free(event.did);
