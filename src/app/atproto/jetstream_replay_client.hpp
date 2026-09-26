@@ -44,6 +44,18 @@ struct JetstreamReplayWindow {
     std::uint64_t sealed_tip_seq{};
 };
 
+/* Failure message for one archive call, named by `operation` ("tip probe",
+ * "planSnapshot", "getSegment", "getBlock") with the transport `status` the
+ * call returned. A rejected credential is a distinct, greppable message so a
+ * dead or expired archive token fails the backfill fast instead of being
+ * retried as if it were a transient transport failure; every other status
+ * keeps the generic wording a retry loop already handles.
+ *
+ * Pure and offline: the status comparison against wolfram's WF_ERR_AUTH lives
+ * here so the mapping is testable without an archive or a live socket. The
+ * returned value is what callers put in the thrown std::runtime_error. */
+[[nodiscard]] std::string jetstream_archive_error(std::string_view operation, int status);
+
 /* Replay source seam: the sync engine depends on this small contract, so
  * restart/truncation behavior can be tested with a scripted source without
  * credentials or network I/O. */

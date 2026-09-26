@@ -104,6 +104,39 @@ int main() {
     const JetstreamReplayClient defaults_host("", "token");
     (void)defaults_host;
 
+    /* Auth-rejection contract: a rejected credential must map to a distinct,
+     * greppable message on every archive call, so a dead or expired token
+     * fails the backfill fast instead of being retried as a transient
+     * transport failure. Every other status keeps the generic wording.
+     *
+     * The mapping is asserted directly rather than through a loopback server:
+     * a 401 arriving as WF_ERR_AUTH is wolfram's contract, and driving a real
+     * socket here made this test hang on the hosted runners. */
+    const char *operations[] = {"tip probe", "planSnapshot", "getSegment",
+                                "getBlock"};
+    for (const char *operation : operations) {
+        const std::string rejected =
+            jetstream_archive_error(operation, WF_ERR_AUTH);
+        assert(rejected.find("WF_ERR_AUTH") != std::string::npos);
+        assert(rejected.find("ATPERSON_JETSTREAM_ARCHIVE_TOKEN") !=
+               std::string::npos);
+        assert(rejected.find(operation) != std::string::npos);
+        /* A transient failure must stay distinguishable from a dead token, or
+         * the retry loop treats the two the same. */
+        for (const int status : {WF_ERR_NETWORK, WF_ERR_HTTP, WF_ERR_TIMEOUT}) {
+            const std::string transient_message =
+                jetstream_archive_error(operation, status);
+            assert(transient_message.find("WF_ERR_AUTH") == std::string::npos);
+            assert(transient_message.find(
+                       "ATPERSON_JETSTREAM_ARCHIVE_TOKEN") == std::string::npos);
+        }
+    }
+    assert(jetstream_archive_error("tip probe", WF_OK) ==
+           "Jetstream replay tip probe failed");
+    assert(jetstream_archive_error("getBlock", WF_ERR_AUTH) ==
+           "Jetstream archive getBlock failed: archive rejected credentials "
+           "(WF_ERR_AUTH) — check ATPERSON_JETSTREAM_ARCHIVE_TOKEN");
+
     free(event.collection);
     free(event.did);
     free(event.rkey);
