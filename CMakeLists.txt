@@ -210,6 +210,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/replicate/records.cpp
     src/app/replicate/file_writer.cpp
     src/app/replicate/publish.cpp
+    src/app/replicate/publication.cpp
     src/app/replicate/reconstruct.cpp
     src/app/thought/store.cpp
     src/app/cli/protocol.cpp
@@ -676,11 +677,17 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson-replicate-test
     tests/replicate/replicate.cpp
+    tests/replicate/publication.cpp
     tests/support/fake_pds.cpp
     src/app/replicate/records.cpp
     src/app/replicate/file_writer.cpp
     src/app/replicate/publish.cpp
+    src/app/replicate/publication.cpp
     src/app/replicate/reconstruct.cpp
+    src/app/control/state.cpp
+    src/app/resource/budget.cpp
+    src/app/resource/runtime.cpp
+    src/app/state/lock.cpp
     src/app/thought/store.cpp
     src/app/state/records.cpp
     src/app/journal/store.cpp)

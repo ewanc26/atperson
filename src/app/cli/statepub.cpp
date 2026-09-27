@@ -2,31 +2,18 @@
 
 #include "../atproto/session.hpp"
 #include "../atproto/writer.hpp"
-#include "../control/state.hpp"
-#include "../replicate/file_writer.hpp"
-#include "../replicate/publish.hpp"
-#include "../state/lock.hpp"
+#include "../journal/store.hpp"
+#include "../replicate/publication.hpp"
+#include "../thought/store.hpp"
 #include "config.hpp"
-#include "journal/store.hpp"
-#include "thought/store.hpp"
 
 #include <cstdint>
-#include <ostream>
 #include <memory>
-#include <stdexcept>
+#include <ostream>
 #include <string>
 
 namespace atperson {
 namespace cli {
-namespace {
-
-constexpr const char *kStatepubLockName = ".statepub-lock";
-
-std::filesystem::path replicate_cursor_path(const std::filesystem::path &data_dir) {
-    return data_dir / "replicate" / "cursor.json";
-}
-
-} // namespace
 
 int run_statepub_status(std::ostream &out, std::ostream &err,
                         const RuntimeResourceStatus &resource_status,
@@ -40,7 +27,7 @@ int run_statepub_status(std::ostream &out, std::ostream &err,
         const JournalContents journal = load_journal(journal_file);
         std::uint64_t ledger_committed = 0u;
         {
-            const Ledger ledger(ledger_file);
+            Ledger ledger(ledger_file);
             const std::uint64_t count = ledger.count();
             for (std::uint64_t id = 1u; id <= count; ++id) {
                 atp_ledger_entry entry{};
@@ -92,38 +79,25 @@ int run_statepub_drain(std::ostream &out, std::ostream &err,
                        const std::filesystem::path &thoughts_file,
                        const std::filesystem::path &control_file,
                        bool offline) {
-    require_runtime_write_headroom(resource_status);
-
-    /* Fail-closed control gate: publication is an outbound network write
-     * procedure, so the master write gate applies exactly as it does to
-     * outbound actions. */
-    const ControlState control = load_control_state(control_file);
-    if (!control.writes_enabled) {
-        err << "statepub drain refused: writes are disabled in control state\n";
-        return 1;
-    }
-
-    const StateLock lock(data_dir, kStatepubLockName);
+    /* One implementation of the gates, the lock and the drain, shared with
+     * the daemon's automatic pass: a refusal here is the same refusal
+     * there, and there is no second publication path to drift. */
+    const PublicationPaths paths{
+        data_dir,
+        replicate_cursor_path(data_dir),
+        replicate_records_dir(data_dir),
+        journal_file,
+        thoughts_file,
+        control_file};
 
     try {
         Ledger ledger(ledger_file);
 
-        /* Offline mode stages the exact record JSON to
-         * <data>/replicate/records/ instead of the network: the same
-         * cursor, the same gates, only the sink changes. A later online
-         * drain resumes from the same cursor. */
-        std::unique_ptr<FileWriter> file_writer;
+        /* The session is established lazily inside the pass: a drain with no
+         * backlog touches no credentials and no network. */
         std::unique_ptr<WolframSession> session;
         std::unique_ptr<WolframWriter> writer;
-        const auto writer_for = [&]() -> OutboundWriter & {
-            if (offline) {
-                if (!file_writer) {
-                    file_writer = std::make_unique<FileWriter>(data_dir / "replicate" / "records");
-                }
-                return *file_writer;
-            }
-            /* Session is established lazily: a drain with no backlog
-             * touches no credentials and no network. */
+        const OnlineWriterFactory online_writer = [&]() -> OutboundWriter & {
             if (!writer) {
                 const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
                 session = std::make_unique<WolframSession>(
@@ -134,23 +108,26 @@ int run_statepub_drain(std::ostream &out, std::ostream &err,
             return *writer;
         };
 
-        ReplicateConfig config;
-        const ReplicateReport report =
-            replicate_drain(replicate_cursor_path(data_dir), journal_file, ledger,
-                            thoughts_file, writer_for(), config);
-        out << "observations_published=" << report.observations_published
-            << " actions_published=" << report.actions_published
-            << " valence_published=" << report.valence_published
-            << " thoughts_published=" << report.thoughts_published
-            << " withdrawal_updates=" << report.withdrawal_updates << '\n';
-        if (report.network_failed) {
-            err << "statepub drain stopped at a network failure: " << report.failure_detail
-                << '\n';
+        const PublicationReport report =
+            run_publication_pass(paths, publication_config_from_environment(), resource_status,
+                                 ledger, offline, online_writer);
+        if (report.refused) {
+            err << "statepub drain refused: " << report.refusal << '\n';
+            return 1;
+        }
+        out << "observations_published=" << report.drain.observations_published
+            << " actions_published=" << report.drain.actions_published
+            << " valence_published=" << report.drain.valence_published
+            << " thoughts_published=" << report.drain.thoughts_published
+            << " withdrawal_updates=" << report.drain.withdrawal_updates << '\n';
+        if (report.drain.network_failed) {
+            err << "statepub drain stopped at a network failure: "
+                << report.drain.failure_detail << '\n';
             return 1;
         }
         if (offline) {
-            out << "offline: records staged under "
-                << (data_dir / "replicate" / "records").string() << '\n';
+            out << "offline: records staged under " << replicate_records_dir(data_dir).string()
+                << '\n';
         }
         return 0;
     } catch (const std::exception &error) {
