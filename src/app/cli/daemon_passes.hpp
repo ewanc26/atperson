@@ -24,12 +24,14 @@
 
 #include "reflect/config.hpp"
 #include "reflect/pass.hpp"
+#include "replicate/publication.hpp"
 #include "resource/runtime.hpp"
 #include "scheduler/cycle.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <ostream>
+#include <string>
 #include <string_view>
 
 namespace atperson {
@@ -57,6 +59,23 @@ void run_remote_control_poll(std::ostream &out, const RuntimeResourceStatus &res
                              const std::string &account_did,
                              const std::filesystem::path &control_file,
                              const std::filesystem::path &cursor_file);
+
+/* One bounded state-publication pass (#142, #143) after the scheduler, so
+ * the actions this cycle attempted are published with the observations that
+ * produced them. Off unless ATPERSON_STATEPUB=1, and then only on the
+ * configured cadence — durable experience reaching the network is a rate
+ * decision, not something to do every cycle by surprise.
+ *
+ * A pass that published something is reported. A pass that was refused is
+ * reported only when the reason changed since the last refusal, so a
+ * misconfigured channel is diagnosable without a line per cycle.
+ *
+ * `last_refusal` is the caller's memory of the previous reason; it is
+ * updated here and read nowhere else. */
+void run_state_publication(std::ostream &out, const RuntimeResourceStatus &resource_status,
+                           const PublicationConfig &config, std::uint64_t cycle,
+                           Ledger &ledger, const std::filesystem::path &data_dir,
+                           std::string &last_refusal);
 
 void print_scheduler_report(std::ostream &out, const SchedulerCycleReport &report);
 

@@ -279,6 +279,10 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
     const SchedulerConfig scheduler_config = scheduler_config_from_environment();
     const ReflectionConfig reflection_config = reflection_config_from_environment();
     const SelfEvalConfig self_eval_config = self_eval_config_from_environment();
+    const PublicationConfig publication_config = publication_config_from_environment();
+    /* Remembered so a repeated refusal (a write gate that is off, a busy
+     * publication lock) is reported once rather than every cycle. */
+    std::string last_publication_refusal;
     std::uint64_t scheduler_cycles = 0;
     std::uint64_t scheduler_decisions = 0;
     std::uint64_t scheduler_abstentions = 0;
@@ -308,7 +312,8 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         [&out, &data_dir, &cycle_number, &run_state, &heartbeat_file, &scheduler_config,
          &reflection_config, &self_eval_config, &graph, &ledger, &scheduler_cycles,
          &scheduler_decisions, &scheduler_abstentions, &scheduler_executed,
-         &resource_status, &control_file, &client](const SyncResult &result) {
+         &resource_status, &control_file, &client, &publication_config,
+         &last_publication_refusal](const SyncResult &result) {
             ++cycle_number;
             /* Remote operator channel (#143): before the scheduler, so a
              * pause issued since the last cycle is in force for this one. */
@@ -362,6 +367,12 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
                     }
                 }
             }
+            /* State publication (#142, #143): after the scheduler, so the
+             * actions this cycle attempted are published with the
+             * observations that produced them. Off unless
+             * ATPERSON_STATEPUB=1, and then on the configured cadence. */
+            run_state_publication(out, resource_status, publication_config, cycle_number, ledger,
+                                  data_dir, last_publication_refusal);
             /* Supervisor heartbeat (#143): refreshed at the end of every
              * cycle so a watchdog can distinguish a live daemon from a
              * hung one. Advisory liveness only — never authority. */

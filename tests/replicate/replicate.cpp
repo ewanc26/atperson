@@ -404,11 +404,16 @@ void test_offline_drain_stages_record_files() {
 
 } // namespace
 
+/* The publication pass (replicate/publication.cpp) is exercised over these
+ * same fixtures, with its own scratch directories. */
+void run_publication_scenarios();
+
 int main() {
     test_record_round_trips();
     test_drain_and_reconstruct();
     test_drain_network_failure_retains_backlog();
     test_reconstruct_fail_closed();
     test_offline_drain_stages_record_files();
+    run_publication_scenarios();
     return 0;
 }

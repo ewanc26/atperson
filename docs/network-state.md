@@ -99,10 +99,31 @@ drain offline while disconnected, and a later online drain resumes from
 the same point (putRecord is idempotent on (collection, rkey), so any
 overlap is safe).
 
+### Daemon-integrated publication
+
+The daemon runs the same publication pass automatically when
+`ATPERSON_STATEPUB=1`. The pass fires after the scheduler on the
+configured cadence, so the actions a cycle attempted are published
+alongside the observations that produced them:
+
+```
+ATPERSON_STATEPUB=1              # enable the automatic pass (off by default)
+ATPERSON_STATEPUB_CYCLES=10      # run one pass every 10 cycles (default: 1)
+ATPERSON_STATEPUB_MAX_RECORDS=50 # records per pass (default: 50, max: 5000)
+ATPERSON_STATEPUB_RECHECK_WINDOW=200 # withdrawal recheck window (default: 200)
+```
+
+A refusal (write gate off, lock busy) is reported once and then stays
+silent until the reason changes — repeated identical refusals do not
+fill the daemon log. An idle pass (nothing new to publish) stays silent.
+`atperson statepub drain` remains available for operator-driven drains
+either way; both paths share one implementation and cannot drift.
+
 ### Gates
 
-- **Control write gate.** `statepub drain` is an outbound network write
-  procedure: the master `writes_enabled` gate applies, fail-closed.
+- **Control write gate.** `statepub drain` and the daemon's automatic
+  pass are both outbound network write procedures: the master
+  `writes_enabled` gate applies, fail-closed.
 - **Headroom.** The runtime resource preflight applies as to any write.
 - **Lock.** A dedicated statepub lockfile serialises drains; it does not
   compete with the daemon's long-held writer lock.
@@ -139,3 +160,12 @@ through the normal path to retrain the model.
 - Digest mismatch fails closed.
 - Offline drain stages record files under `records/<collection>/`, and
   a second pass is a no-op.
+
+`tests/replicate/publication.cpp` (the shared publication pass):
+
+- Gate refusal when `writes_enabled` is off.
+- Online drain with a fake PDS: published count reported, cursor advanced.
+- Offline staging instead of network when offline mode is set.
+- Lock contention: a concurrent holder produces a refusal, not a crash.
+- Idle pass (nothing new): no report, cursor unchanged.
+- Cadence gate: `publication_due` returns false when the cycle is not due.

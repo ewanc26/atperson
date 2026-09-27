@@ -354,7 +354,8 @@ content from the source and verifies the digest before replaying.
 ```
 
 `statepub drain` is gated on the control write gate and bounded per
-pass. See [`docs/network-state.md`](docs/network-state.md).
+pass. The daemon can run the same pass automatically with
+`ATPERSON_STATEPUB=1`. See [`docs/network-state.md`](docs/network-state.md).
 
 ### Standing deployment and recovery
 

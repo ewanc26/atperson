@@ -2,8 +2,10 @@
 
 #include "atproto/session.hpp"
 #include "atproto/writer.hpp"
+#include "cli/thoughts.hpp"
 #include "config.hpp"
 #include "control/remote_poll.hpp"
+#include "journal/store.hpp"
 
 #include <chrono>
 #include <cstdlib>
@@ -164,6 +166,79 @@ void print_reflection_report(std::ostream &out, const ReflectionReport &report,
         out << "  wrote " << reflection.thought.id << ' ' << reflection.thought.kind << " ("
             << reflection.from << ") " << reflection.thought.text << '\n';
     }
+}
+
+void run_state_publication(std::ostream &out, const RuntimeResourceStatus &resource_status,
+                           const PublicationConfig &config, std::uint64_t cycle,
+                           Ledger &ledger, const std::filesystem::path &data_dir,
+                           std::string &last_refusal) {
+    if (!publication_due(config, cycle)) {
+        return;
+    }
+
+    /* Offline mode stages the record bytes instead of publishing them, and
+     * the pass must know that before it chooses a sink. An unreadable
+     * control file reads as offline here: the pass itself refuses on the
+     * same read, and staging is the direction that loses nothing. */
+    bool offline = true;
+    try {
+        offline = load_control_state(control_state_path()).offline_mode;
+    } catch (const std::exception &) {
+        /* Reported by the pass below, which refuses on the same gate. */
+    }
+
+    std::unique_ptr<WolframSession> session;
+    std::unique_ptr<WolframWriter> writer;
+    const OnlineWriterFactory online_writer = [&]() -> OutboundWriter & {
+        if (!writer) {
+            const std::string service = env_or("ATPERSON_SERVICE", "https://bsky.social");
+            session = std::make_unique<WolframSession>(service, required_env("ATPERSON_IDENTIFIER"),
+                                                       required_env("ATPERSON_APP_PASSWORD"));
+            writer = std::make_unique<WolframWriter>(*session);
+        }
+        return *writer;
+    };
+
+    const PublicationPaths paths{
+        data_dir,
+        replicate_cursor_path(data_dir),
+        replicate_records_dir(data_dir),
+        action_journal_path(),
+        thoughts_path(data_dir),
+        control_state_path(),
+    };
+    const PublicationReport report =
+        run_publication_pass(paths, config, resource_status, ledger, offline, online_writer);
+
+    if (report.refused) {
+        /* Only when the reason changed: a write gate that is off produces
+         * the same refusal every cycle, and a line per cycle would bury the
+         * ones that matter. */
+        if (report.refusal != last_refusal) {
+            out << "statepub: skipped, " << report.refusal << '\n';
+            last_refusal = report.refusal;
+        }
+        return;
+    }
+    last_refusal.clear();
+
+    const ReplicateReport &drain = report.drain;
+    const std::uint64_t published = drain.observations_published + drain.actions_published +
+                                     drain.valence_published + drain.thoughts_published +
+                                     drain.intents_published + drain.withdrawal_updates;
+    if (published == 0u) {
+        return; /* nothing new: an idle pass stays silent */
+    }
+    if (drain.network_failed) {
+        out << "statepub: stopped at a network failure, backlog retained (" << drain.failure_detail
+            << ")\n";
+        return;
+    }
+    out << (report.staged_offline ? "statepub: staged offline" : "statepub: published")
+        << ": observations " << drain.observations_published << ", actions "
+        << drain.actions_published << ", valence " << drain.valence_published << ", thoughts "
+        << drain.thoughts_published << ", intents " << drain.intents_published
+        << ", withdrawal updates " << drain.withdrawal_updates << '\n';
 }
 
 } // namespace atperson::cli
