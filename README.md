@@ -80,6 +80,9 @@ The project is already beyond the initial scaffold. The important pieces current
 | Reflective thought store | Implemented | Durable, crash-safe thought surface with template-authored `reflection`/`consolidation`/`movement` entries; the deterministic reflection pass (#151) writes bounded consolidations and movement triggers and is read-only over learned state |
 | Longitudinal self-evaluation | Implemented | Schema-versioned metric snapshots of cumulative action execution, terminal intent success (#150), reply ratio, valence drift and familiarity growth with a bounded per-period trace; the pass is read-only, cadence-gated and never schedules or gates activity (#153) |
 | Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup |
+| Network-native state | Implemented | The ledger and journal publish as records under the entity's own DID and fresh state reconstructs from the PDS alone; observation records carry a digest, never third-party text (#142) |
+| Remote operator control | Implemented | Operator-authored control records the daemon applies each cycle; operator DID-anchored, exactly-next sequencing, fail-closed on ambiguity (#143) |
+| Standing deployment | Implemented | Compose service with a supervisor healthcheck, and a runnable kill-the-host drill: destroy the host, reconstruct from the PDS, the learned state survives (#143) |
 | Agent loop | Contract documented | Perception → decision → policy → control → execution → journal boundaries are defined; autonomous scheduler is off by default (`ATPERSON_SCHEDULER`) |
 | Experience-derived drives | Implemented | Curiosity (novelty × adjacency) and reciprocity (referenced-action) reorder scheduler contexts; off by default (`ATPERSON_SCHEDULER_DRIVES`), never weakens gates |
 | Pending social intents | Implemented | Open reply-invitation windows on autonomous conversations, bounded continuation replies into the same thread, and an idempotent expiry/closure sweep; off by default (`ATPERSON_INTENTS`) |
@@ -352,6 +355,28 @@ content from the source and verifies the digest before replaying.
 
 `statepub drain` is gated on the control write gate and bounded per
 pass. See [`docs/network-state.md`](docs/network-state.md).
+
+### Standing deployment and recovery
+
+The PDS is the backup and hosts are replaceable. The daemon refreshes a
+heartbeat document at the end of every cycle, so a supervisor can tell
+"still working" from "wedged", and a headless host stays operable through
+the remote control channel rather than a shell.
+
+```sh
+./build/atperson autonomy health          # exit 0 healthy, 1 stale, 2 unreadable
+./build/atperson autonomy status          # run id, phase, checkpoint, pending proposals
+```
+
+Recovery is a documented procedure, not a hope: publish, lose the host
+entirely, `reconstruct` from the network alone, `rebuild`, and the learned
+state — observations, vocabulary, associations, valence — is back. The
+same drill runs as an end-to-end test against an in-memory fake PDS, so
+the promise is checked rather than asserted.
+
+See [`docs/recovery.md`](docs/recovery.md) for the runnable drill,
+[`docs/daemon.md`](docs/daemon.md) for the cycle contract, and
+[`docs/docker.md`](docs/docker.md) for the container.
 
 ## Current boundaries
 
