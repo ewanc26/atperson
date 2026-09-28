@@ -76,6 +76,7 @@ JetstreamRunResult run_jetstream_archive(
     const auto window = client.fetch_window(
         after_seq, before_seq, self_did, collections, dids, on_event);
     result.exhausted = window.planned_through_seq >= window.sealed_tip_seq;
+    result.dropped = window.dropped_rows;
     if (result.exhausted) {
         /* Jetstream's live cursor uses the same monotonic sequence space. */
         state.catchup.active = window.sealed_tip_seq != 0u;

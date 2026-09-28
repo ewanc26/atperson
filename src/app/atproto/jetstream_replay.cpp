@@ -1,5 +1,6 @@
 #include "jetstream_replay.hpp"
 
+#include "cbor_record.hpp"
 #include "jetstream.hpp"
 
 #include "wolfram/jetstream_replay.h"
@@ -36,7 +37,8 @@ std::string rfc3339_from_micros(std::int64_t micros) {
 
 void translate_jetstream_replay_events(
     const wf_jetstream_replay_event *events, std::size_t event_count,
-    std::string_view self_did, const std::function<void(const JetstreamEvent &)> &on_event) {
+    std::string_view self_did, const std::function<void(const JetstreamEvent &)> &on_event,
+    std::size_t *dropped) {
     if (events == nullptr || !on_event) {
         throw std::invalid_argument("invalid Jetstream replay event arguments");
     }
@@ -56,10 +58,23 @@ void translate_jetstream_replay_events(
             continue;
         }
 
-        cJSON *record = cJSON_ParseWithLength(
-            reinterpret_cast<const char *>(event.payload), event.payload_len);
+        /* Jetstream archive rows carry their record payload as DAG-CBOR, not
+         * as the JSON the live WebSocket path uses. Detect by first byte:
+         * JSON objects start with '{', CBOR maps start with a size byte. */
+        cJSON *record = nullptr;
+        const bool looks_like_json =
+            event.payload_len > 0u && static_cast<char>(event.payload[0]) == '{';
+        if (looks_like_json) {
+            record = cJSON_ParseWithLength(
+                reinterpret_cast<const char *>(event.payload), event.payload_len);
+        } else {
+            record = decode_cbor_record(event.payload, event.payload_len);
+        }
         if (record == nullptr || !cJSON_IsObject(record)) {
             cJSON_Delete(record);
+            if (dropped != nullptr) {
+                ++(*dropped);
+            }
             continue;
         }
         cJSON *root = cJSON_CreateObject();
@@ -78,7 +93,13 @@ void translate_jetstream_replay_events(
         cJSON_AddItemToObject(commit, "record", record);
         cJSON_AddItemToObject(root, "commit", commit);
         char *json = cJSON_PrintUnformatted(root);
-        if (json != nullptr) {
+        if (json == nullptr) {
+            /* A row we consumed and could not even serialise. Count it, so a
+             * window that returned rows but learned nothing stays visible. */
+            if (dropped != nullptr) {
+                ++(*dropped);
+            }
+        } else {
             SyncObservation observation;
             if (extract_jetstream_commit(json, std::strlen(json), self_did, observation)) {
                 JetstreamEvent translated;
@@ -92,6 +113,10 @@ void translate_jetstream_replay_events(
                 translated.policy_reason = observation.policy_reason;
                 translated.seq = static_cast<std::int64_t>(event.seq);
                 on_event(translated);
+            } else if (dropped != nullptr) {
+                /* A decodable record the extractor refused (e.g. not an
+                 * app.bsky.feed.post). Still a consumed-but-invisible row. */
+                ++(*dropped);
             }
             cJSON_free(json);
         }
@@ -101,7 +126,8 @@ void translate_jetstream_replay_events(
 
 void decode_jetstream_replay_segment(
     const void *bytes, std::size_t bytes_len, std::string_view self_did,
-    const std::function<void(const JetstreamEvent &)> &on_event) {
+    const std::function<void(const JetstreamEvent &)> &on_event,
+    std::size_t *dropped) {
     if (bytes == nullptr || bytes_len == 0u || !on_event) {
         throw std::invalid_argument("invalid Jetstream replay segment arguments");
     }
@@ -113,7 +139,7 @@ void decode_jetstream_replay_segment(
         throw std::runtime_error("Wolfram failed to decode Jetstream replay segment");
     }
     try {
-        translate_jetstream_replay_events(events, event_count, self_did, on_event);
+        translate_jetstream_replay_events(events, event_count, self_did, on_event, dropped);
     } catch (...) {
         wf_jetstream_replay_events_free(events, event_count);
         throw;

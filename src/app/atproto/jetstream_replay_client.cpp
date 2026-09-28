@@ -144,7 +144,7 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
                             jetstream_archive_error("getSegment", segment_status));
                     }
                     decode_jetstream_replay_segment(response.body, response.body_len, self_did,
-                                                    on_event);
+                                                    on_event, &result.dropped_rows);
                     wf_response_free(&response);
                 } else if (segment.mode == WF_JETSTREAM_REPLAY_SEGMENT_BLOCKS) {
                     for (std::size_t b = 0u; b < segment.blocks_count; ++b) {
@@ -169,7 +169,8 @@ JetstreamReplayWindow JetstreamReplayClient::fetch_window(
                             }
                             try {
                                 translate_jetstream_replay_events(events, event_count, self_did,
-                                                                   on_event);
+                                                                   on_event,
+                                                                   &result.dropped_rows);
                             } catch (...) {
                                 wf_jetstream_replay_events_free(events, event_count);
                                 throw;

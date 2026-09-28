@@ -137,7 +137,7 @@ void run_startup_archive_if_configured(
     save_ingestion_state(archive_state, jetstream_state_path());
     out << "daemon: archive startup phase consumed " << result.events_consumed
         << " event(s), learned " << result.learned << " (skipped " << result.skipped
-        << ", duplicate " << result.duplicates << ")"
+        << ", duplicate " << result.duplicates << ", dropped " << result.dropped << ")"
         << (result.exhausted ? ", sealed archive exhausted" : ", window incomplete") << '\n';
 }
 

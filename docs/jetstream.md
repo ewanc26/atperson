@@ -57,9 +57,32 @@ with `--span <sequences>`: atperson probes the archive's sealed tip (or uses an
 explicit `before-seq`) and plans the trailing span ending there. Every
 invocation is hard-capped to a 10,000,000-sequence
 window. Successful completion checkpoints the sealed replay tip
-through the same durable ingestion path. The same token is required when the
-daemon startup archive phase is enabled via `ATPERSON_DAEMON_ARCHIVE_AFTER`,
-`ATPERSON_DAEMON_ARCHIVE_BEFORE` or `ATPERSON_DAEMON_ARCHIVE_SPAN`.
+ through the same durable ingestion path. The same token is required when the
+ daemon startup archive phase is enabled via `ATPERSON_DAEMON_ARCHIVE_AFTER`,
+ `ATPERSON_DAEMON_ARCHIVE_BEFORE` or `ATPERSON_DAEMON_ARCHIVE_SPAN`.
+
+## Archive record payloads are DAG-CBOR
+
+Live Jetstream frames carry record payloads as JSON objects, but archive
+segments serve the same records as canonical DAG-CBOR. The replay path detects
+which form it received and decodes the CBOR into the same record shape the
+extractor consumes, so a record learned from the archive is indistinguishable
+from one learned live.
+
+Wolfram's parser re-serialises and byte-compares, so only canonical DAG-CBOR
+decodes; a payload that is not a canonical map is refused rather than
+half-read. Within a record that does decode, a field the JSON shape cannot
+represent — a CID link in a `reply` strongRef, a byte string — is skipped
+instead of failing the record, so a reply still yields its root and parent URIs.
+
+Commit rows the archive returned but that produced no event are counted as
+`dropped` in the command summary and on the run result. A large planned window
+reporting zero events and zero drops means the archive held nothing worth
+learning for the configured filters; a non-zero `dropped` means rows arrived
+that atperson could not turn into observations, which is a decode problem to
+investigate rather than an empty timeline. A dropped row is never inferred to
+have been learned, and a dropped row is never silently counted as progress.
+
 
 ## Entity identity and policy parity
 

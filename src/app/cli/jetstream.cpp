@@ -188,7 +188,8 @@ int run_jetstream_archive(
     out << "jetstream archive: " << result.events_consumed << " event(s), "
         << result.observations_seen << " observation(s), learned " << result.learned
         << " (skipped " << result.skipped << ", duplicate " << result.duplicates
-        << "); " << (result.exhausted ? "sealed archive exhausted" : "window incomplete")
+        << ", dropped " << result.dropped << ")";
+    out << "; " << (result.exhausted ? "sealed archive exhausted" : "window incomplete")
         << '\n';
     print_stats(graph);
     return 0;

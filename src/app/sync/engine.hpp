@@ -122,6 +122,7 @@ struct JetstreamRunResult {
     std::size_t skipped{};
     std::size_t duplicates{};
     std::size_t withdrawn{};
+    std::size_t dropped{}; /* rows the archive returned that produced no event */
     bool reconciled{};
     bool protocol_resync_required{};
     bool exhausted{}; /* feed closed cleanly at the head */

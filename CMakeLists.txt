@@ -224,6 +224,7 @@ if(ATPERSON_BUILD_NETWORK)
   src/app/atproto/jetstream_dictionary.cpp
   src/app/atproto/jetstream_replay.cpp
   src/app/atproto/jetstream_replay_client.cpp
+  src/app/atproto/cbor_record.cpp
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
     src/app/atproto/record_source.cpp
@@ -1031,6 +1032,7 @@ if(ATPERSON_BUILD_TESTS)
       tests/atproto/jetstream_replay.cpp
       src/app/atproto/jetstream_replay.cpp
       src/app/atproto/jetstream_replay_client.cpp
+      src/app/atproto/cbor_record.cpp
       src/app/atproto/jetstream.cpp
       src/app/ingestion/policy.cpp
       src/app/sync/engine.cpp
