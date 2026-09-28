@@ -93,10 +93,13 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
                   protocol_cursor,
                   event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u,
                   event.author_did, event.repo_revision);
-        if (cursor_result == protocol::CursorResult::Gap) {
-            /* Jetstream seq is global. A collection-filtered subscription
-             * necessarily skips unrelated commits, so a gap requests
-             * reconciliation but must not discard the valid event. */
+        if (cursor_result == protocol::CursorResult::Gap && !client.filtered()) {
+            /* Jetstream seq is global. On an unfiltered stream a gap means
+             * commits were lost and requests reconciliation; the valid event
+             * is still kept. A collection- or DID-filtered subscription
+             * necessarily skips unrelated commits, so its gaps are expected
+             * and must not block checkpointing (nothing could clear the flag,
+             * stranding the cursor for good). */
             result.protocol_resync_required = true;
         }
         if (cursor_result == protocol::CursorResult::Rewind ||

@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace atperson::protocol {
@@ -181,6 +182,21 @@ struct ProtocolEvidence {
     bool operator==(const ProtocolEvidence &) const = default;
 };
 
+/* 128-bit digest of the fields that make two evidence records the same fact
+ * (kind, source, event type, subject, payload, verification). Used only as a
+ * dedup index; entries are still compared by value at replay. */
+struct EvidenceDigest {
+    std::uint64_t high{};
+    std::uint64_t low{};
+    bool operator==(const EvidenceDigest &) const = default;
+};
+struct EvidenceDigestHash {
+    std::size_t operator()(const EvidenceDigest &digest) const noexcept {
+        return static_cast<std::size_t>(digest.high ^ (digest.low * 0x9e3779b97f4a7c15ull));
+    }
+};
+[[nodiscard]] EvidenceDigest evidence_digest(const struct ProtocolEvidence &evidence) noexcept;
+
 /* In-memory authoritative reducer used by the durable adapter and tests. It
  * deduplicates evidence before reduction, keeping protocol knowledge separate
  * from the social observation ledger. */
@@ -197,6 +213,9 @@ class EvidenceStore {
 
   private:
     std::vector<ProtocolEvidence> entries_;
+    /* Dedup index over the fields that define evidence identity, so append()
+     * is O(1) rather than a scan of every stored entry. */
+    std::unordered_set<EvidenceDigest, EvidenceDigestHash> index_;
 };
 
 /* Append-only protocol evidence generation. This file is intentionally
@@ -211,7 +230,15 @@ class EvidenceLedger {
     [[nodiscard]] std::vector<ProtocolEvidence> entries() const;
 
   private:
+    /* Dedup index of everything durably stored, so append() does not re-read
+     * and re-deduplicate the whole file for every event. It is trusted only
+     * while the file is exactly the size this instance last saw; any other
+     * size means another writer appended and the index is rebuilt. */
+    void refresh_index();
     std::filesystem::path path_;
+    std::unordered_set<EvidenceDigest, EvidenceDigestHash> index_;
+    std::uintmax_t indexed_size_{};
+    bool index_valid_{};
 };
 
 /* Record any firehose event family without requiring the social-content

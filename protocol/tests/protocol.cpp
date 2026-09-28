@@ -238,5 +238,27 @@ int main() {
            restored[6].event_type == "#unknown" && restored[7].event_type == "#repository" &&
            restored[8].verification == Verification::Rejected &&
            restored[9].verification == Verification::Unverified);
+
+    // The ledger keeps a dedup index instead of re-reading the file per append.
+    // It must still reject duplicates from a fresh instance (restart), accept
+    // new evidence appended by another writer, and treat field boundaries as
+    // significant.
+    {
+        EvidenceLedger restarted(path);
+        assert(!restarted.append(fact));
+        assert(!append_firehose_event(restarted, "wss://relay.example", "#sync",
+                                      "did:plc:abc", "rev-a", 2, 11));
+        EvidenceLedger other_writer(path);
+        assert(append_firehose_event(other_writer, "wss://relay.example", "#commit",
+                                     "did:plc:abc", "from-other-writer", 20, 30));
+        assert(!append_firehose_event(restarted, "wss://relay.example", "#commit",
+                                      "did:plc:abc", "from-other-writer", 20, 30));
+        assert(append_firehose_event(restarted, "wss://relay.example", "#commit",
+                                     "did:plc:abcfrom", "-other-writer", 21, 31));
+        assert(append_firehose_event(restarted, "wss://relay.example", "#commit",
+                                     "did:plc:abc", "from-other-writer", 22, 32,
+                                     Verification::Rejected));
+        assert(restarted.entries().size() == 13);
+    }
     std::filesystem::remove(path, error);
 }
