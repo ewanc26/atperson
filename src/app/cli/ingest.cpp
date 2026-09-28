@@ -1,13 +1,16 @@
 // CLI local ingestion commands: ingest, ingest-file.
 //
-// Implementation of the contracts in ingest.hpp. Every body here is moved
-// byte-faithfully from the original single-file dispatch in src/app/main.cpp;
-// behaviour, ordering and output text are unchanged.
+// Implementation of the contracts in ingest.hpp. Local observations go through
+// the same durable pipeline as sync (ledger reservation, dedup, learning,
+// episodic memory), so they are deduplicated, survive `rebuild` and can be
+// withdrawn like any other observation.
 
 #include "ingest.hpp"
 
 #include "config.hpp"
 #include "lock.hpp"
+#include "control/state.hpp"
+#include "sync/engine.hpp"
 
 #include <cstring>
 #include <cstdint>
@@ -40,28 +43,52 @@ void offer_external_publishing(std::ostream &out, std::uint64_t before,
         out << "External publishing remains disabled.\n";
     }
 }
-}
 
-int run_ingest(std::ostream &, const RuntimeResourceStatus &resource_status,
+// Feeds one local observation through the ledger-backed pipeline and saves the
+// snapshot when it was new. Caller holds the writer lock.
+void observe_local(std::ostream &out, LanguageGraph &graph,
+                   const std::filesystem::path &model_path,
+                   const std::filesystem::path &ledger_path, const std::string &text,
+                   const std::string &source) {
+    if (source.empty() || source.size() >= ATPERSON_LEDGER_SOURCE_BYTES) {
+        throw std::runtime_error("source id must be 1.." +
+                                 std::to_string(ATPERSON_LEDGER_SOURCE_BYTES - 1u) + " bytes");
+    }
+    Ledger ledger(ledger_path);
+    SyncObservation observation;
+    observation.text = text;
+    observation.source_uri = source;
+    observation.created_at = control_now_rfc3339();
+    if (!process_observation(graph, ledger, observation)) {
+        out << "already learned (source " << source << ", same content); nothing to do\n";
+        return;
+    }
+    graph.save(model_path);
+}
+} // namespace
+
+int run_ingest(std::ostream &out, const RuntimeResourceStatus &resource_status,
                const std::filesystem::path &data_dir, LanguageGraph &graph,
-               const std::filesystem::path &model_path, std::string_view text,
+               const std::filesystem::path &model_path,
+               const std::filesystem::path &ledger_path, std::string_view text,
                const char *source_value,
                const std::function<void(const LanguageGraph &)> &print_stats) {
     atperson::require_runtime_write_headroom(resource_status);
-    atperson::require_runtime_input_headroom(resource_status, std::strlen(text.data()));
+    atperson::require_runtime_input_headroom(resource_status, text.size());
     const auto before = graph.stats().training_steps;
     const atperson::StateLock writer_lock(data_dir);
     const std::string source = source_value ? source_value : "local:manual";
-    graph.observe(text, source);
-    graph.save(model_path);
+    const std::string text_copy(text);
+    observe_local(out, graph, model_path, ledger_path, text_copy, source);
     print_stats(graph);
     offer_external_publishing(std::cout, before, graph);
     return 0;
 }
 
-int run_ingest_file(std::ostream &, const RuntimeResourceStatus &resource_status,
+int run_ingest_file(std::ostream &out, const RuntimeResourceStatus &resource_status,
                     const std::filesystem::path &data_dir, LanguageGraph &graph,
                     const std::filesystem::path &model_path,
+                    const std::filesystem::path &ledger_path,
                     const std::filesystem::path &input_path, const char *source_value,
                     const std::function<void(const LanguageGraph &)> &print_stats) {
     atperson::require_runtime_write_headroom(resource_status);
@@ -81,8 +108,7 @@ int run_ingest_file(std::ostream &, const RuntimeResourceStatus &resource_status
                            std::istreambuf_iterator<char>());
     const std::string source =
         source_value ? source_value : "file:" + input_path.string();
-    graph.observe(text, source);
-    graph.save(model_path);
+    observe_local(out, graph, model_path, ledger_path, text, source);
     print_stats(graph);
     offer_external_publishing(std::cout, before, graph);
     return 0;

@@ -33,6 +33,8 @@
 #include <string_view>
 #include <vector>
 
+#include <unistd.h>
+
 namespace {
 
 constexpr std::uint64_t MIB = 1024ull * 1024ull;
@@ -99,6 +101,13 @@ void require(bool condition, const std::string &message) {
     if (!condition) {
         throw std::runtime_error(message);
     }
+}
+
+// Concurrent ctest runs (smoke + bench) share the temp directory, so scratch
+// files are keyed by process id as well as profile.
+std::string scratch_stem(std::string_view profile) {
+    return "atperson-capacity-bench-" + std::to_string(::getpid()) + "-" +
+           std::string(profile);
 }
 
 void cleanup_ledger_files(const std::filesystem::path &path) {
@@ -190,7 +199,7 @@ Metrics run_fixture(const Profile &profile, std::size_t repetitions,
 
     const std::filesystem::path ledger_path =
         std::filesystem::temp_directory_path() /
-        ("atperson-capacity-bench-" + std::string(profile.name) + ".ledger");
+        (scratch_stem(profile.name) + ".ledger");
     cleanup_ledger_files(ledger_path);
     auto ledger = std::make_unique<atperson::Ledger>(ledger_path);
 
@@ -292,7 +301,7 @@ Metrics run_fixture(const Profile &profile, std::size_t repetitions,
 
     const std::filesystem::path snapshot =
         std::filesystem::temp_directory_path() /
-        ("atperson-capacity-bench-" + metrics.profile + ".bin");
+        (scratch_stem(metrics.profile) + ".bin");
     std::filesystem::remove(snapshot);
     require(atp_graph_save(graph, snapshot.string().c_str()) == ATP_OK,
             "capacity benchmark snapshot save failed");

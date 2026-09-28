@@ -1013,6 +1013,12 @@ if(ATPERSON_BUILD_TESTS)
   add_test(NAME atperson-jetstream-extract COMMAND atperson-jetstream-extract-test)
 
   if(ATPERSON_BUILD_NETWORK)
+    # Local ingest goes through the durable ledger: dedup, episodes, rebuild.
+    add_test(
+      NAME atperson-cli-ingest-ledger
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/ingest_ledger.sh
+              $<TARGET_FILE:atperson>)
+
     # Jetstream client construction can be tested without opening a socket:
     # persisted cursor/self/filter validation happens before lazy connect.
     add_executable(

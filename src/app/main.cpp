@@ -558,7 +558,8 @@ int main(int argc, char **argv) {
                 return 2;
             }
             return atperson::cli::run_ingest(std::cout, resource_status,
-                                            atperson::cli::data_dir(), graph, path, argv[2],
+                                            atperson::cli::data_dir(), graph, path,
+                                            atperson::cli::ledger_path(), argv[2],
                                             argc >= 4 ? argv[3] : nullptr, print_stats);
         }
 
@@ -569,7 +570,7 @@ int main(int argc, char **argv) {
             }
             return atperson::cli::run_ingest_file(std::cout, resource_status,
                                                  atperson::cli::data_dir(), graph, path,
-                                                 argv[2], argc >= 4 ? argv[3] : nullptr,
+                                                 atperson::cli::ledger_path(), argv[2], argc >= 4 ? argv[3] : nullptr,
                                                  print_stats);
         }
 

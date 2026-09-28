@@ -220,6 +220,8 @@ export ATPERSON_SERVICE="https://bsky.social" # optional
 
 Credentials are read from environment variables, not command-line arguments. Do not commit them.
 
+Local `ingest` and `ingest-file` use the same durable path as sync: each observation is recorded in the ledger (deduplicated by source id plus content), forms an episodic memory, and survives `atperson rebuild`.
+
 A few useful local commands:
 
 ```sh
