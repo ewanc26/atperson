@@ -27,13 +27,15 @@ namespace cli {
 
 int run_ingest(std::ostream &out, const RuntimeResourceStatus &resource_status,
                const std::filesystem::path &data_dir, LanguageGraph &graph,
-               const std::filesystem::path &model_path, std::string_view text,
+               const std::filesystem::path &model_path,
+               const std::filesystem::path &ledger_path, std::string_view text,
                const char *source_value,
                const std::function<void(const LanguageGraph &)> &print_stats);
 
 int run_ingest_file(std::ostream &out, const RuntimeResourceStatus &resource_status,
                     const std::filesystem::path &data_dir, LanguageGraph &graph,
                     const std::filesystem::path &model_path,
+                    const std::filesystem::path &ledger_path,
                     const std::filesystem::path &input_path, const char *source_value,
                     const std::function<void(const LanguageGraph &)> &print_stats);
 

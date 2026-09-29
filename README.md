@@ -71,6 +71,7 @@ The project is already beyond the initial scaffold. The important pieces current
 | Ledger compaction | Implemented | Final outcomes are flattened without changing rebuild semantics |
 | Unicode tokenisation | Implemented | Schema-versioned `utf8proc` tokenisation shared across learning, recall and lookup |
 | Growth limits | Implemented | Bounded node/edge growth with O(1) indexes and capacity rejection |
+| Size-capped rotation | Opt-in | `ATPERSON_LEDGER_MAX_BYTES` / `ATPERSON_MODEL_MAX_BYTES` release old raw text and prune rarely observed vocabulary; deliberate forgetting, off by default, dedup identity is kept (see [`docs/jetstream.md`](docs/jetstream.md)) |
 | Dynamic resource policy | Implemented | Runtime budgets respond to CPU, RAM, filesystem headroom and Linux cgroups |
 | Long-running runtime | Implemented | `atperson daemon` performs bounded repeated sync cycles with backoff and graceful shutdown |
 | Jetstream ingestion | Implemented | Unauthenticated public backfill via `atperson jetstream`, with zstd dictionary-compressed binary frames |
@@ -219,6 +220,8 @@ export ATPERSON_SERVICE="https://bsky.social" # optional
 ```
 
 Credentials are read from environment variables, not command-line arguments. Do not commit them.
+
+Local `ingest` and `ingest-file` use the same durable path as sync: each observation is recorded in the ledger (deduplicated by source id plus content), forms an episodic memory, and survives `atperson rebuild`.
 
 A few useful local commands:
 

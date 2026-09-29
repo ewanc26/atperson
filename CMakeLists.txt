@@ -41,6 +41,7 @@ add_library(
   src/core/graph/observe.c
   src/core/graph/query.c
   src/core/graph/valence.c
+  src/core/graph/prune.c
   src/core/memory.c
   src/core/action/ordering.c
   src/core/action/candidates.c
@@ -191,6 +192,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/config.cpp
     src/app/cli/usage.cpp
     src/app/cli/maintenance.cpp
+    src/app/cli/rotation.cpp
     src/app/cli/neural.cpp
     src/app/cli/inspection.cpp
     src/app/cli/ingest.cpp
@@ -224,6 +226,7 @@ if(ATPERSON_BUILD_NETWORK)
   src/app/atproto/jetstream_dictionary.cpp
   src/app/atproto/jetstream_replay.cpp
   src/app/atproto/jetstream_replay_client.cpp
+  src/app/atproto/cbor_record.cpp
     src/app/atproto/session.cpp
     src/app/atproto/writer.cpp
     src/app/atproto/record_source.cpp
@@ -308,6 +311,10 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson-neural-kernel-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
   add_test(NAME atperson-neural-kernel COMMAND atperson-neural-kernel-test)
 
+  add_executable(atperson-prune-test tests/core/prune.c)
+  target_link_libraries(atperson-prune-test PRIVATE atperson-core)
+  add_test(NAME atperson-prune COMMAND atperson-prune-test)
+
   add_executable(atperson-memory-test tests/memory/memory.c)
   target_link_libraries(atperson-memory-test PRIVATE atperson-core)
   add_test(NAME atperson-memory COMMAND atperson-memory-test)
@@ -366,6 +373,10 @@ if(ATPERSON_BUILD_TESTS)
     COMMAND atperson-ledger-test payload-corruption
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-payload-corruption)
   add_test(
+    NAME atperson-ledger_released_recovery
+    COMMAND atperson-ledger-test released-recovery
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-released-recovery)
+  add_test(
     NAME atperson-ledger_migration
     COMMAND atperson-ledger-test migration
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-migration)
@@ -406,6 +417,9 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson-compact_rebuild_equivalence
     COMMAND atperson-compact-test rebuild-equivalence
             ${CMAKE_CURRENT_BINARY_DIR}/compact-rebuild)
+  add_test(
+    NAME atperson-compact_release
+    COMMAND atperson-compact-test release ${CMAKE_CURRENT_BINARY_DIR}/compact-release)
 
   # Unicode tokenization contract; pure core, no network.
   add_executable(atperson-tokenize-test tests/tokenize/tokenize.c)
@@ -1026,6 +1040,19 @@ if(ATPERSON_BUILD_TESTS)
   add_test(NAME atperson-jetstream-extract COMMAND atperson-jetstream-extract-test)
 
   if(ATPERSON_BUILD_NETWORK)
+    # Local ingest goes through the durable ledger: dedup, episodes, rebuild.
+    add_test(
+      NAME atperson-cli-ingest-ledger
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/ingest_ledger.sh
+              $<TARGET_FILE:atperson>)
+
+    # Size-capped rotation: released text is forgotten by rebuild, never
+    # re-learned, and dedup survives.
+    add_test(
+      NAME atperson-cli-rotate
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/rotate.sh
+              $<TARGET_FILE:atperson>)
+
     # Jetstream client construction can be tested without opening a socket:
     # persisted cursor/self/filter validation happens before lazy connect.
     add_executable(
@@ -1045,6 +1072,7 @@ if(ATPERSON_BUILD_TESTS)
       tests/atproto/jetstream_replay.cpp
       src/app/atproto/jetstream_replay.cpp
       src/app/atproto/jetstream_replay_client.cpp
+      src/app/atproto/cbor_record.cpp
       src/app/atproto/jetstream.cpp
       src/app/ingestion/policy.cpp
       src/app/sync/engine.cpp

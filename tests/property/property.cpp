@@ -17,6 +17,7 @@
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -328,6 +329,79 @@ void test_valence_round_trip_equivalence() {
     }
 }
 
+/* ---------------------------------------------------------------- */
+/* Vocabulary pruning properties                                     */
+/* ---------------------------------------------------------------- */
+
+void feed_with_valence(atperson::LanguageGraph &graph, std::uint64_t seed) {
+    Xorshift rng(seed * 0xD1B54A32D192ED03ull);
+    for (std::uint32_t i = 0u; i < 60u; ++i) {
+        graph.observe(random_text(rng, 8u), random_uri(rng, i));
+    }
+    for (std::uint32_t i = 0u; i < 6u; ++i) {
+        const std::string token = words[rng.below(word_count)];
+        if (graph.familiarity(token) < 1.0f) {
+            continue;
+        }
+        graph.valence_event(token, ATP_VALENCE_INTERACTION,
+                            (static_cast<float>(rng.below(201u)) - 100.0f) / 100.0f, 500u + i,
+                            "at://property/prune-event-" + std::to_string(i));
+    }
+}
+
+void test_prune_properties() {
+    for (std::uint64_t seed = 1u; seed <= 8u; ++seed) {
+        atperson::LanguageGraph a;
+        atperson::LanguageGraph b;
+        feed_with_valence(a, seed);
+        feed_with_valence(b, seed);
+        const auto before = a.stats();
+        const auto records_before = a.valence_records();
+
+        const std::size_t target = 1u + (seed * 3u) % before.node_count;
+        const auto report_a = a.prune_vocabulary(target);
+        const auto report_b = b.prune_vocabulary(target);
+
+        /* Deterministic: identical graphs prune identically. */
+        assert(report_a.nodes_after == report_b.nodes_after);
+        assert(report_a.edges_after == report_b.edges_after);
+        assert(report_a.episodes_after == report_b.episodes_after);
+        assert(a.stats().node_count == b.stats().node_count);
+        for (const char *word : words) {
+            assert(a.familiarity(word) == b.familiarity(word));
+            const auto left = a.associations(word, 5u);
+            const auto right = b.associations(word, 5u);
+            assert(left.size() == right.size());
+            for (std::size_t i = 0u; i < left.size(); ++i) {
+                assert(left[i].token == right[i].token);
+                assert(left[i].score == right[i].score);
+            }
+        }
+
+        /* Bounded: never above the bound unless protected tokens force it,
+         * and never growing. Valence-bearing tokens are never dropped. */
+        assert(report_a.nodes_after <= report_a.nodes_before);
+        assert(report_a.nodes_after <= std::max(target, records_before.size()));
+        const auto records_after = a.valence_records();
+        assert(records_after.size() == records_before.size());
+        for (std::size_t i = 0u; i < records_before.size(); ++i) {
+            assert(std::string_view(records_before[i].token) ==
+                   std::string_view(records_after[i].token));
+            assert(records_before[i].valence == records_after[i].valence);
+            assert(records_before[i].event_count == records_after[i].event_count);
+        }
+
+        /* The pruned graph is still a valid, persistable graph. */
+        const auto dir = scratch_dir("prune");
+        const auto path = dir / "graph.snap";
+        a.save(path);
+        const auto loaded = atperson::LanguageGraph::load(path);
+        assert(loaded.stats().node_count == a.stats().node_count);
+        assert(loaded.stats().edge_count == a.stats().edge_count);
+        assert(loaded.valence_records().size() == records_after.size());
+    }
+}
+
 } // namespace
 
 int main() {
@@ -335,6 +409,7 @@ int main() {
     test_ledger_round_trip_equivalence();
     test_replay_converges_to_observed_state();
     test_valence_round_trip_equivalence();
+    test_prune_properties();
 
     std::printf("property tests passed\n");
     return 0;

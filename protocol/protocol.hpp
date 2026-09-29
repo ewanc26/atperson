@@ -3,9 +3,11 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace atperson::protocol {
@@ -181,6 +183,21 @@ struct ProtocolEvidence {
     bool operator==(const ProtocolEvidence &) const = default;
 };
 
+/* 128-bit digest of the fields that make two evidence records the same fact
+ * (kind, source, event type, subject, payload, verification). Used only as a
+ * dedup index; entries are still compared by value at replay. */
+struct EvidenceDigest {
+    std::uint64_t high{};
+    std::uint64_t low{};
+    bool operator==(const EvidenceDigest &) const = default;
+};
+struct EvidenceDigestHash {
+    std::size_t operator()(const EvidenceDigest &digest) const noexcept {
+        return static_cast<std::size_t>(digest.high ^ (digest.low * 0x9e3779b97f4a7c15ull));
+    }
+};
+[[nodiscard]] EvidenceDigest evidence_digest(const struct ProtocolEvidence &evidence) noexcept;
+
 /* In-memory authoritative reducer used by the durable adapter and tests. It
  * deduplicates evidence before reduction, keeping protocol knowledge separate
  * from the social observation ledger. */
@@ -197,6 +214,9 @@ class EvidenceStore {
 
   private:
     std::vector<ProtocolEvidence> entries_;
+    /* Dedup index over the fields that define evidence identity, so append()
+     * is O(1) rather than a scan of every stored entry. */
+    std::unordered_set<EvidenceDigest, EvidenceDigestHash> index_;
 };
 
 /* Append-only protocol evidence generation. This file is intentionally
@@ -211,7 +231,16 @@ class EvidenceLedger {
     [[nodiscard]] std::vector<ProtocolEvidence> entries() const;
 
   private:
+    /* Dedup index of everything durably stored, so append() does not re-read
+     * and re-deduplicate the whole file for every event. It is trusted only
+     * while the file is exactly the size this instance last saw; any other
+     * size means another writer appended and the index is rebuilt. */
+    void refresh_index();
+    void for_each_entry(const std::function<void(ProtocolEvidence &&)> &visit) const;
     std::filesystem::path path_;
+    std::unordered_set<EvidenceDigest, EvidenceDigestHash> index_;
+    std::uintmax_t indexed_size_{};
+    bool index_valid_{};
 };
 
 /* Record any firehose event family without requiring the social-content
@@ -245,9 +274,17 @@ struct CursorState {
 };
 
 enum class CursorResult { Initialized, Advanced, Duplicate, Gap, Rewind, Rejected };
-CursorResult observe_sequence(CursorState &state, std::uint64_t sequence);
+/* `contiguous` is true for a stream whose sequence numbers are consecutive, so
+ * a forward jump means lost events and raises `resync_required`. A filtered
+ * Jetstream subscription sees only a subset of the global sequence: its jumps
+ * are expected, so pass false to advance across them (a regression is still a
+ * Rewind). The caller decides how to keep such jumps visible; they are
+ * reconciliation signals, never proof that anything was lost or verified. */
+CursorResult observe_sequence(CursorState &state, std::uint64_t sequence,
+                              bool contiguous = true);
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
-                            std::string_view repo, std::string_view revision);
+                            std::string_view repo, std::string_view revision,
+                            bool contiguous = true);
 std::optional<std::string> revision_for(const CursorState &state,
                                         std::string_view repo);
 

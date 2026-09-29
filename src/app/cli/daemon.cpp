@@ -6,6 +6,7 @@
 #include "atproto/jetstream_replay_client.hpp"
 #include "atproto/jetstream_filter.hpp"
 #include "config.hpp"
+#include "rotation.hpp"
 #include "control/state.hpp"
 #include "daemon/config.hpp"
 #include "daemon/failure.hpp"
@@ -30,6 +31,7 @@
 #include <chrono>
 #include <optional>
 #include <limits>
+#include <iostream>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -137,7 +139,7 @@ void run_startup_archive_if_configured(
     save_ingestion_state(archive_state, jetstream_state_path());
     out << "daemon: archive startup phase consumed " << result.events_consumed
         << " event(s), learned " << result.learned << " (skipped " << result.skipped
-        << ", duplicate " << result.duplicates << ")"
+        << ", duplicate " << result.duplicates << ", dropped " << result.dropped << ")"
         << (result.exhausted ? ", sealed archive exhausted" : ", window incomplete") << '\n';
 }
 
@@ -267,12 +269,16 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         return atperson::run_sync(g, l, s, fetch_page, cl, ln);
     };
 
+    const auto size_caps = size_caps_from_env();
     const DaemonPersistence persistence{
         [&ingestion, &state_file]() {
             ingestion.checkpoint.generation++;
             save_ingestion_state(ingestion, state_file);
         },
-        [&graph, &model_path]() { graph.save(model_path); },
+        [&graph, &model_path, &ledger, &out, size_caps]() {
+            graph.save(model_path);
+            rotate_by_size(out, ledger, graph, model_path, size_caps);
+        },
     };
 
     unsigned long long cycle_number = 0;

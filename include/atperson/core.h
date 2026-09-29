@@ -402,6 +402,33 @@ atp_status atp_graph_observe_text(atp_graph *graph, const char *text, const char
 /** Read aggregate graph/training statistics. */
 atp_graph_stats atp_graph_get_stats(const atp_graph *graph);
 
+/** What a vocabulary prune did. */
+typedef struct atp_prune_report {
+    size_t nodes_before;
+    size_t nodes_after;
+    size_t edges_before;
+    size_t edges_after;
+    size_t episodes_before;
+    size_t episodes_after;
+} atp_prune_report;
+
+/**
+ * Bound the vocabulary to `max_nodes` by dropping the least-observed tokens
+ * (fewest observations, then lowest familiarity, then lowest index).
+ * Tokens with valence events are never dropped, so the bound is best-effort
+ * when they alone exceed it. Edges touching a dropped token are removed,
+ * dropped tokens leave episode summaries, and an episode left with no
+ * summary token is evicted. A no-op when the graph is already within the
+ * bound; `max_nodes` must be non-zero.
+ *
+ * This is deliberate forgetting, not compaction: replaying the ledger
+ * regrows the full vocabulary. Returns ATP_OK and fills `report` on success.
+ * After ATP_ERR_OUT_OF_MEMORY the graph's lookup indexes are gone and it must
+ * be destroyed, not used or saved.
+ */
+atp_status atp_graph_prune_vocabulary(atp_graph *graph, size_t max_nodes,
+                                      atp_prune_report *report);
+
 /** Return the named legacy architecture implemented by current snapshots. */
 atp_neural_architecture atp_neural_legacy_architecture(void);
 
@@ -672,6 +699,7 @@ typedef struct atp_compact_report {
     uint64_t entries;           /**< entries written to the compacted log */
     uint64_t patches_flattened; /**< patch records folded into final outcomes */
     uint64_t payloads_dropped;  /**< WITHDRAWN payloads discarded */
+    uint64_t payloads_released; /**< oldest payloads released to meet a size cap */
     uint64_t bytes_before;      /**< committed log size before compaction */
     uint64_t bytes_after;       /**< committed log size after compaction */
 } atp_compact_report;
@@ -710,6 +738,28 @@ typedef struct atp_compact_report {
  * fills `report` (when non-NULL) on success.
  */
 atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report);
+
+/**
+ * Bound the committed log size by releasing the raw text of the oldest
+ * LEARNED/SKIPPED entries. A no-op while the log is at most `max_bytes`;
+ * otherwise it compacts and releases oldest-first until the log is about 80%
+ * of the cap (or no releasable payload remains). `max_bytes` must be
+ * non-zero.
+ *
+ * A released entry keeps its id, source, author, digest, outcome and
+ * context, so dedup and stable entry identity are unchanged. Only replay
+ * differs: the training input is gone, so a rebuild from this ledger
+ * deliberately forgets released observations (counted as
+ * `excluded_released`), unlike a payload-less v1 entry, which still fails
+ * the rebuild. On the wire a released payload is payload_len UINT32_MAX,
+ * and the log header becomes `ATPLDG04`/version 4, so older readers refuse the file rather than misread or truncate it. Returns ATP_OK and fills
+ * `report` on success; the caller must reopen the ledger after a failure.
+ */
+atp_status atp_ledger_release_payloads(atp_ledger *ledger, uint64_t max_bytes,
+                                       atp_compact_report *report);
+
+/** True when the entry's raw text was released by a size-cap pass. */
+bool atp_ledger_entry_payload_released(const atp_ledger *ledger, uint64_t id);
 
 /*
  * Deterministic replay.
@@ -764,6 +814,8 @@ typedef struct atp_replay_report {
     size_t excluded_failed;
     /** WITHDRAWN entries excluded. */
     size_t excluded_withdrawn;
+    /** LEARNED entries whose text was released by a size cap: not replayed. */
+    size_t excluded_released;
     /** Deterministic neural migrations applied at their ledger boundaries. */
     size_t migrations_applied;
     /** Ledger id of the entry that failed (0 when none did). */

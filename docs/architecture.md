@@ -218,6 +218,10 @@ state rather than merely proving that an observation once existed.
 ### Files and layout
 
 - The record log begins with `"ATPLDG03"` and a little-endian version `u32`.
+  A log that holds at least one released payload (size-capped rotation) begins
+  with `"ATPLDG04"` and version 4 instead: same record layout, but builds that
+  predate released payloads refuse it at the header rather than failing mid-log.
+  Logs with nothing released keep the v3 header.
   v1/v2 logs (`"ATPLDG01"` / `"ATPLDG02"`) migrate on open.
 - Each record is `len u32 | crc u32 (FNV-1a 32) | type u8 | payload`, where
   type 1 is an observation entry and type 2 is an outcome patch.
@@ -638,6 +642,28 @@ Ceilings are deployment/runtime policy rather than persisted graph semantics.
 Loading a graph restores its learned state and the runtime reapplies current
 capacity policy afterwards. Lowering a ceiling below current counts evicts
 nothing; it only blocks further growth.
+
+### Size-capped rotation (deliberate forgetting)
+
+Ceilings stop growth; rotation reclaims disk. Both caps are opt-in
+(`ATPERSON_LEDGER_MAX_BYTES`, `ATPERSON_MODEL_MAX_BYTES`, `0` = off) and are
+applied by `atperson rotate` and after ingestion and daemon saves.
+
+- **Ledger:** the raw text of the oldest learned or skipped observations is
+  released. Identity, digest, outcome and dedup are kept, so released content is
+  never learned again, and a later withdrawal of a released entry stays durable.
+  A released entry is marked on disk by `payload_len = UINT32_MAX`, and a log
+  containing one carries the v4 header, so older readers refuse the whole file
+  up front (fail closed, nothing truncated).
+- **Model:** the least-observed vocabulary is dropped (fewest observations, then
+  lowest familiarity, then lowest index). Tokens with valence history are never
+  dropped. Edges, valence records and episode summaries are remapped in one
+  pass, and an episode left with no tokens is evicted.
+
+Neither is compaction. A `rebuild` counts released observations as
+`excluded_released` and does not regrow them, and a pruned model is not what
+replay would produce. This is the one place where learned state is knowingly
+not reconstructable from the ledger, which is why it is off by default.
 
 Vocabulary pruning is separate future work because episodes refer to graph
 nodes by stable index. The safe current behaviour is fail-closed growth, not

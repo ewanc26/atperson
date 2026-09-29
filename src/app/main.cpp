@@ -18,6 +18,8 @@
 #include "cli/jetstream.hpp"
 #include "cli/ledger.hpp"
 #include "cli/metrics.hpp"
+#include "cli/rotation.hpp"
+#include "lock.hpp"
 #include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
@@ -487,6 +489,25 @@ int main(int argc, char **argv) {
             return 0;
         }
 
+        if (command == "rotate") {
+            const auto caps = atperson::cli::size_caps_from_env();
+            if (!caps.enabled()) {
+                std::cerr << "atperson: set ATPERSON_LEDGER_MAX_BYTES and/or "
+                             "ATPERSON_MODEL_MAX_BYTES to rotate\n";
+                return 2;
+            }
+            atperson::require_runtime_write_headroom(resource_status);
+            const atperson::StateLock writer_lock(atperson::cli::data_dir());
+            /* The model was loaded before the lock; reload it so a concurrent
+             * writer's newer state is not pruned from a stale copy and saved
+             * over. */
+            graph = atperson::load_or_create_graph(resource_status, path);
+            atperson::Ledger ledger(atperson::cli::ledger_path());
+            atperson::cli::rotate_by_size(std::cout, ledger, graph, path, caps);
+            print_stats(graph);
+            return 0;
+        }
+
         if (command == "neural") {
             const std::string_view sub = argc >= 3 ? argv[2] : "status";
             if (sub != "status") {
@@ -558,7 +579,8 @@ int main(int argc, char **argv) {
                 return 2;
             }
             return atperson::cli::run_ingest(std::cout, resource_status,
-                                            atperson::cli::data_dir(), graph, path, argv[2],
+                                            atperson::cli::data_dir(), graph, path,
+                                            atperson::cli::ledger_path(), argv[2],
                                             argc >= 4 ? argv[3] : nullptr, print_stats);
         }
 
@@ -569,7 +591,7 @@ int main(int argc, char **argv) {
             }
             return atperson::cli::run_ingest_file(std::cout, resource_status,
                                                  atperson::cli::data_dir(), graph, path,
-                                                 argv[2], argc >= 4 ? argv[3] : nullptr,
+                                                 atperson::cli::ledger_path(), argv[2], argc >= 4 ? argv[3] : nullptr,
                                                  print_stats);
         }
 

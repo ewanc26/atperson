@@ -355,6 +355,179 @@ static int run_rebuild_equivalence(const char *dir) {
     return 0;
 }
 
+/* Read the 12-byte log header: magic[7] and the version u32. */
+static int read_header(const char *dir, unsigned char *magic7, uint32_t *version) {
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ledger.bin", dir);
+    FILE *file = fopen(path, "rb");
+    CHECK(file != NULL);
+    unsigned char header[12];
+    CHECK(fread(header, 1u, sizeof(header), file) == sizeof(header));
+    CHECK(fclose(file) == 0);
+    CHECK(memcmp(header, "ATPLDG0", 7u) == 0);
+    *magic7 = header[7];
+    *version = (uint32_t)header[8] | ((uint32_t)header[9] << 8u) | ((uint32_t)header[10] << 16u) |
+               ((uint32_t)header[11] << 24u);
+    return 0;
+}
+
+/* Size-cap release: raw text of old learned entries is released, identity and
+ * dedup survive compaction and reopen, and replay forgets only those entries. */
+static int run_release(const char *dir) {
+    remove_dir_files(dir);
+    CHECK(atp_mkdir(dir) == 0);
+
+    atp_ledger *ledger = open_ledger(dir);
+    uint64_t ids[8] = {0};
+    CHECK(build_fixture(ledger, ids) == 0);
+
+    atp_graph_config config = atp_graph_default_config();
+    atp_graph *first = atp_graph_create(&config);
+    atp_replay_report before_replay = {0};
+    CHECK(atp_replay_ledger(ledger, first, &before_replay) == ATP_OK);
+    CHECK(before_replay.replayed > 0u);
+    atp_graph_destroy(first);
+
+    uint64_t outcomes[8] = {0};
+    CHECK(snapshot_outcomes(ledger, outcomes, 8u) == 0);
+
+    /* A ledger with nothing released keeps the v3 header, so builds that
+     * predate released payloads can still read it. */
+    unsigned char magic7 = 0u;
+    uint32_t version = 0u;
+    CHECK(read_header(dir, &magic7, &version) == 0);
+    CHECK(magic7 == '3' && version == 3u);
+
+    /* Within the cap: nothing changes. */
+    atp_compact_report report = {0};
+    CHECK(atp_ledger_release_payloads(ledger, UINT64_C(1) << 30u, &report) == ATP_OK);
+    CHECK(report.payloads_released == 0u);
+    CHECK(report.bytes_before == report.bytes_after);
+    CHECK(atp_ledger_release_payloads(ledger, 0u, &report) == ATP_ERR_INVALID_ARGUMENT);
+
+    /* Over the cap: release every releasable payload. */
+    CHECK(atp_ledger_release_payloads(ledger, 1u, &report) == ATP_OK);
+    CHECK(report.payloads_released >= before_replay.replayed);
+    CHECK(report.bytes_after < report.bytes_before);
+    /* Once anything is released the log carries the released-payload header, so
+     * an older build refuses it up front instead of truncating mid-log. */
+    CHECK(read_header(dir, &magic7, &version) == 0);
+    CHECK(magic7 == '4' && version == 4u);
+
+    for (int pass = 0; pass < 2; ++pass) {
+        uint64_t after[8] = {0};
+        CHECK(snapshot_outcomes(ledger, after, 8u) == 0);
+        for (size_t i = 0u; i < 8u; ++i) {
+            CHECK(after[i] == outcomes[i]);
+            atp_ledger_entry entry = {0};
+            CHECK(atp_ledger_entry_at(ledger, i, &entry) == ATP_OK);
+            CHECK(entry.id == ids[i]);
+        }
+        CHECK(atp_ledger_entry_payload_released(ledger, ids[0]));
+        size_t len = 1u;
+        CHECK(atp_ledger_entry_payload(ledger, ids[0], NULL, 0u, &len) == ATP_OK);
+        CHECK(len == 0u);
+        /* Pending/failed keep their bytes: they can still close to LEARNED. */
+        CHECK(!atp_ledger_entry_payload_released(ledger, ids[4]));
+        CHECK(!atp_ledger_entry_payload_released(ledger, ids[5]));
+        len = 0u;
+        CHECK(atp_ledger_entry_payload(ledger, ids[4], NULL, 0u, &len) == ATP_OK);
+        CHECK(len > 0u);
+
+        /* Dedup still recognises released content. */
+        uint64_t id = 0u;
+        atp_status status = ATP_OK;
+        CHECK(atp_ledger_append(ledger, "at://c/1", "did:plc:a", 100u,
+                                atp_ledger_digest("wolf moon", 9u), ATPERSON_SCHEMA_VERSION,
+                                ATP_LEDGER_OUTCOME_LEARNED, "wolf moon", 9u, &id,
+                                &status) == ATP_LEDGER_EXISTS_COMMITTED);
+        CHECK(id == ids[0]);
+
+        if (pass == 0) {
+            /* A second release is idempotent, and the marker survives reopen. */
+            CHECK(atp_ledger_release_payloads(ledger, 1u, &report) == ATP_OK);
+            CHECK(report.payloads_released == 0u);
+            atp_ledger_destroy(ledger);
+            ledger = open_ledger(dir);
+        }
+    }
+
+    /* Replay forgets exactly the released observations and still succeeds. */
+    atp_graph *second = atp_graph_create(&config);
+    atp_replay_report after_replay = {0};
+    CHECK(atp_replay_ledger(ledger, second, &after_replay) == ATP_OK);
+    CHECK(after_replay.replayed == 0u);
+    CHECK(after_replay.excluded_released == before_replay.replayed);
+    atp_graph_destroy(second);
+
+    /* Withdrawing an already-released entry is durable: the outcome becomes
+     * WITHDRAWN, the marker and the dedup tombstone survive reopen, and replay
+     * no longer counts the entry as merely released. */
+    CHECK(atp_ledger_withdraw(ledger, ids[0]) == ATP_OK);
+    for (int pass = 0; pass < 2; ++pass) {
+        atp_ledger_entry entry = {0};
+        CHECK(atp_ledger_entry_at(ledger, 0u, &entry) == ATP_OK);
+        CHECK(entry.id == ids[0]);
+        CHECK(entry.outcome == ATP_LEDGER_OUTCOME_WITHDRAWN);
+        CHECK(atp_ledger_entry_payload_released(ledger, ids[0]));
+
+        uint64_t id = 0u;
+        atp_status status = ATP_OK;
+        CHECK(atp_ledger_append(ledger, "at://c/1", "did:plc:a", 100u,
+                                atp_ledger_digest("wolf moon", 9u), ATPERSON_SCHEMA_VERSION,
+                                ATP_LEDGER_OUTCOME_LEARNED, "wolf moon", 9u, &id,
+                                &status) == ATP_LEDGER_EXISTS_COMMITTED);
+        CHECK(id == ids[0]);
+
+        atp_graph *third = atp_graph_create(&config);
+        atp_replay_report withdrawn_replay = {0};
+        CHECK(atp_replay_ledger(ledger, third, &withdrawn_replay) == ATP_OK);
+        CHECK(withdrawn_replay.replayed == 0u);
+        CHECK(withdrawn_replay.excluded_released == before_replay.replayed - 1u);
+        atp_graph_destroy(third);
+
+        if (pass == 0) {
+            CHECK(atp_ledger_release_payloads(ledger, 1u, &report) == ATP_OK);
+            atp_ledger_destroy(ledger);
+            ledger = open_ledger(dir);
+        }
+    }
+
+    atp_ledger_destroy(ledger);
+
+    /* The released header survives reopen and a plain compaction. */
+    ledger = open_ledger(dir);
+    atp_compact_report plain = {0};
+    CHECK(atp_ledger_compact(ledger, &plain) == ATP_OK);
+    atp_ledger_destroy(ledger);
+    CHECK(read_header(dir, &magic7, &version) == 0);
+    CHECK(magic7 == '4' && version == 4u);
+
+    /* A header this build does not recognise is refused without touching the
+     * file (no truncation, whatever the marker says). */
+    char log_path[1024];
+    snprintf(log_path, sizeof(log_path), "%s/ledger.bin", dir);
+    FILE *log = fopen(log_path, "r+b");
+    CHECK(log != NULL);
+    CHECK(fseek(log, 7, SEEK_SET) == 0);
+    CHECK(fputc('9', log) == '9');
+    CHECK(fseek(log, 0, SEEK_END) == 0);
+    const long size_before = ftell(log);
+    CHECK(fclose(log) == 0);
+    atp_status refused = ATP_OK;
+    CHECK(atp_ledger_open(log_path, &refused) == NULL);
+    CHECK(refused == ATP_ERR_FORMAT);
+    log = fopen(log_path, "rb");
+    CHECK(log != NULL);
+    CHECK(fseek(log, 0, SEEK_END) == 0);
+    CHECK(ftell(log) == size_before);
+    CHECK(fclose(log) == 0);
+
+    remove_dir_files(dir);
+    printf("release: ok\n");
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s <compact|rebuild-equivalence> [dir]\n", argv[0]);
@@ -363,6 +536,9 @@ int main(int argc, char **argv) {
     const char *dir = argc > 2 ? argv[2] : "/tmp/atperson-compact";
     if (strcmp(argv[1], "compact") == 0) {
         return run_compact(dir);
+    }
+    if (strcmp(argv[1], "release") == 0) {
+        return run_release(dir);
     }
     if (strcmp(argv[1], "rebuild-equivalence") == 0) {
         return run_rebuild_equivalence(dir);

@@ -77,6 +77,13 @@ atp_status atp_ledger_entry_payload(const atp_ledger *ledger, uint64_t id, void 
     return ATP_OK;
 }
 
+bool atp_ledger_entry_payload_released(const atp_ledger *ledger, uint64_t id) {
+    if (!ledger || id == 0u || id > (uint64_t)ledger->count) {
+        return false;
+    }
+    return ledger->payload_lens[(size_t)(id - 1u)] == ATP_LEDGER_PAYLOAD_RELEASED;
+}
+
 atp_status atp_ledger_entry_context(const atp_ledger *ledger, uint64_t id,
                                     atp_conversation_context *out) {
     if (!ledger || !out) {

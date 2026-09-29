@@ -42,6 +42,11 @@ inline std::optional<std::uint64_t> bounded_jetstream_replay_before(
 struct JetstreamReplayWindow {
     std::uint64_t planned_through_seq{};
     std::uint64_t sealed_tip_seq{};
+    /* Commit rows the archive returned that could not become events (see
+     * translate/replay dropped semantics). Zero here with a large planned
+     * window means the archive produced nothing worth learning, not that
+     * nothing happened. */
+    std::size_t dropped_rows{};
 };
 
 /* Failure message for one archive call, named by `operation` ("tip probe",

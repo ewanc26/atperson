@@ -206,6 +206,21 @@ int main() {
     assert(observe_sequence(sequence_only, 20) == CursorResult::Initialized);
     assert(observe_sequence(sequence_only, 22) == CursorResult::Gap);
 
+    /* A filtered stream is a subset of the global sequence: forward jumps
+     * advance without raising resync, but a regression is still a Rewind. */
+    CursorState filtered;
+    assert(observe_stream(filtered, 10, "did:plc:abc", "3jui3s7xq2m2a", false) ==
+           CursorResult::Initialized);
+    assert(observe_stream(filtered, 40, "did:plc:abc", "3jui3s7xq2m2b", false) ==
+           CursorResult::Advanced);
+    assert(!filtered.resync_required && filtered.last_sequence == 40u);
+    assert(observe_stream(filtered, 90, "did:plc:other", "3jui3s7xq2m2c", false) ==
+           CursorResult::Advanced);
+    assert(!filtered.resync_required && filtered.last_sequence == 90u);
+    assert(observe_stream(filtered, 50, "did:plc:abc", "3jui3s7xq2m2d", false) ==
+           CursorResult::Rewind);
+    assert(filtered.last_sequence == 90u);
+
     const auto path = std::filesystem::temp_directory_path() / "atperson-protocol-evidence-test.bin";
     std::error_code error;
     std::filesystem::remove(path, error);
@@ -238,5 +253,27 @@ int main() {
            restored[6].event_type == "#unknown" && restored[7].event_type == "#repository" &&
            restored[8].verification == Verification::Rejected &&
            restored[9].verification == Verification::Unverified);
+
+    // The ledger keeps a dedup index instead of re-reading the file per append.
+    // It must still reject duplicates from a fresh instance (restart), accept
+    // new evidence appended by another writer, and treat field boundaries as
+    // significant.
+    {
+        EvidenceLedger restarted(path);
+        assert(!restarted.append(fact));
+        assert(!append_firehose_event(restarted, "wss://relay.example", "#sync",
+                                      "did:plc:abc", "rev-a", 2, 11));
+        EvidenceLedger other_writer(path);
+        assert(append_firehose_event(other_writer, "wss://relay.example", "#commit",
+                                     "did:plc:abc", "from-other-writer", 20, 30));
+        assert(!append_firehose_event(restarted, "wss://relay.example", "#commit",
+                                      "did:plc:abc", "from-other-writer", 20, 30));
+        assert(append_firehose_event(restarted, "wss://relay.example", "#commit",
+                                     "did:plc:abcfrom", "-other-writer", 21, 31));
+        assert(append_firehose_event(restarted, "wss://relay.example", "#commit",
+                                     "did:plc:abc", "from-other-writer", 22, 32,
+                                     Verification::Rejected));
+        assert(restarted.entries().size() == 13);
+    }
     std::filesystem::remove(path, error);
 }

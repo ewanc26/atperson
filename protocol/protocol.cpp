@@ -354,13 +354,36 @@ bool EvidenceStore::contains(std::string_view source, std::string_view payload,
     });
 }
 
+EvidenceDigest evidence_digest(const ProtocolEvidence &evidence) noexcept {
+    /* Two independent FNV-1a lanes over length-prefixed fields, so field
+     * boundaries cannot be confused ("ab"+"c" vs "a"+"bc"). */
+    std::uint64_t high = 0xcbf29ce484222325ull;
+    std::uint64_t low = 0x84222325cbf29ce4ull;
+    const auto mix = [&](std::string_view bytes) {
+        const std::uint64_t length = bytes.size();
+        for (int shift = 0; shift < 64; shift += 8) {
+            const auto byte = static_cast<unsigned char>(length >> shift);
+            high = (high ^ byte) * 0x100000001b3ull;
+            low = (low ^ byte) * 0x100000001b3ull + 0x9e3779b97f4a7c15ull;
+        }
+        for (const char c : bytes) {
+            const auto byte = static_cast<unsigned char>(c);
+            high = (high ^ byte) * 0x100000001b3ull;
+            low = (low ^ byte) * 0x100000001b3ull + 0x9e3779b97f4a7c15ull;
+        }
+    };
+    const char tags[2] = {static_cast<char>(evidence.kind),
+                          static_cast<char>(evidence.verification)};
+    mix(std::string_view(tags, sizeof(tags)));
+    mix(evidence.source);
+    mix(evidence.event_type);
+    mix(evidence.subject);
+    mix(evidence.payload);
+    return {high, low};
+}
+
 bool EvidenceStore::contains(const ProtocolEvidence &evidence) const {
-    return std::any_of(entries_.begin(), entries_.end(), [&](const auto &entry) {
-        return entry.kind == evidence.kind && entry.source == evidence.source &&
-               entry.event_type == evidence.event_type &&
-               entry.subject == evidence.subject && entry.payload == evidence.payload &&
-               entry.verification == evidence.verification;
-    });
+    return index_.contains(evidence_digest(evidence));
 }
 
 bool EvidenceStore::append(ProtocolEvidence evidence) {
@@ -371,7 +394,7 @@ bool EvidenceStore::append(ProtocolEvidence evidence) {
         evidence.confidence > 1.0) {
         return false;
     }
-    if (contains(evidence)) return false;
+    if (!index_.insert(evidence_digest(evidence)).second) return false;
     entries_.push_back(std::move(evidence));
     return true;
 }
@@ -390,10 +413,30 @@ EvidenceLedger::EvidenceLedger(const std::filesystem::path &path) : path_(path) 
 
 EvidenceLedger::~EvidenceLedger() = default;
 
+void EvidenceLedger::refresh_index() {
+    std::error_code error;
+    const auto size = std::filesystem::exists(path_, error)
+                          ? std::filesystem::file_size(path_, error)
+                          : std::uintmax_t{0};
+    if (error) throw std::runtime_error("stat protocol evidence ledger");
+    if (index_valid_ && size == indexed_size_) return;
+    index_.clear();
+    for_each_entry([&](ProtocolEvidence &&entry) { index_.insert(evidence_digest(entry)); });
+    indexed_size_ = size;
+    index_valid_ = true;
+}
+
 bool EvidenceLedger::append(ProtocolEvidence evidence) {
-    EvidenceStore current;
-    for (auto &entry : entries()) current.append(std::move(entry));
-    if (!current.append(evidence)) return false;
+    if (evidence.source.empty() || evidence.event_type.empty() ||
+        evidence.subject.empty() || evidence.payload.empty() ||
+        (evidence.sequence == 0 && evidence.observed_at == 0) ||
+        !std::isfinite(evidence.confidence) || evidence.confidence < 0.0 ||
+        evidence.confidence > 1.0) {
+        return false;
+    }
+    refresh_index();
+    const EvidenceDigest digest = evidence_digest(evidence);
+    if (index_.contains(digest)) return false;
     if (const auto parent = path_.parent_path(); !parent.empty()) {
         std::error_code error;
         std::filesystem::create_directories(parent, error);
@@ -426,12 +469,14 @@ bool EvidenceLedger::append(ProtocolEvidence evidence) {
         ::close(fd);
     }
 #endif
+    index_.insert(digest);
+    indexed_size_ = std::filesystem::file_size(path_);
     return true;
 }
 
-std::vector<ProtocolEvidence> EvidenceLedger::entries() const {
-    std::vector<ProtocolEvidence> result;
-    if (!std::filesystem::exists(path_)) return result;
+void EvidenceLedger::for_each_entry(
+    const std::function<void(ProtocolEvidence &&)> &visit) const {
+    if (!std::filesystem::exists(path_)) return;
     std::ifstream in(path_, std::ios::binary);
     while (in.peek() != std::char_traits<char>::eof()) {
         std::uint32_t magic = 0;
@@ -454,8 +499,13 @@ std::vector<ProtocolEvidence> EvidenceLedger::entries() const {
         evidence.event_type = read_field(in);
         evidence.subject = read_field(in);
         evidence.payload = read_field(in);
-        result.push_back(std::move(evidence));
+        visit(std::move(evidence));
     }
+}
+
+std::vector<ProtocolEvidence> EvidenceLedger::entries() const {
+    std::vector<ProtocolEvidence> result;
+    for_each_entry([&](ProtocolEvidence &&e) { result.push_back(std::move(e)); });
     return result;
 }
 
@@ -504,7 +554,8 @@ bool append_repository_fact(EvidenceLedger &ledger, const RepositoryFact &fact,
         fact.verification);
 }
 
-CursorResult observe_sequence(CursorState &state, std::uint64_t sequence) {
+CursorResult observe_sequence(CursorState &state, std::uint64_t sequence,
+                              bool contiguous) {
     if (sequence == 0u) return CursorResult::Rejected;
     if (state.last_sequence == 0) {
         state.last_sequence = sequence;
@@ -514,7 +565,7 @@ CursorResult observe_sequence(CursorState &state, std::uint64_t sequence) {
     if (state.resync_required) return CursorResult::Gap;
     if (sequence == state.last_sequence) return CursorResult::Duplicate;
     if (sequence < state.last_sequence) return CursorResult::Rewind;
-    if (sequence != state.last_sequence + 1) {
+    if (contiguous && sequence != state.last_sequence + 1) {
         state.resync_required = true;
         return CursorResult::Gap;
     }
@@ -523,9 +574,10 @@ CursorResult observe_sequence(CursorState &state, std::uint64_t sequence) {
 }
 
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
-                            std::string_view repo, std::string_view revision) {
+                            std::string_view repo, std::string_view revision,
+                            bool contiguous) {
     if (!is_did(repo) || !is_tid(revision)) return CursorResult::Rejected;
-    const auto result = observe_sequence(state, sequence);
+    const auto result = observe_sequence(state, sequence, contiguous);
     if (result != CursorResult::Initialized && result != CursorResult::Advanced)
         return result;
     if (result == CursorResult::Initialized) {

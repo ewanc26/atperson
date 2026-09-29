@@ -162,4 +162,10 @@ atp_compact_report Ledger::compact() {
     return report;
 }
 
+atp_compact_report Ledger::release_payloads(std::uint64_t max_bytes) {
+    atp_compact_report report = {};
+    require(atp_ledger_release_payloads(ledger_, max_bytes, &report), "release ledger payloads");
+    return report;
+}
+
 } // namespace atperson

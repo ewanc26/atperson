@@ -159,7 +159,8 @@ int run_rebuild(
     out << "replayed " << report.replayed << " observation(s) from the ledger"
         << " (mirrored " << report.mirrored << " skipped, excluded "
         << report.excluded_pending << " pending, " << report.excluded_failed
-        << " failed, " << report.excluded_withdrawn << " withdrawn";
+        << " failed, " << report.excluded_withdrawn << " withdrawn, "
+        << report.excluded_released << " released";
     if (report.migrations_applied != 0u) {
         out << ", applied " << report.migrations_applied
             << " neural migration(s)";

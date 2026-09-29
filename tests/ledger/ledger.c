@@ -541,6 +541,93 @@ static int run_payload_corruption(const char *dir) {
     return 0;
 }
 
+/* Released (size-capped) entries survive the same crash and corruption paths
+ * as ordinary ones: a torn tail is trimmed, the released markers stay intact,
+ * and damage after them is refused (marker present) or dropped (marker lost)
+ * without disturbing the released prefix. */
+static int run_released_recovery(const char *dir) {
+    remove_ledger_files(dir);
+    CHECK(atp_mkdir(dir) == 0);
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ledger.bin", dir);
+    char off_path[1024];
+    snprintf(off_path, sizeof(off_path), "%s.off", path);
+
+    const toy_post posts[3] = {
+        {"at://rel/x/1", "did:plc:a", "first released text", 5000u, ATP_LEDGER_OUTCOME_LEARNED},
+        {"at://rel/x/2", "did:plc:a", "second released text", 5001u, ATP_LEDGER_OUTCOME_LEARNED},
+        {"at://rel/x/3", "did:plc:b", "third released text", 5002u, ATP_LEDGER_OUTCOME_SKIPPED},
+    };
+    atp_ledger *ledger = open_or_fail(path);
+    for (size_t i = 0u; i < 3u; ++i) {
+        append_post(ledger, &posts[i]);
+    }
+    atp_compact_report report = {0};
+    CHECK(atp_ledger_release_payloads(ledger, 1u, &report) == ATP_OK);
+    CHECK(report.payloads_released == 3u);
+    const toy_post tail = {"at://rel/x/4", "did:plc:c", "kept tail text", 5003u,
+                           ATP_LEDGER_OUTCOME_LEARNED};
+    append_post(ledger, &tail);
+    atp_ledger_destroy(ledger);
+
+    /* Torn tail after the committed fence: trimmed on open. */
+    FILE *file = fopen(path, "ab");
+    CHECK(file != NULL);
+    static const char torn[] = "torn-garbage-after-released-prefix";
+    CHECK(fwrite(torn, 1u, sizeof(torn) - 1u, file) == sizeof(torn) - 1u);
+    CHECK(fclose(file) == 0);
+
+    ledger = open_or_fail(path);
+    CHECK(atp_ledger_count(ledger) == 4u);
+    for (uint64_t id = 1u; id <= 3u; ++id) {
+        CHECK(atp_ledger_entry_payload_released(ledger, id));
+    }
+    CHECK(!atp_ledger_entry_payload_released(ledger, 4u));
+    char out[64];
+    size_t out_len = 0u;
+    CHECK(atp_ledger_entry_payload(ledger, 4u, out, sizeof(out), &out_len) == ATP_OK);
+    CHECK(out_len == strlen(tail.text) && memcmp(out, tail.text, out_len) == 0);
+    atp_ledger_destroy(ledger);
+
+    /* Flip the last payload byte of the record after the released prefix. */
+    file = fopen(path, "r+b");
+    CHECK(file != NULL);
+    CHECK(fseek(file, 0, SEEK_END) == 0);
+    const long size = ftell(file);
+    CHECK(size > 3);
+    CHECK(fseek(file, size - 3, SEEK_SET) == 0);
+    const int byte = fgetc(file);
+    CHECK(byte != EOF);
+    CHECK(fseek(file, size - 3, SEEK_SET) == 0);
+    CHECK(fputc(byte ^ 0x40, file) != EOF);
+    CHECK(fclose(file) == 0);
+
+    /* Marker present: refused loudly. */
+    atp_status status = ATP_OK;
+    atp_ledger *damaged = atp_ledger_open(path, &status);
+    CHECK(damaged == NULL);
+    CHECK(status == ATP_ERR_FORMAT);
+
+    /* Marker lost: the longest valid prefix wins, and that prefix is exactly
+     * the released entries, still released. */
+    CHECK(remove(off_path) == 0);
+    ledger = open_or_fail(path);
+    CHECK(atp_ledger_count(ledger) == 3u);
+    for (uint64_t id = 1u; id <= 3u; ++id) {
+        CHECK(atp_ledger_entry_payload_released(ledger, id));
+        out_len = 1u;
+        CHECK(atp_ledger_entry_payload(ledger, id, NULL, 0u, &out_len) == ATP_OK);
+        CHECK(out_len == 0u);
+    }
+    atp_ledger_entry entry = {0};
+    CHECK(atp_ledger_lookup(ledger, posts[0].uri, content_digest(&posts[0]), &entry) ==
+          ATP_LEDGER_EXISTS_COMMITTED);
+    atp_ledger_destroy(ledger);
+
+    remove_ledger_files(dir);
+    return 0;
+}
+
 /* v1 -> current migration: a hand-built v1 log migrates on open. Entries and
  * flattened outcomes survive; payloads and context are honestly absent. */
 static int run_migration(const char *dir) {
@@ -831,6 +918,9 @@ int main(int argc, char **argv) {
     }
     if (strcmp(command, "payloads") == 0) {
         return run_payloads(dir);
+    }
+    if (strcmp(command, "released-recovery") == 0) {
+        return run_released_recovery(dir);
     }
     if (strcmp(command, "payload-corruption") == 0) {
         return run_payload_corruption(dir);

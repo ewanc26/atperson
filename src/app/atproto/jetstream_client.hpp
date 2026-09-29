@@ -121,6 +121,12 @@ class JetstreamClient {
     /* The cursor to persist: the decimal Jetstream sequence number reached
      * after this batch, or empty when nothing has been delivered yet. */
     [[nodiscard]] std::string cursor() const noexcept { return cursor_; }
+    /** True when the subscription is restricted by collection or DID. Such a
+     *  stream is a subset of the global sequence, so sequence gaps are
+     *  expected and are not evidence of lost commits. */
+    [[nodiscard]] bool filtered() const noexcept {
+        return !collections_.empty() || !dids_.empty();
+    }
 
   private:
     /* Establish (or re-establish) the underlying stream. Throws on failure. */

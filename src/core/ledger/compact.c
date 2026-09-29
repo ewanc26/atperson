@@ -15,7 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
+static atp_status atp_ledger_compact_release(atp_ledger *ledger, atp_compact_report *report,
+                                             uint64_t release_bytes) {
     if (report) {
         memset(report, 0, sizeof(*report));
     }
@@ -93,11 +94,27 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
         return ATP_ERR_OUT_OF_MEMORY;
     }
 
+    uint64_t released_bytes = 0u;
+    bool any_released = false;
     for (size_t i = 0u; i < ledger->count && result == ATP_OK; ++i) {
         const atp_ledger_entry *entry = &ledger->entries[i];
         const unsigned char *payload = ledger->payloads[i];
         size_t payload_len = ledger->payload_lens[i];
 
+        if (release_bytes > 0u && released_bytes < release_bytes && payload && payload_len > 0u &&
+            payload_len != ATP_LEDGER_PAYLOAD_RELEASED &&
+            (entry->outcome == ATP_LEDGER_OUTCOME_LEARNED ||
+             entry->outcome == ATP_LEDGER_OUTCOME_SKIPPED)) {
+            released_bytes += payload_len;
+            payload = NULL;
+            payload_len = ATP_LEDGER_PAYLOAD_RELEASED;
+            free(ledger->payloads[i]);
+            ledger->payloads[i] = NULL;
+            ledger->payload_lens[i] = ATP_LEDGER_PAYLOAD_RELEASED;
+            if (report) {
+                report->payloads_released++;
+            }
+        }
         if (entry->outcome == ATP_LEDGER_OUTCOME_WITHDRAWN && payload) {
             payload = NULL;
             payload_len = 0u;
@@ -109,6 +126,7 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
             }
         }
 
+        any_released = any_released || payload_len == ATP_LEDGER_PAYLOAD_RELEASED;
         const size_t body_len =
             atp_serialize_entry(body, entry, payload, payload_len, &ledger->contexts[i]);
         const size_t record_len =
@@ -120,6 +138,16 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
         }
     }
 
+    if (result == ATP_OK && any_released) {
+        /* The header was written before it was known whether anything is
+         * released; stamp the released-payload version now, before the log is
+         * made durable. */
+        header[7] = ATP_LEDGER_RELEASED_FILE_MAGIC_7;
+        atp_store_u32_le(&header[8], ATP_LEDGER_RELEASED_VERSION);
+        if (fseek(tmp, 0, SEEK_SET) != 0 || fwrite(header, 1u, sizeof(header), tmp) != sizeof(header)) {
+            result = ATP_ERR_IO;
+        }
+    }
     if (result == ATP_OK && (!atp_fsync(tmp) || fclose(tmp) != 0)) {
         result = ATP_ERR_IO;
     } else if (result == ATP_OK) {
@@ -173,4 +201,45 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
     free(body);
     free(record);
     return ATP_OK;
+}
+
+atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
+    return atp_ledger_compact_release(ledger, report, 0u);
+}
+
+atp_status atp_ledger_release_payloads(atp_ledger *ledger, uint64_t max_bytes,
+                                       atp_compact_report *report) {
+    if (report) {
+        memset(report, 0, sizeof(*report));
+    }
+    if (!ledger || max_bytes == 0u) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (ledger->committed_offset <= max_bytes) {
+        if (report) {
+            report->bytes_before = ledger->committed_offset;
+            report->bytes_after = ledger->committed_offset;
+        }
+        return ATP_OK;
+    }
+    /* Nothing releasable (metadata alone exceeds the cap): do not rewrite the
+     * whole log just to release zero payloads. */
+    bool releasable = false;
+    for (size_t i = 0u; i < ledger->count && !releasable; ++i) {
+        releasable = ledger->payloads[i] && ledger->payload_lens[i] > 0u &&
+                     ledger->payload_lens[i] != ATP_LEDGER_PAYLOAD_RELEASED &&
+                     (ledger->entries[i].outcome == ATP_LEDGER_OUTCOME_LEARNED ||
+                      ledger->entries[i].outcome == ATP_LEDGER_OUTCOME_SKIPPED);
+    }
+    if (!releasable) {
+        if (report) {
+            report->bytes_before = ledger->committed_offset;
+            report->bytes_after = ledger->committed_offset;
+        }
+        return ATP_OK;
+    }
+    /* Release down to 80% of the cap so the next append does not immediately
+     * cross it again. */
+    const uint64_t target = max_bytes - max_bytes / 5u;
+    return atp_ledger_compact_release(ledger, report, ledger->committed_offset - target);
 }

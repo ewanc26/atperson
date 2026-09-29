@@ -25,6 +25,42 @@ Jetstream service. The canonical `subscribeEvents` endpoint enables v2 sequence
 cursors and is required for archive-to-live cutover; the legacy `/subscribe`
 endpoint remains available for explicitly configured live-only consumers.
 
+## Ingesting the whole network
+
+With no `--dids` file (leave `ATPERSON_JETSTREAM_DIDS_FILE` unset) the
+subscription is not restricted by repository, so every public post on the
+network is a candidate observation. A live run saves the model and resume
+cursor when it ends, so run it in bounded chunks:
+
+```sh
+set -a; . "$HOME/.ewanc26/atperson/.env"; set +a
+scripts/whole-network.sh ./build/atperson 300 1   # binary, chunk seconds, max hours
+```
+
+The loop stops after the hour limit (`0` runs until stopped) and idles while
+`atperson control pause` is in effect.
+
+Two practical notes:
+
+- Filtered subscriptions skip most of the global sequence, so sequence jumps
+  are expected: the protocol cursor advances across them (a regression is still
+  a rewind and still requires resync) and they do not block checkpointing. They
+  stay visible as reconciliation signals: each batch that jumped appends one
+  `#filtered-sequence-jump` evidence entry (`jumps`, `first_after`, `last_to`)
+  with `Unverified` status, and `JetstreamRunResult::filtered_sequence_jumps`
+  carries the count. Nothing is inferred about the skipped events and no
+  repository revision is marked verified. On an unfiltered stream a gap still
+  requests reconciliation and holds the checkpoint.
+- Neural training cost per post grows steeply with the capacity class. On a
+  laptop the auto-selected `large` class trains several seconds per post, far
+  below the network's post rate; set `ATPERSON_NEURAL_CAPACITY=baseline` (or
+  `capable`) before the first creation or a rebuild to keep up with the feed.
+- The protocol evidence ledger normally gains one fsynced entry per commit,
+  which reached ~6 GB after a day of whole-network ingestion. Set
+  `ATPERSON_PROTOCOL_EVIDENCE=control` to keep only non-commit events (identity, account, sync),
+  delete and cursor-gap evidence; routine commits stay durable in the
+  observation ledger regardless.
+
 ## Status inspection
 
 ```sh
@@ -57,9 +93,32 @@ with `--span <sequences>`: atperson probes the archive's sealed tip (or uses an
 explicit `before-seq`) and plans the trailing span ending there. Every
 invocation is hard-capped to a 10,000,000-sequence
 window. Successful completion checkpoints the sealed replay tip
-through the same durable ingestion path. The same token is required when the
-daemon startup archive phase is enabled via `ATPERSON_DAEMON_ARCHIVE_AFTER`,
-`ATPERSON_DAEMON_ARCHIVE_BEFORE` or `ATPERSON_DAEMON_ARCHIVE_SPAN`.
+ through the same durable ingestion path. The same token is required when the
+ daemon startup archive phase is enabled via `ATPERSON_DAEMON_ARCHIVE_AFTER`,
+ `ATPERSON_DAEMON_ARCHIVE_BEFORE` or `ATPERSON_DAEMON_ARCHIVE_SPAN`.
+
+## Archive record payloads are DAG-CBOR
+
+Live Jetstream frames carry record payloads as JSON objects, but archive
+segments serve the same records as canonical DAG-CBOR. The replay path detects
+which form it received and decodes the CBOR into the same record shape the
+extractor consumes, so a record learned from the archive is indistinguishable
+from one learned live.
+
+Wolfram's parser re-serialises and byte-compares, so only canonical DAG-CBOR
+decodes; a payload that is not a canonical map is refused rather than
+half-read. Within a record that does decode, a field the JSON shape cannot
+represent — a CID link in a `reply` strongRef, a byte string — is skipped
+instead of failing the record, so a reply still yields its root and parent URIs.
+
+Commit rows the archive returned but that produced no event are counted as
+`dropped` in the command summary and on the run result. A large planned window
+reporting zero events and zero drops means the archive held nothing worth
+learning for the configured filters; a non-zero `dropped` means rows arrived
+that atperson could not turn into observations, which is a decode problem to
+investigate rather than an empty timeline. A dropped row is never inferred to
+have been learned, and a dropped row is never silently counted as progress.
+
 
 ## Entity identity and policy parity
 
@@ -188,6 +247,26 @@ Jetstream is public, read-only ingestion. It uses no account login or app passwo
 It does not enable posts, replies, likes, follows, reposts, DMs or moderation. Those remain behind the separate outbound policy/control/write path.
 
 The learning policy still accepts only public post records. Private-message/conversation payloads are not learning input.
+
+## Bounding disk use (rotation)
+
+Whole-network ingestion grows the ledger and the model without limit. Two
+opt-in byte caps (unset or `0` = off) bound them; they are enforced after each
+`jetstream` / `jetstream archive` run, after each daemon model save, and on
+demand with `atperson rotate`:
+
+- `ATPERSON_LEDGER_MAX_BYTES`: releases the raw text of the oldest
+  observations (down to ~80% of the cap). Identity, digest, outcome and dedup
+  are kept, so an entry is never re-learned. On disk a released entry has
+  `payload_len = UINT32_MAX` and the log header becomes `ATPLDG04` (version 4),
+  so builds that predate rotation refuse the ledger outright and fail closed.
+- `ATPERSON_MODEL_MAX_BYTES`: prunes the least-observed vocabulary (protecting
+  tokens with valence history), remaps edges and episodes, then saves.
+
+Both are deliberate forgetting. A `rebuild` cannot regrow released observations
+or pruned tokens, and a pruned model is not what replay would produce. Released
+entries still cost ~130 B of metadata each, and the model keeps a mirror of it,
+so a cap below that floor cannot be reached. `rotate` warns then; for the model it refuses to prune (rather than erode the vocabulary chasing an unreachable cap), and the ledger is not rewritten when no payload is left to release. `ATPERSON_PROTOCOL_EVIDENCE` accepts only `all` or `control`.
 
 ## #60 status
 

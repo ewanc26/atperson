@@ -59,6 +59,7 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size) {
                     free(buffer);
                 }
             }
+            (void)atp_ledger_entry_payload_released(ledger, entry.id);
             atp_conversation_context context;
             (void)atp_ledger_entry_context(ledger, entry.id, &context);
         }

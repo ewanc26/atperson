@@ -80,23 +80,40 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
         state.checkpoint.observations_seen = 0u;
     }
 
+    /* A collection- or DID-filtered subscription sees a subset of Jetstream's
+     * global sequence, so its jumps are expected: the cursor advances across
+     * them instead of demanding a resync (which nothing could ever clear).
+     * They are still reconciliation signals, so they are counted and recorded
+     * below as unverified evidence; they never mark anything verified and
+     * never discard the valid event. An unfiltered stream stays strictly
+     * contiguous, and a real gap there still requires resync. */
+    const bool contiguous = !client.filtered();
+    std::size_t sequence_jumps = 0u;
+    std::uint64_t first_jump_after = 0u;
+    std::uint64_t last_jump_to = 0u;
+
     const auto on_event = [&](const JetstreamEvent &event) {
+        const std::uint64_t event_sequence =
+            event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u;
+        if (!contiguous && event_sequence != 0u && protocol_cursor.last_sequence != 0u &&
+            !protocol_cursor.resync_required &&
+            event_sequence > protocol_cursor.last_sequence + 1u) {
+            if (sequence_jumps == 0u) {
+                first_jump_after = protocol_cursor.last_sequence;
+            }
+            ++sequence_jumps;
+            last_jump_to = event_sequence;
+        }
         const auto cursor_result = event.protocol_only
-            ? protocol::observe_sequence(
-                  protocol_cursor,
-                  event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u)
+            ? protocol::observe_sequence(protocol_cursor, event_sequence, contiguous)
             : event.repo_revision.empty()
-                  ? protocol::observe_sequence(
-                        protocol_cursor,
-                        event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u)
-                  : protocol::observe_stream(
-                  protocol_cursor,
-                  event.seq > 0 ? static_cast<std::uint64_t>(event.seq) : 0u,
-                  event.author_did, event.repo_revision);
+                  ? protocol::observe_sequence(protocol_cursor, event_sequence, contiguous)
+                  : protocol::observe_stream(protocol_cursor, event_sequence,
+                                             event.author_did, event.repo_revision,
+                                             contiguous);
         if (cursor_result == protocol::CursorResult::Gap) {
-            /* Jetstream seq is global. A collection-filtered subscription
-             * necessarily skips unrelated commits, so a gap requests
-             * reconciliation but must not discard the valid event. */
+            /* Unfiltered stream: commits were lost. Request reconciliation; the
+             * valid event is still kept. */
             result.protocol_resync_required = true;
         }
         if (cursor_result == protocol::CursorResult::Rewind ||
@@ -117,7 +134,8 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
             state.catchup.protocol_repo = protocol_cursor.repo;
             state.catchup.protocol_revision = protocol_cursor.repo_revision;
         }
-        if (protocol_ledger != nullptr) {
+        if (protocol_ledger != nullptr &&
+            (limits.record_commit_evidence || event.deleted || event.event_type != "#commit")) {
             (void)protocol::append_firehose_event(
                 *protocol_ledger, "jetstream",
                 event.deleted ? "#commit/delete" : event.event_type,
@@ -157,6 +175,17 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
     result.events_consumed = batch.frames_consumed;
     result.malformed_frames = batch.malformed_frames;
     result.exhausted = batch.exhausted;
+    result.filtered_sequence_jumps = sequence_jumps;
+    if (sequence_jumps != 0u && protocol_ledger != nullptr) {
+        /* One aggregate record per batch keeps the signal durable without an
+         * evidence entry for every skipped sequence on a busy filtered stream. */
+        (void)protocol::append_firehose_event(
+            *protocol_ledger, "jetstream", "#filtered-sequence-jump", "",
+            "jumps=" + std::to_string(sequence_jumps) +
+                "|first_after=" + std::to_string(first_jump_after) +
+                "|last_to=" + std::to_string(last_jump_to),
+            last_jump_to, 0u, protocol::Verification::Unverified);
+    }
 
     if (result.protocol_resync_required && resync) {
         const auto plan = protocol::plan_resync(protocol_cursor, 0u);

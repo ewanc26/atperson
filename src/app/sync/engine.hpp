@@ -112,6 +112,10 @@ SyncResult run_sync(LanguageGraph &graph, Ledger &ledger, IngestionState &state,
 struct JetstreamLimits {
     std::uint64_t max_events{0}; /* 0 = unbounded */
     std::int64_t max_ms{0};      /* 0 = unbounded */
+    /* false keeps only identity/account/sync/delete/gap evidence, not one
+     * entry per routine record commit; each commit is already durable in the
+     * observation ledger. Bounds evidence growth on whole-network streams. */
+    bool record_commit_evidence{true};
 };
 
 struct JetstreamRunResult {
@@ -122,6 +126,10 @@ struct JetstreamRunResult {
     std::size_t skipped{};
     std::size_t duplicates{};
     std::size_t withdrawn{};
+    std::size_t dropped{}; /* rows the archive returned that produced no event */
+    /* Expected global-sequence jumps seen on a filtered stream; recorded as
+     * unverified evidence, never as verification or as a reason to resync. */
+    std::size_t filtered_sequence_jumps{};
     bool reconciled{};
     bool protocol_resync_required{};
     bool exhausted{}; /* feed closed cleanly at the head */

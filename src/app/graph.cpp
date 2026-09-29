@@ -78,6 +78,12 @@ void LanguageGraph::observe(std::string_view text, std::string_view source_id) {
             "observe text");
 }
 
+atp_prune_report LanguageGraph::prune_vocabulary(std::size_t max_nodes) {
+    atp_prune_report report = {};
+    require(atp_graph_prune_vocabulary(graph_, max_nodes, &report), "prune vocabulary");
+    return report;
+}
+
 atp_graph_stats LanguageGraph::stats() const noexcept {
     return atp_graph_get_stats(graph_);
 }
@@ -299,7 +305,7 @@ std::vector<std::uint64_t> LanguageGraph::episode_group_members(std::uint32_t gr
 }
 
 atp_plasticity_report LanguageGraph::plasticity_report() const {
-    atp_plasticity_report report = {0};
+    atp_plasticity_report report{};
     require(atp_graph_plasticity_report(graph_, &report), "read plasticity report");
     return report;
 }
