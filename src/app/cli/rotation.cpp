@@ -27,6 +27,14 @@ std::uint64_t parse_cap(const char *name) {
 
 constexpr int kMaxModelPasses = 3;
 
+/* The model keeps a mirror of the ledger's per-entry metadata that pruning
+ * vocabulary cannot shrink (see docs/jetstream.md, "Bounding disk use"). */
+constexpr std::uint64_t kMirrorBytesPerEntry = 130u;
+
+/* A pass that shrinks the file by less than this fraction is not worth the
+ * forgetting it costs. */
+constexpr double kMinUsefulShrink = 0.02;
+
 } // namespace
 
 SizeCaps size_caps_from_env() {
@@ -56,10 +64,21 @@ void rotate_by_size(std::ostream &out, Ledger &ledger, LanguageGraph &graph,
         return;
     }
     std::uint64_t size = std::filesystem::file_size(model_path);
-    for (int pass = 0; pass < kMaxModelPasses && size > caps.model_max_bytes; ++pass) {
+    /* Only the vocabulary-dependent part of the file can be pruned away. If the
+     * cap sits at or below the ledger mirror, no amount of pruning reaches it;
+     * refuse rather than erode the vocabulary while chasing it. */
+    const std::uint64_t floor = ledger.count() * kMirrorBytesPerEntry;
+    if (size > caps.model_max_bytes && floor >= caps.model_max_bytes) {
+        out << "rotate: warning: model cap " << caps.model_max_bytes
+            << " bytes is below the ~" << floor
+            << "-byte ledger mirror; not pruning vocabulary\n";
+        return;
+    }
+    for (int pass = 0; pass < kMaxModelPasses && size > caps.model_max_bytes && size > floor;
+         ++pass) {
         const std::size_t nodes = graph.stats().node_count;
-        const double keep = 0.8 * static_cast<double>(caps.model_max_bytes) /
-                            static_cast<double>(size);
+        const double keep = 0.8 * static_cast<double>(caps.model_max_bytes - floor) /
+                            static_cast<double>(size - floor);
         const std::size_t target =
             std::max<std::size_t>(1u, static_cast<std::size_t>(static_cast<double>(nodes) * keep));
         const auto report = graph.prune_vocabulary(target);
@@ -73,6 +92,10 @@ void rotate_by_size(std::ostream &out, Ledger &ledger, LanguageGraph &graph,
             << report.nodes_after << " node(s), " << report.edges_before << " -> "
             << report.edges_after << " edge(s), model " << before << " -> " << size
             << " bytes\n";
+        if (size + static_cast<std::uint64_t>(kMinUsefulShrink * static_cast<double>(before)) >
+            before) {
+            break;
+        }
     }
     if (size > caps.model_max_bytes) {
         out << "rotate: warning: model is " << size << " bytes, above the "

@@ -44,3 +44,11 @@ fi
 # Rebuild succeeds and reports the released observations as forgotten.
 "$BIN" rebuild >"$DIR/rebuild.out"
 grep -q "released" "$DIR/rebuild.out" || { echo "rebuild did not report released"; cat "$DIR/rebuild.out"; exit 1; }
+
+# A model cap below the ledger mirror cannot be reached by pruning; it must be
+# refused with a warning, not chased by eroding the vocabulary.
+nodes_before=$("$BIN" stats | sed -n 's/^nodes: //p')
+ATPERSON_MODEL_MAX_BYTES=1 "$BIN" rotate >"$DIR/model.out"
+grep -q "not pruning vocabulary" "$DIR/model.out" || { echo "expected floor warning"; cat "$DIR/model.out"; exit 1; }
+nodes_after=$("$BIN" stats | sed -n 's/^nodes: //p')
+[ "$nodes_before" = "$nodes_after" ] || { echo "vocabulary eroded: $nodes_before -> $nodes_after"; exit 1; }

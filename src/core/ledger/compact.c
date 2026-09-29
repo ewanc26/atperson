@@ -210,6 +210,22 @@ atp_status atp_ledger_release_payloads(atp_ledger *ledger, uint64_t max_bytes,
         }
         return ATP_OK;
     }
+    /* Nothing releasable (metadata alone exceeds the cap): do not rewrite the
+     * whole log just to release zero payloads. */
+    bool releasable = false;
+    for (size_t i = 0u; i < ledger->count && !releasable; ++i) {
+        releasable = ledger->payloads[i] && ledger->payload_lens[i] > 0u &&
+                     ledger->payload_lens[i] != ATP_LEDGER_PAYLOAD_RELEASED &&
+                     (ledger->entries[i].outcome == ATP_LEDGER_OUTCOME_LEARNED ||
+                      ledger->entries[i].outcome == ATP_LEDGER_OUTCOME_SKIPPED);
+    }
+    if (!releasable) {
+        if (report) {
+            report->bytes_before = ledger->committed_offset;
+            report->bytes_after = ledger->committed_offset;
+        }
+        return ATP_OK;
+    }
     /* Release down to 80% of the cap so the next append does not immediately
      * cross it again. */
     const uint64_t target = max_bytes - max_bytes / 5u;

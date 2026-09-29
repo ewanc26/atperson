@@ -113,6 +113,9 @@ int run_jetstream_archive(
     const std::filesystem::path &collections_file,
     const std::filesystem::path &dids_file,
     const std::function<void(const LanguageGraph &)> &print_stats) {
+    /* Parse the byte caps before any work so a malformed value cannot fail a
+     * run after its observations were committed. */
+    const auto size_caps = cli::size_caps_from_env();
     const auto control_file = cli::control_state_path();
     if (load_control_state(control_file).paused) {
         throw std::runtime_error(
@@ -181,9 +184,9 @@ int run_jetstream_archive(
         relative_span, required_self_did(), collections, dids, linker,
         &protocol_ledger);
     graph.save(model_path);
-    cli::rotate_by_size(out, ledger, graph, model_path, cli::size_caps_from_env());
     state.checkpoint.generation++;
     save_ingestion_state(state, state_file);
+    cli::rotate_by_size(out, ledger, graph, model_path, size_caps);
     auto control = load_control_state(control_file);
     control.last_sync_at = control_now_rfc3339();
     save_control_state(control, control_file);
@@ -227,6 +230,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
      * unset self DID is valid for bootstrap training; when configured, the
      * client still excludes the entity's own records. */
     const std::string configured_self = self_did();
+    const auto size_caps = cli::size_caps_from_env();
 
     /*
      * Bind the persisted cursor to the actual Jetstream endpoint, not the
@@ -238,8 +242,11 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
                                        kSourceKindJetstream);
 
     JetstreamLimits limits = parse_limits(max_events, max_ms);
-    limits.record_commit_evidence =
-        env_or("ATPERSON_PROTOCOL_EVIDENCE", "all") != "control";
+    const std::string evidence_mode = env_or("ATPERSON_PROTOCOL_EVIDENCE", "all");
+    if (evidence_mode != "all" && evidence_mode != "control") {
+        throw std::runtime_error("ATPERSON_PROTOCOL_EVIDENCE must be 'all' or 'control'");
+    }
+    limits.record_commit_evidence = evidence_mode == "all";
     const auto budget_start = std::chrono::steady_clock::now();
     const std::vector<std::string> collections =
         collections_file.empty()
@@ -335,9 +342,9 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     }
 
     graph.save(model_path);
-    cli::rotate_by_size(out, ledger, graph, model_path, cli::size_caps_from_env());
     ingestion.checkpoint.generation++;
     atperson::save_ingestion_state(ingestion, state_file);
+    cli::rotate_by_size(out, ledger, graph, model_path, size_caps);
     control.last_sync_at = atperson::control_now_rfc3339();
     atperson::save_control_state(control, control_file);
 

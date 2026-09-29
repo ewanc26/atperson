@@ -269,14 +269,15 @@ int run_daemon_command(std::ostream &out, std::ostream &err,
         return atperson::run_sync(g, l, s, fetch_page, cl, ln);
     };
 
+    const auto size_caps = size_caps_from_env();
     const DaemonPersistence persistence{
         [&ingestion, &state_file]() {
             ingestion.checkpoint.generation++;
             save_ingestion_state(ingestion, state_file);
         },
-        [&graph, &model_path, &ledger]() {
+        [&graph, &model_path, &ledger, &out, size_caps]() {
             graph.save(model_path);
-            rotate_by_size(std::cerr, ledger, graph, model_path, size_caps_from_env());
+            rotate_by_size(out, ledger, graph, model_path, size_caps);
         },
     };
 

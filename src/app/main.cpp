@@ -498,6 +498,10 @@ int main(int argc, char **argv) {
             }
             atperson::require_runtime_write_headroom(resource_status);
             const atperson::StateLock writer_lock(atperson::cli::data_dir());
+            /* The model was loaded before the lock; reload it so a concurrent
+             * writer's newer state is not pruned from a stale copy and saved
+             * over. */
+            graph = atperson::load_or_create_graph(resource_status, path);
             atperson::Ledger ledger(atperson::cli::ledger_path());
             atperson::cli::rotate_by_size(std::cout, ledger, graph, path, caps);
             print_stats(graph);

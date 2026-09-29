@@ -259,7 +259,7 @@ demand with `atperson rotate`:
 Both are deliberate forgetting. A `rebuild` cannot regrow released observations
 or pruned tokens, and a pruned model is not what replay would produce. Released
 entries still cost ~130 B of metadata each, and the model keeps a mirror of it,
-so a cap below that floor cannot be reached; `rotate` prints a warning then.
+so a cap below that floor cannot be reached. `rotate` warns then; for the model it refuses to prune (rather than erode the vocabulary chasing an unreachable cap), and the ledger is not rewritten when no payload is left to release. `ATPERSON_PROTOCOL_EVIDENCE` accepts only `all` or `control`.
 
 ## #60 status
 
