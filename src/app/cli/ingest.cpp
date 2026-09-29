@@ -12,6 +12,8 @@
 #include "control/state.hpp"
 #include "sync/engine.hpp"
 
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <cstdint>
 #include <iostream>
@@ -42,6 +44,22 @@ void offer_external_publishing(std::ostream &out, std::uint64_t before,
     } else {
         out << "External publishing remains disabled.\n";
     }
+}
+
+// Default source id for a file: "file:<path>", or, when that would exceed the
+// ledger's source-id limit, a deterministic form that keeps the path's tail and
+// a digest of the whole path so two long paths never collide by truncation.
+std::string default_file_source(const std::string &path) {
+    std::string source = "file:" + path;
+    if (source.size() < ATPERSON_LEDGER_SOURCE_BYTES) {
+        return source;
+    }
+    char digest[24];
+    std::snprintf(digest, sizeof digest, "%016llx",
+                  static_cast<unsigned long long>(atp_ledger_digest(path.data(), path.size())));
+    const std::string prefix = std::string("file:") + digest + ":";
+    const std::size_t room = ATPERSON_LEDGER_SOURCE_BYTES - 1u - prefix.size();
+    return prefix + path.substr(path.size() - std::min(room, path.size()));
 }
 
 // Feeds one local observation through the ledger-backed pipeline and saves the
@@ -107,7 +125,7 @@ int run_ingest_file(std::ostream &out, const RuntimeResourceStatus &resource_sta
     const std::string text((std::istreambuf_iterator<char>(input)),
                            std::istreambuf_iterator<char>());
     const std::string source =
-        source_value ? source_value : "file:" + input_path.string();
+        source_value ? source_value : default_file_source(input_path.string());
     observe_local(out, graph, model_path, ledger_path, text, source);
     print_stats(graph);
     offer_external_publishing(std::cout, before, graph);
