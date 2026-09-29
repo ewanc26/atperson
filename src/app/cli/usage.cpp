@@ -43,7 +43,7 @@ void print_usage(std::ostream &out) {
         << "  atperson publish <action-file>\n"
         << "  atperson statepub <status|drain [--offline]>\n"
         << "  atperson reconstruct --into <dir>\n"
-        << "  atperson journal <actions|events|valence|resolutions|intents [limit]|apply <token> <kind> <signal> <source-id>|\n"
+        << "  atperson journal <actions|events|valence|resolutions|intents [limit]|trace <action-id>|apply <token> <kind> <signal> <source-id>|\n"
         << "                    map <rule-file>|resolve>\n"
         << "  atperson thought <text...>\n"
         << "  atperson thoughts [limit] [--since <iso>] [--kind <kind>]\n"

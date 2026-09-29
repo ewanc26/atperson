@@ -194,6 +194,8 @@ A future autonomous loop should emit one trace object per attempted decision cyc
 6. **What happened afterwards?** Journal events linked to the action.
 7. **What changed in learned state?** Only explicit, provenance-linked outcome/valence updates.
 
+The journal's part of that trace (steps 5–7 as far as the journal holds them) is available today as `atperson journal trace <action-id>`; see [`action-journal.md`](action-journal.md). The full single-object trace across perception, policy and control is still roadmap.
+
 This is the atperson equivalent of a WorkTrace: evidence is carried across boundaries rather than replaced by a final opaque “agent said yes”.
 
 ## Dependency map

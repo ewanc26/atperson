@@ -59,12 +59,25 @@ atperson journal events [limit]
 atperson journal valence [limit]
 atperson journal resolutions [limit]
 atperson journal intents [limit]
+atperson journal trace <action-id>
 atperson journal apply <token> <kind> <signal> <source-id>
 atperson journal map <rule-file>
 atperson journal resolve
 ```
 
-The listing commands are read-only. `apply`, `map` and `resolve` mutate persistence and therefore take the data-directory writer lock. `apply` and `map` additionally touch learned state; `resolve` touches only the journal.
+The listing commands and `trace` are read-only. `apply`, `map` and `resolve` mutate persistence and therefore take the data-directory writer lock. `apply` and `map` additionally touch learned state; `resolve` touches only the journal.
+
+## Tracing one action
+
+`journal trace <action-id>` prints everything the journal durably knows about one self-authored action, joined by stable identifiers:
+
+- the frozen action: kind, attempt time, outcome and reason code, approval digest, executed URI/CID, exact text and its recorded expectation;
+- the latest expectation resolution (`met`, `unmet` or `expired`), or `none recorded`;
+- the later public events that referenced it, with how (`parent`, `root`, `quote`);
+- the explicit valence updates that cite the action, by its id, its executed URI or one of its event URIs, with their `map:<rule-id>` provenance when present;
+- the latest record of each pending-intent conversation that includes it.
+
+This is the journal's half of the agent-loop WorkTrace: what was executed, what happened afterwards and which explicit, provenance-linked outcome updates followed. It is derived and read-only: it takes no lock, reads no graph, model or network, and infers nothing. Evidence the journal does not hold is reported as absent rather than reconstructed. Perception and decision evidence live in the observation ledger and the `decide`/`plans` traces; policy and gate decisions live in the outbound audit log. An unknown action id exits with status 1, and a missing argument with status 2.
 
 ## Applying one valence event
 
