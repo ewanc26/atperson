@@ -33,6 +33,7 @@ void print_usage(std::ostream &out) {
         << "  atperson daemon [max-cycles]\n"
         << "  atperson rebuild\n"
         << "  atperson compact\n"
+        << "  atperson rotate\n"
         << "  atperson withdraw <id|source|author> <target>\n"
         << "  atperson cursor [status|reset]\n"
         << "  atperson control <status|pause|resume|writes <on|off>|dry-run <on|off>|"

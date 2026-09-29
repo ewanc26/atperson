@@ -154,9 +154,11 @@ size_t atp_serialize_entry(unsigned char *out, const atp_ledger_entry *entry,
     atp_store_u32_le(out + pos, entry->schema_version);
     pos += 4u;
     out[pos++] = (unsigned char)entry->outcome;
-    atp_store_u32_le(out + pos, (uint32_t)payload_len);
+    const bool released = payload_len == ATP_LEDGER_PAYLOAD_RELEASED;
+    atp_store_u32_le(out + pos,
+                     released ? ATP_LEDGER_PAYLOAD_RELEASED_WIRE : (uint32_t)payload_len);
     pos += 4u;
-    if (payload_len > 0u) {
+    if (!released && payload_len > 0u) {
         memcpy(out + pos, payload, payload_len);
         pos += payload_len;
     }
@@ -232,11 +234,15 @@ bool atp_parse_entry(const unsigned char *payload, size_t length, atp_ledger_ent
     }
     const uint32_t payload_len = atp_load_u32_le(payload + pos);
     pos += 4u;
-    if (payload_len > ATPERSON_LEDGER_PAYLOAD_LIMIT || pos + (size_t)payload_len > length) {
+    const bool released = payload_len == ATP_LEDGER_PAYLOAD_RELEASED_WIRE;
+    if (!released &&
+        (payload_len > ATPERSON_LEDGER_PAYLOAD_LIMIT || pos + (size_t)payload_len > length)) {
         return false;
     }
-    const unsigned char *entry_payload = payload + pos;
-    pos += (size_t)payload_len;
+    const unsigned char *entry_payload = released ? NULL : payload + pos;
+    if (!released) {
+        pos += (size_t)payload_len;
+    }
 
     if (!atp_parse_string(payload, length, &pos, out_context->reply_root_uri,
                           ATPERSON_CONTEXT_URI_BYTES) ||
@@ -248,7 +254,7 @@ bool atp_parse_entry(const unsigned char *payload, size_t length, atp_ledger_ent
         return false;
     }
     *out_payload = entry_payload;
-    *out_payload_len = (size_t)payload_len;
+    *out_payload_len = released ? ATP_LEDGER_PAYLOAD_RELEASED : (size_t)payload_len;
     return true;
 }
 

@@ -89,6 +89,14 @@ class Ledger {
      */
     atp_compact_report compact();
 
+    /**
+     * Bound the log to `max_bytes` by releasing the raw text of the oldest
+     * learned observations (see atp_ledger_release_payloads). Dedup and
+     * entry identity are unchanged; a later rebuild forgets released
+     * observations. A no-op while the log is within the cap. Throws on error.
+     */
+    atp_compact_report release_payloads(std::uint64_t max_bytes);
+
     /** Dedup query on the unique (source id + digest) index. */
     [[nodiscard]] LedgerResult lookup(std::string_view source_id, std::uint64_t content_digest,
                                       atp_ledger_entry *out_entry) const;

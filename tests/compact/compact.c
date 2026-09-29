@@ -355,6 +355,90 @@ static int run_rebuild_equivalence(const char *dir) {
     return 0;
 }
 
+/* Size-cap release: raw text of old learned entries is released, identity and
+ * dedup survive compaction and reopen, and replay forgets only those entries. */
+static int run_release(const char *dir) {
+    remove_dir_files(dir);
+    CHECK(atp_mkdir(dir) == 0);
+
+    atp_ledger *ledger = open_ledger(dir);
+    uint64_t ids[8] = {0};
+    CHECK(build_fixture(ledger, ids) == 0);
+
+    atp_graph_config config = atp_graph_default_config();
+    atp_graph *first = atp_graph_create(&config);
+    atp_replay_report before_replay = {0};
+    CHECK(atp_replay_ledger(ledger, first, &before_replay) == ATP_OK);
+    CHECK(before_replay.replayed > 0u);
+    atp_graph_destroy(first);
+
+    uint64_t outcomes[8] = {0};
+    CHECK(snapshot_outcomes(ledger, outcomes, 8u) == 0);
+
+    /* Within the cap: nothing changes. */
+    atp_compact_report report = {0};
+    CHECK(atp_ledger_release_payloads(ledger, UINT64_C(1) << 30u, &report) == ATP_OK);
+    CHECK(report.payloads_released == 0u);
+    CHECK(report.bytes_before == report.bytes_after);
+    CHECK(atp_ledger_release_payloads(ledger, 0u, &report) == ATP_ERR_INVALID_ARGUMENT);
+
+    /* Over the cap: release every releasable payload. */
+    CHECK(atp_ledger_release_payloads(ledger, 1u, &report) == ATP_OK);
+    CHECK(report.payloads_released >= before_replay.replayed);
+    CHECK(report.bytes_after < report.bytes_before);
+
+    for (int pass = 0; pass < 2; ++pass) {
+        uint64_t after[8] = {0};
+        CHECK(snapshot_outcomes(ledger, after, 8u) == 0);
+        for (size_t i = 0u; i < 8u; ++i) {
+            CHECK(after[i] == outcomes[i]);
+            atp_ledger_entry entry = {0};
+            CHECK(atp_ledger_entry_at(ledger, i, &entry) == ATP_OK);
+            CHECK(entry.id == ids[i]);
+        }
+        CHECK(atp_ledger_entry_payload_released(ledger, ids[0]));
+        size_t len = 1u;
+        CHECK(atp_ledger_entry_payload(ledger, ids[0], NULL, 0u, &len) == ATP_OK);
+        CHECK(len == 0u);
+        /* Pending/failed keep their bytes: they can still close to LEARNED. */
+        CHECK(!atp_ledger_entry_payload_released(ledger, ids[4]));
+        CHECK(!atp_ledger_entry_payload_released(ledger, ids[5]));
+        len = 0u;
+        CHECK(atp_ledger_entry_payload(ledger, ids[4], NULL, 0u, &len) == ATP_OK);
+        CHECK(len > 0u);
+
+        /* Dedup still recognises released content. */
+        uint64_t id = 0u;
+        atp_status status = ATP_OK;
+        CHECK(atp_ledger_append(ledger, "at://c/1", "did:plc:a", 100u,
+                                atp_ledger_digest("wolf moon", 9u), ATPERSON_SCHEMA_VERSION,
+                                ATP_LEDGER_OUTCOME_LEARNED, "wolf moon", 9u, &id,
+                                &status) == ATP_LEDGER_EXISTS_COMMITTED);
+        CHECK(id == ids[0]);
+
+        if (pass == 0) {
+            /* A second release is idempotent, and the marker survives reopen. */
+            CHECK(atp_ledger_release_payloads(ledger, 1u, &report) == ATP_OK);
+            CHECK(report.payloads_released == 0u);
+            atp_ledger_destroy(ledger);
+            ledger = open_ledger(dir);
+        }
+    }
+
+    /* Replay forgets exactly the released observations and still succeeds. */
+    atp_graph *second = atp_graph_create(&config);
+    atp_replay_report after_replay = {0};
+    CHECK(atp_replay_ledger(ledger, second, &after_replay) == ATP_OK);
+    CHECK(after_replay.replayed == 0u);
+    CHECK(after_replay.excluded_released == before_replay.replayed);
+    atp_graph_destroy(second);
+
+    atp_ledger_destroy(ledger);
+    remove_dir_files(dir);
+    printf("release: ok\n");
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s <compact|rebuild-equivalence> [dir]\n", argv[0]);
@@ -363,6 +447,9 @@ int main(int argc, char **argv) {
     const char *dir = argc > 2 ? argv[2] : "/tmp/atperson-compact";
     if (strcmp(argv[1], "compact") == 0) {
         return run_compact(dir);
+    }
+    if (strcmp(argv[1], "release") == 0) {
+        return run_release(dir);
     }
     if (strcmp(argv[1], "rebuild-equivalence") == 0) {
         return run_rebuild_equivalence(dir);

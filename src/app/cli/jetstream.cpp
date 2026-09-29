@@ -7,6 +7,7 @@
 #include "atproto/jetstream_filter.hpp"
 #include "atproto/jetstream_replay_client.hpp"
 #include "cli/config.hpp"
+#include "cli/rotation.hpp"
 #include "ingestion/state.hpp"
 #include "journal/store.hpp"
 #include "lock.hpp"
@@ -180,6 +181,7 @@ int run_jetstream_archive(
         relative_span, required_self_did(), collections, dids, linker,
         &protocol_ledger);
     graph.save(model_path);
+    cli::rotate_by_size(out, ledger, graph, model_path, cli::size_caps_from_env());
     state.checkpoint.generation++;
     save_ingestion_state(state, state_file);
     auto control = load_control_state(control_file);
@@ -333,6 +335,7 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
     }
 
     graph.save(model_path);
+    cli::rotate_by_size(out, ledger, graph, model_path, cli::size_caps_from_env());
     ingestion.checkpoint.generation++;
     atperson::save_ingestion_state(ingestion, state_file);
     control.last_sync_at = atperson::control_now_rfc3339();

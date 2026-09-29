@@ -51,6 +51,9 @@ class LanguageGraph {
 
     void observe(std::string_view text, std::string_view source_id = {});
     [[nodiscard]] atp_graph_stats stats() const noexcept;
+
+    /** Drop the least-observed tokens down to `max_nodes` (deliberate forgetting). */
+    atp_prune_report prune_vocabulary(std::size_t max_nodes);
     [[nodiscard]] atp_neural_architecture neural_architecture() const;
     [[nodiscard]] atp_neural_architecture_report neural_report() const;
     /** Ordered durable neural-expansion history for this generation. */

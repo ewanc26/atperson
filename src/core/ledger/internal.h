@@ -70,6 +70,13 @@
     (ATP_LEDGER_PAYLOAD_MAX + ATP_LEDGER_CONTEXT_MAX + ATPERSON_LEDGER_PAYLOAD_LIMIT)
 #define ATP_LEDGER_RECORD_MAX (9u + ATP_LEDGER_BODY_MAX)
 
+/* In-memory payload_lens value for an entry whose raw text was released to
+ * bound the log (see atp_ledger_release_payloads). On the wire it is the
+ * payload_len field UINT32_MAX, which exceeds ATPERSON_LEDGER_PAYLOAD_LIMIT,
+ * so a reader that predates released payloads fails closed. */
+#define ATP_LEDGER_PAYLOAD_RELEASED SIZE_MAX
+#define ATP_LEDGER_PAYLOAD_RELEASED_WIRE UINT32_MAX
+
 #define ATP_LEDGER_SLOT_EMPTY UINT64_MAX
 
 typedef struct atp_ledger_slot {

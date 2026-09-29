@@ -15,7 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
+static atp_status atp_ledger_compact_release(atp_ledger *ledger, atp_compact_report *report,
+                                             uint64_t release_bytes) {
     if (report) {
         memset(report, 0, sizeof(*report));
     }
@@ -93,11 +94,26 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
         return ATP_ERR_OUT_OF_MEMORY;
     }
 
+    uint64_t released_bytes = 0u;
     for (size_t i = 0u; i < ledger->count && result == ATP_OK; ++i) {
         const atp_ledger_entry *entry = &ledger->entries[i];
         const unsigned char *payload = ledger->payloads[i];
         size_t payload_len = ledger->payload_lens[i];
 
+        if (release_bytes > 0u && released_bytes < release_bytes && payload && payload_len > 0u &&
+            payload_len != ATP_LEDGER_PAYLOAD_RELEASED &&
+            (entry->outcome == ATP_LEDGER_OUTCOME_LEARNED ||
+             entry->outcome == ATP_LEDGER_OUTCOME_SKIPPED)) {
+            released_bytes += payload_len;
+            payload = NULL;
+            payload_len = ATP_LEDGER_PAYLOAD_RELEASED;
+            free(ledger->payloads[i]);
+            ledger->payloads[i] = NULL;
+            ledger->payload_lens[i] = ATP_LEDGER_PAYLOAD_RELEASED;
+            if (report) {
+                report->payloads_released++;
+            }
+        }
         if (entry->outcome == ATP_LEDGER_OUTCOME_WITHDRAWN && payload) {
             payload = NULL;
             payload_len = 0u;
@@ -173,4 +189,29 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
     free(body);
     free(record);
     return ATP_OK;
+}
+
+atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report) {
+    return atp_ledger_compact_release(ledger, report, 0u);
+}
+
+atp_status atp_ledger_release_payloads(atp_ledger *ledger, uint64_t max_bytes,
+                                       atp_compact_report *report) {
+    if (report) {
+        memset(report, 0, sizeof(*report));
+    }
+    if (!ledger || max_bytes == 0u) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    if (ledger->committed_offset <= max_bytes) {
+        if (report) {
+            report->bytes_before = ledger->committed_offset;
+            report->bytes_after = ledger->committed_offset;
+        }
+        return ATP_OK;
+    }
+    /* Release down to 80% of the cap so the next append does not immediately
+     * cross it again. */
+    const uint64_t target = max_bytes - max_bytes / 5u;
+    return atp_ledger_compact_release(ledger, report, ledger->committed_offset - target);
 }

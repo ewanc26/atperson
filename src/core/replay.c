@@ -237,6 +237,15 @@ atp_status atp_replay_ledger_with_migrations(
             /* Length query first; the read re-verifies the content digest. */
             const atp_status probed =
                 atp_ledger_entry_payload(ledger, entry.id, NULL, 0u, &payload_len);
+            if (probed == ATP_OK && payload_len == 0u &&
+                atp_ledger_entry_payload_released(ledger, entry.id)) {
+                /* Text released by a size cap: the observation is forgotten
+                 * by the rebuild, never trained and never mirrored. */
+                if (report) {
+                    report->excluded_released++;
+                }
+                break;
+            }
             if (probed != ATP_OK || payload_len == 0u) {
                 /* Payload-less LEARNED entry (v1-migrated ledger): the
                  * training input is gone. Fail the rebuild honestly. */

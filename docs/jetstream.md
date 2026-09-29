@@ -242,6 +242,25 @@ It does not enable posts, replies, likes, follows, reposts, DMs or moderation. T
 
 The learning policy still accepts only public post records. Private-message/conversation payloads are not learning input.
 
+## Bounding disk use (rotation)
+
+Whole-network ingestion grows the ledger and the model without limit. Two
+opt-in byte caps (unset or `0` = off) bound them; they are enforced after each
+`jetstream` / `jetstream archive` run, after each daemon model save, and on
+demand with `atperson rotate`:
+
+- `ATPERSON_LEDGER_MAX_BYTES`: releases the raw text of the oldest
+  observations (down to ~80% of the cap). Identity, digest, outcome and dedup
+  are kept, so an entry is never re-learned. On disk a released entry has
+  `payload_len = UINT32_MAX`, which older readers reject, so they fail closed.
+- `ATPERSON_MODEL_MAX_BYTES`: prunes the least-observed vocabulary (protecting
+  tokens with valence history), remaps edges and episodes, then saves.
+
+Both are deliberate forgetting. A `rebuild` cannot regrow released observations
+or pruned tokens, and a pruned model is not what replay would produce. Released
+entries still cost ~130 B of metadata each, and the model keeps a mirror of it,
+so a cap below that floor cannot be reached; `rotate` prints a warning then.
+
 ## #60 status
 
 The relative backfill window was the last piece of the #60 operator surface; it is implemented:

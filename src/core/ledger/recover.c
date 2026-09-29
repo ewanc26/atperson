@@ -141,7 +141,9 @@ atp_status atp_ledger_recover(atp_ledger *ledger) {
                 free(buffer);
                 return ATP_ERR_FORMAT;
             }
-            if (entry_payload_len > 0u) {
+            if (entry_payload_len == ATP_LEDGER_PAYLOAD_RELEASED) {
+                ledger->payload_lens[ledger->count] = ATP_LEDGER_PAYLOAD_RELEASED;
+            } else if (entry_payload_len > 0u) {
                 unsigned char *owned = malloc(entry_payload_len);
                 if (!owned) {
                     free(buffer);

@@ -18,6 +18,8 @@
 #include "cli/jetstream.hpp"
 #include "cli/ledger.hpp"
 #include "cli/metrics.hpp"
+#include "cli/rotation.hpp"
+#include "lock.hpp"
 #include "cli/neural.hpp"
 #include "cli/outbound.hpp"
 #include "cli/publish.hpp"
@@ -484,6 +486,21 @@ int main(int argc, char **argv) {
         if (command == "resources") {
             atperson::print_runtime_resources(std::cout, resource_status, graph,
                                                resource_overrides);
+            return 0;
+        }
+
+        if (command == "rotate") {
+            const auto caps = atperson::cli::size_caps_from_env();
+            if (!caps.enabled()) {
+                std::cerr << "atperson: set ATPERSON_LEDGER_MAX_BYTES and/or "
+                             "ATPERSON_MODEL_MAX_BYTES to rotate\n";
+                return 2;
+            }
+            atperson::require_runtime_write_headroom(resource_status);
+            const atperson::StateLock writer_lock(atperson::cli::data_dir());
+            atperson::Ledger ledger(atperson::cli::ledger_path());
+            atperson::cli::rotate_by_size(std::cout, ledger, graph, path, caps);
+            print_stats(graph);
             return 0;
         }
 

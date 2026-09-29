@@ -78,6 +78,12 @@ void LanguageGraph::observe(std::string_view text, std::string_view source_id) {
             "observe text");
 }
 
+atp_prune_report LanguageGraph::prune_vocabulary(std::size_t max_nodes) {
+    atp_prune_report report = {};
+    require(atp_graph_prune_vocabulary(graph_, max_nodes, &report), "prune vocabulary");
+    return report;
+}
+
 atp_graph_stats LanguageGraph::stats() const noexcept {
     return atp_graph_get_stats(graph_);
 }

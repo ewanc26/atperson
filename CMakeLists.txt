@@ -41,6 +41,7 @@ add_library(
   src/core/graph/observe.c
   src/core/graph/query.c
   src/core/graph/valence.c
+  src/core/graph/prune.c
   src/core/memory.c
   src/core/action/ordering.c
   src/core/action/candidates.c
@@ -191,6 +192,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/config.cpp
     src/app/cli/usage.cpp
     src/app/cli/maintenance.cpp
+    src/app/cli/rotation.cpp
     src/app/cli/neural.cpp
     src/app/cli/inspection.cpp
     src/app/cli/ingest.cpp
@@ -308,6 +310,10 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson-neural-kernel-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
   add_test(NAME atperson-neural-kernel COMMAND atperson-neural-kernel-test)
 
+  add_executable(atperson-prune-test tests/core/prune.c)
+  target_link_libraries(atperson-prune-test PRIVATE atperson-core)
+  add_test(NAME atperson-prune COMMAND atperson-prune-test)
+
   add_executable(atperson-memory-test tests/memory/memory.c)
   target_link_libraries(atperson-memory-test PRIVATE atperson-core)
   add_test(NAME atperson-memory COMMAND atperson-memory-test)
@@ -406,6 +412,9 @@ if(ATPERSON_BUILD_TESTS)
     NAME atperson-compact_rebuild_equivalence
     COMMAND atperson-compact-test rebuild-equivalence
             ${CMAKE_CURRENT_BINARY_DIR}/compact-rebuild)
+  add_test(
+    NAME atperson-compact_release
+    COMMAND atperson-compact-test release ${CMAKE_CURRENT_BINARY_DIR}/compact-release)
 
   # Unicode tokenization contract; pure core, no network.
   add_executable(atperson-tokenize-test tests/tokenize/tokenize.c)
