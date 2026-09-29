@@ -25,6 +25,28 @@ Jetstream service. The canonical `subscribeEvents` endpoint enables v2 sequence
 cursors and is required for archive-to-live cutover; the legacy `/subscribe`
 endpoint remains available for explicitly configured live-only consumers.
 
+## Ingesting the whole network
+
+With no `--dids` file (leave `ATPERSON_JETSTREAM_DIDS_FILE` unset) the
+subscription is not restricted by repository, so every public post on the
+network is a candidate observation. A live run saves the model and resume
+cursor when it ends, so run it in bounded chunks:
+
+```sh
+set -a; . "$HOME/.ewanc26/atperson/.env"; set +a
+scripts/whole-network.sh ./build/atperson 300
+```
+
+Two practical notes:
+
+- Filtered subscriptions skip most of the global sequence, so sequence gaps
+  are expected and do not block checkpointing. On an unfiltered stream a gap
+  still requests reconciliation.
+- Neural training cost per post grows steeply with the capacity class. On a
+  laptop the auto-selected `large` class trains several seconds per post, far
+  below the network's post rate; set `ATPERSON_NEURAL_CAPACITY=baseline` (or
+  `capable`) before the first creation or a rebuild to keep up with the feed.
+
 ## Status inspection
 
 ```sh
