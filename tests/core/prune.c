@@ -51,10 +51,8 @@ static void test_prune_keeps_common_and_valence(void) {
     /* The graph stays usable: new observation reuses surviving vocabulary. */
     assert(atp_graph_observe_text(graph, "common shared words fresh", "at://t/new") == ATP_OK);
 
-    char path[] = "/tmp/atperson-prune-XXXXXX";
-    int fd = mkstemp(path);
-    assert(fd >= 0);
-    close(fd);
+    char path[64];
+    snprintf(path, sizeof path, "/tmp/atperson-prune-%ld.model", (long)getpid());
     assert(atp_graph_save(graph, path) == ATP_OK);
     atp_status status = ATP_OK;
     atp_graph *loaded = atp_graph_load(path, &status);
