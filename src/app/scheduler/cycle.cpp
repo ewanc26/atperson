@@ -1,5 +1,6 @@
 #include "cycle.hpp"
 
+#include "action/decision_env.hpp"
 #include "action/inspection.hpp"
 #include "control/envelope.hpp"
 #include "control/state.hpp"
@@ -212,7 +213,7 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
             break;
         }
         const drives::ContextCandidate &candidate = candidates[index];
-        const atp_action_decision decision = graph.action_decide(candidate.payload);
+        const atp_action_decision decision = graph.action_decide(candidate.payload, config.decision);
         if (decision.abstained) {
             /* Graduated actions (#152): a below-floor abstention on a
              * likeable subject is itself inspectable evidence. Compose an
@@ -407,6 +408,7 @@ SchedulerConfig scheduler_config_from_environment() {
     const char *graduated = std::getenv("ATPERSON_SCHEDULER_GRADUATED_LIKES");
     config.graduated_likes = graduated != nullptr && std::string_view(graduated) == "1";
     config.intents = intent_config_from_environment();
+    apply_decision_env(config.decision);
     return config;
 }
 

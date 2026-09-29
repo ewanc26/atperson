@@ -28,6 +28,15 @@ typedef struct atp_action_candidate {
     float support_score;
     uint64_t supporting_observations;
     uint32_t context_matches;
+    /*
+     * The target token's experience-derived valence in [-1, 1] and how many
+     * explicit valence events produced it. Both are 0 for a token that has
+     * never received an explicit event: exposure alone gives no valence.
+     * Informational only: it is NOT part of `score`, so ranking and the score
+     * formula are unchanged. Only the opt-in valence guard reads it.
+     */
+    float valence;
+    uint32_t valence_events;
 } atp_action_candidate;
 
 typedef enum atp_action_plan_stop_reason {
@@ -38,7 +47,8 @@ typedef enum atp_action_plan_stop_reason {
     ATP_ACTION_PLAN_STOP_LOW_SUPPORT = 4,
     ATP_ACTION_PLAN_STOP_SCORE_DROP = 5,
     ATP_ACTION_PLAN_STOP_REPETITION = 6,
-    ATP_ACTION_PLAN_STOP_CYCLE = 7
+    ATP_ACTION_PLAN_STOP_CYCLE = 7,
+    ATP_ACTION_PLAN_STOP_NEGATIVE_VALENCE = 8
 } atp_action_plan_stop_reason;
 
 typedef struct atp_action_plan_config {
@@ -60,6 +70,16 @@ typedef struct atp_action_guard_config {
     float max_score_drop;
     /* Maximum consecutive occurrences of one generated token: 1 or 2. */
     size_t max_consecutive_occurrences;
+    /*
+     * Opt-in valence veto (off unless `valence_guard`). When on, a candidate
+     * whose explicit experience-derived valence is below `min_valence` is
+     * rejected. `min_valence` must be finite in [-1, 0], so the guard can only
+     * veto tokens with recorded negative experience: a token with no valence
+     * events (valence 0) is never blocked, and the guard can never demand
+     * positive valence. Zero-initialised configs leave it off.
+     */
+    bool valence_guard;
+    float min_valence;
 } atp_action_guard_config;
 
 typedef struct atp_action_decision_config {
@@ -72,7 +92,8 @@ typedef enum atp_action_abstain_reason {
     ATP_ACTION_ABSTAIN_EMPTY_CONTEXT = 1,
     ATP_ACTION_ABSTAIN_NO_CANDIDATES = 2,
     ATP_ACTION_ABSTAIN_LOW_SCORE = 3,
-    ATP_ACTION_ABSTAIN_LOW_SUPPORT = 4
+    ATP_ACTION_ABSTAIN_LOW_SUPPORT = 4,
+    ATP_ACTION_ABSTAIN_NEGATIVE_VALENCE = 5
 } atp_action_abstain_reason;
 
 /**
@@ -99,6 +120,10 @@ typedef struct atp_action_stop_evidence {
     size_t consecutive_occurrences;
     size_t max_consecutive_occurrences;
     size_t cycle_start_index;
+    /* The triggering candidate's valence, and the guard settings echoed. */
+    float candidate_valence;
+    bool valence_guard;
+    float min_valence;
 } atp_action_stop_evidence;
 
 /**
@@ -184,6 +209,8 @@ atp_action_decision_config atp_action_decision_default_config(void);
  * - support score is below `min_support_score`;
  * - its score falls by more than `max_score_drop` from the previous accepted
  *   step;
+ * - the valence guard is on and its recorded valence is below `min_valence`
+ *   (see atp_action_guard_config);
  * - it would exceed `max_consecutive_occurrences` for one token; or
  * - it revisits an earlier non-consecutive generated token (a cycle).
  *

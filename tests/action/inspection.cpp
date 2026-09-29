@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <cstdlib>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -122,10 +123,60 @@ void test_abstention_and_bounds_are_visible() {
                unknown, graph, "not-an-inspection-command", {}, 100u) == 2);
 }
 
+void test_valence_guard_is_opt_in_and_visible() {
+    atperson::LanguageGraph graph;
+    for (int i = 0; i < 4; ++i) {
+        graph.observe("alpha beta gamma", "at://valence/" + std::to_string(i));
+    }
+    for (int i = 0; i < 3; ++i) {
+        graph.valence_event("beta", ATP_VALENCE_AVOID, -1.0f, 10u + static_cast<unsigned>(i),
+                            "at://valence/event");
+    }
+
+    /* Unset: decisions are exactly as before and show no guard. */
+    unsetenv("ATPERSON_DECISION_MIN_VALENCE");
+    std::ostringstream plain;
+    assert(atperson::run_action_inspection_command(
+               plain, graph, "decide", {"alpha", "4", "2", "0", "0", "1"}, 300u) == 0);
+    const std::string plain_out = plain.str();
+    assert(plain_out.find("outcome: plan") != std::string::npos);
+    assert(plain_out.find("min-valence") == std::string::npos);
+    /* The recorded valence is visible on the candidate either way. */
+    assert(plain_out.find("valence=-") != std::string::npos);
+    assert(plain_out.find("valence-events=3") != std::string::npos);
+
+    /* Opted in: the veto is an ordinary, explained abstention. */
+    setenv("ATPERSON_DECISION_MIN_VALENCE", "-0.25", 1);
+    std::ostringstream guarded;
+    assert(atperson::run_action_inspection_command(
+               guarded, graph, "decide", {"alpha", "4", "2", "0", "0", "1"}, 300u) == 0);
+    const std::string guarded_out = guarded.str();
+    assert(guarded_out.find("outcome: abstain") != std::string::npos);
+    assert(guarded_out.find("abstain-reason: negative-valence") != std::string::npos);
+    assert(guarded_out.find("stop-evidence reason=negative-valence") != std::string::npos);
+    assert(guarded_out.find("min-valence=-0.25") != std::string::npos);
+
+    /* A malformed or out-of-range value is an error, never a silent off/on. */
+    for (const char *bad : {"abc", "0.5", "-2", "nan", "-0.25x"}) {
+        setenv("ATPERSON_DECISION_MIN_VALENCE", bad, 1);
+        bool threw = false;
+        try {
+            std::ostringstream rejected;
+            (void)atperson::run_action_inspection_command(
+                rejected, graph, "decide", {"alpha", "4", "2", "0", "0", "1"}, 300u);
+        } catch (const std::runtime_error &) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    unsetenv("ATPERSON_DECISION_MIN_VALENCE");
+}
+
 } // namespace
 
 int main() {
     test_plan_decision_and_context_render_authoritative_evidence();
     test_abstention_and_bounds_are_visible();
+    test_valence_guard_is_opt_in_and_visible();
     return 0;
 }

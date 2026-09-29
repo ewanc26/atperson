@@ -1,5 +1,7 @@
 #include "inspection.hpp"
 
+#include "decision_env.hpp"
+
 #include <atperson/core.h>
 
 #include <charconv>
@@ -92,6 +94,8 @@ const char *plan_stop_name(atp_action_plan_stop_reason reason) {
         return "repetition";
     case ATP_ACTION_PLAN_STOP_CYCLE:
         return "cycle";
+    case ATP_ACTION_PLAN_STOP_NEGATIVE_VALENCE:
+        return "negative-valence";
     }
     return "unknown";
 }
@@ -108,6 +112,8 @@ const char *abstain_name(atp_action_abstain_reason reason) {
         return "low-score";
     case ATP_ACTION_ABSTAIN_LOW_SUPPORT:
         return "low-support";
+    case ATP_ACTION_ABSTAIN_NEGATIVE_VALENCE:
+        return "negative-valence";
     }
     return "unknown";
 }
@@ -151,7 +157,12 @@ void print_candidate(std::ostream &out, const atp_action_candidate &candidate, s
         << " familiarity=" << candidate.familiarity_score
         << " support=" << candidate.support_score
         << " observations=" << candidate.supporting_observations
-        << " context-matches=" << candidate.context_matches << '\n';
+        << " context-matches=" << candidate.context_matches;
+    if (candidate.valence_events > 0u) {
+        out << " valence=" << std::showpos << candidate.valence << std::noshowpos
+            << " valence-events=" << candidate.valence_events;
+    }
+    out << '\n';
 }
 
 void print_plan(std::ostream &out, const atp_action_plan &plan, std::size_t index) {
@@ -179,6 +190,10 @@ void print_stop_evidence(std::ostream &out, const atp_action_stop_evidence &evid
         << " max-consecutive=" << evidence.max_consecutive_occurrences;
     if (evidence.cycle_start_index != SIZE_MAX) {
         out << " cycle-start=" << evidence.cycle_start_index;
+    }
+    if (evidence.valence_guard) {
+        out << " valence=" << std::showpos << evidence.candidate_valence << std::noshowpos
+            << " min-valence=" << evidence.min_valence;
     }
     out << '\n';
 }
@@ -297,6 +312,7 @@ int run_action_inspection_command(std::ostream &out, const LanguageGraph &graph,
                 parse_bounded(arguments[6], 1u, 2u, "max-consecutive");
             config.guards.max_consecutive_occurrences = value;
         }
+        apply_decision_env(config);
         const auto decision = graph.action_decide(arguments[0], config);
         out << "layer: learned-core\nnetwork-policy: not-evaluated\n"
             << "outcome: " << (decision.abstained ? "abstain" : "plan") << '\n'
@@ -306,7 +322,11 @@ int run_action_inspection_command(std::ostream &out, const LanguageGraph &graph,
             << "guard-thresholds min-candidate=" << std::fixed << std::setprecision(2)
             << config.guards.min_candidate_score << " min-support="
             << config.guards.min_support_score << " max-drop=" << config.guards.max_score_drop
-            << " max-consecutive=" << config.guards.max_consecutive_occurrences << '\n';
+            << " max-consecutive=" << config.guards.max_consecutive_occurrences;
+        if (config.guards.valence_guard) {
+            out << " min-valence=" << config.guards.min_valence;
+        }
+        out << '\n';
         print_stop_evidence(out, decision.evidence);
         if (!decision.abstained) {
             print_plan(out, decision.plan, 0u);

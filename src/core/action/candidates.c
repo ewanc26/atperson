@@ -185,6 +185,16 @@ atp_status atp_graph_action_candidates(const atp_graph *graph, const char *conte
         candidate->score = (association_score + familiarity_score + support_score) / 3.0f;
         candidate->supporting_observations = support;
         candidate->context_matches = context_matches[i];
+
+        /* Explicit experience only: a token that never received a valence
+         * event keeps valence 0 / 0 events. Reported, never scored. */
+        atp_valence_state valence_state;
+        if (atp_graph_valence(graph, graph->nodes[i].token, &valence_state) == ATP_OK) {
+            candidate->valence = valence_state.valence;
+            candidate->valence_events = valence_state.event_count > UINT32_MAX
+                                            ? UINT32_MAX
+                                            : (uint32_t)valence_state.event_count;
+        }
     }
 
     free(association_sums);

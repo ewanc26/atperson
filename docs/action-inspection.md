@@ -83,3 +83,7 @@ Context selection uses recall preview, so inspecting it does not increment episo
 ## Output stability
 
 The current output is operator-facing text, not a versioned machine protocol. Consumers should not scrape it as though it were one. Any future machine-readable mode needs an explicit schema and version.
+
+## Valence in the trace
+
+Each candidate line adds `valence=<v> valence-events=<n>` when the token has recorded valence events (nothing is printed for a never-valued token, so existing output is unchanged). When the opt-in valence guard is configured (`ATPERSON_DECISION_MIN_VALENCE`), `decide` also prints `min-valence` in its thresholds line, and the stop evidence shows the triggering candidate's valence. The `audit` payload carries the same fields under the same condition.

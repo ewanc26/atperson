@@ -59,6 +59,7 @@
 #include "intent/config.hpp"
 #include "outbound/attempt.hpp"
 
+#include "atperson/action.h"
 #include "atperson/graph.hpp"
 #include "atperson/ledger.hpp"
 
@@ -102,6 +103,11 @@ struct SchedulerConfig {
      * plan, and it still passes every execution gate unchanged. Off by
      * default. */
     bool graduated_likes{false};
+    /* The guarded decision's thresholds. Defaults are the library defaults; the
+     * environment can opt into the valence veto (ATPERSON_DECISION_MIN_VALENCE,
+     * see action/decision_env.hpp). It only narrows what may be proposed: a
+     * vetoed plan is an ordinary abstention and every gate is unchanged. */
+    atp_action_decision_config decision{atp_action_decision_default_config()};
 };
 
 /* Accounting for one scheduler cycle, reported to the operator. */

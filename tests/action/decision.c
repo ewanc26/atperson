@@ -261,6 +261,152 @@ static void test_guard_validation(void) {
     atp_graph_destroy(graph);
 }
 
+static atp_graph *chain_graph(void) {
+    atp_graph *graph = atp_graph_create(NULL);
+    assert(graph != NULL);
+    for (int i = 0; i < 4; ++i) {
+        char id[32];
+        snprintf(id, sizeof id, "at://valence/%d", i);
+        assert(atp_graph_observe_text(graph, "alpha beta gamma", id) == ATP_OK);
+    }
+    return graph;
+}
+
+static atp_action_candidate find_candidate(const atp_graph *graph, const char *context,
+                                           const char *token) {
+    atp_action_candidate candidates[16] = {0};
+    size_t count = 0u;
+    assert(atp_graph_action_candidates(graph, context, candidates, 16u, &count) == ATP_OK);
+    for (size_t i = 0u; i < count; ++i) {
+        if (strcmp(candidates[i].token, token) == 0) {
+            return candidates[i];
+        }
+    }
+    assert(!"candidate not found");
+    return candidates[0];
+}
+
+static void test_valence_is_reported_but_never_scored(void) {
+    atp_graph *graph = chain_graph();
+    const atp_action_candidate before = find_candidate(graph, "alpha", "beta");
+    /* Exposure alone gives no valence. */
+    assert(before.valence_events == 0u && before.valence == 0.0f);
+
+    assert(atp_graph_valence_event(graph, "beta", ATP_VALENCE_AVOID, -1.0f, 10u, "at://e/1") ==
+           ATP_OK);
+    const atp_action_candidate after = find_candidate(graph, "alpha", "beta");
+    assert(after.valence_events == 1u && after.valence < 0.0f);
+    /* The score formula is untouched: valence is inspectable, not folded in. */
+    assert(memcmp(&before.score, &after.score, sizeof(float)) == 0);
+    assert(memcmp(&before.association_score, &after.association_score, sizeof(float)) == 0);
+    /* A token that was never valued stays at zero. */
+    const atp_action_candidate other = find_candidate(graph, "beta", "gamma");
+    assert(other.valence_events == 0u && other.valence == 0.0f);
+    atp_graph_destroy(graph);
+}
+
+static void test_valence_guard_vetoes_recorded_negative_experience(void) {
+    atp_graph *graph = chain_graph();
+    atp_action_decision_config config = permissive_config();
+    assert(!config.guards.valence_guard); /* off by default */
+    for (int i = 0; i < 3; ++i) {
+        assert(atp_graph_valence_event(graph, "beta", ATP_VALENCE_AVOID, -1.0f, 10u + (unsigned)i,
+                                       "at://e/avoid") == ATP_OK);
+    }
+
+    atp_action_decision off = {0};
+    assert(atp_graph_action_decide(graph, "alpha", &config, &off) == ATP_OK);
+    assert(!off.abstained && off.plan.step_count >= 1u);
+    assert(strcmp(off.plan.steps[0].token, "beta") == 0);
+    assert(!off.evidence.valence_guard);
+
+    config.guards.valence_guard = true;
+    config.guards.min_valence = -0.25f;
+    atp_action_decision on = {0};
+    assert(atp_graph_action_decide(graph, "alpha", &config, &on) == ATP_OK);
+    assert(on.abstained);
+    assert(on.abstain_reason == ATP_ACTION_ABSTAIN_NEGATIVE_VALENCE);
+    assert(on.evidence.reason == ATP_ACTION_PLAN_STOP_NEGATIVE_VALENCE);
+    assert(strcmp(on.evidence.token, "beta") == 0);
+    assert(on.evidence.valence_guard);
+    assert(fabsf(on.evidence.min_valence - (-0.25f)) < 0.000001f);
+    assert(on.evidence.candidate_valence < on.evidence.min_valence);
+
+    /* A threshold below the recorded valence lets it through again. */
+    config.guards.min_valence = -1.0f;
+    atp_action_decision lenient = {0};
+    assert(atp_graph_action_decide(graph, "alpha", &config, &lenient) == ATP_OK);
+    assert(!lenient.abstained);
+    atp_graph_destroy(graph);
+}
+
+static void test_valence_guard_truncates_prefix_and_spares_unvalued_and_positive(void) {
+    atp_graph *graph = chain_graph();
+    atp_action_decision_config config = permissive_config();
+    config.guards.valence_guard = true;
+    config.guards.min_valence = -0.25f;
+
+    /* Negative experience on a later step truncates the plan there. */
+    for (int i = 0; i < 3; ++i) {
+        assert(atp_graph_valence_event(graph, "gamma", ATP_VALENCE_ACTION, -1.0f, 20u + (unsigned)i,
+                                       "at://e/gamma") == ATP_OK);
+    }
+    atp_action_decision truncated = {0};
+    assert(atp_graph_action_decide(graph, "alpha", &config, &truncated) == ATP_OK);
+    assert(!truncated.abstained);
+    assert(truncated.plan.step_count == 1u);
+    assert(strcmp(truncated.plan.steps[0].token, "beta") == 0);
+    assert(truncated.plan.stop_reason == ATP_ACTION_PLAN_STOP_NEGATIVE_VALENCE);
+    assert(truncated.evidence.reason == ATP_ACTION_PLAN_STOP_NEGATIVE_VALENCE);
+    assert(strcmp(truncated.evidence.token, "gamma") == 0);
+
+    /* Positive experience is never blocked, and the guard cannot demand it. */
+    atp_graph *positive = chain_graph();
+    assert(atp_graph_valence_event(positive, "beta", ATP_VALENCE_INTERACTION, 1.0f, 30u,
+                                   "at://e/pos") == ATP_OK);
+    atp_action_decision spared = {0};
+    assert(atp_graph_action_decide(positive, "alpha", &config, &spared) == ATP_OK);
+    assert(!spared.abstained);
+    assert(strcmp(spared.plan.steps[0].token, "beta") == 0);
+
+    /* No valence events at all: the guard being on changes nothing. */
+    atp_graph *plain = chain_graph();
+    atp_action_decision_config off_config = permissive_config();
+    atp_action_decision baseline = {0};
+    atp_action_decision guarded = {0};
+    assert(atp_graph_action_decide(plain, "alpha", &off_config, &baseline) == ATP_OK);
+    assert(atp_graph_action_decide(plain, "alpha", &config, &guarded) == ATP_OK);
+    assert_decision_same(&baseline, &guarded);
+
+    atp_graph_destroy(positive);
+    atp_graph_destroy(plain);
+    atp_graph_destroy(graph);
+}
+
+static void test_valence_guard_validation(void) {
+    atp_graph *graph = chain_graph();
+    atp_action_decision decision = {0};
+    const float bad[] = {0.1f, 1.0f, -1.5f, NAN, INFINITY};
+    for (size_t i = 0u; i < sizeof bad / sizeof bad[0]; ++i) {
+        /* Validated even with the guard off: one flag flip must not make a
+         * malformed config valid. */
+        atp_action_decision_config config = atp_action_decision_default_config();
+        config.guards.min_valence = bad[i];
+        assert(atp_graph_action_decide(graph, "alpha", &config, &decision) ==
+               ATP_ERR_INVALID_ARGUMENT);
+        config.guards.valence_guard = true;
+        assert(atp_graph_action_decide(graph, "alpha", &config, &decision) ==
+               ATP_ERR_INVALID_ARGUMENT);
+    }
+    atp_action_decision_config edge = atp_action_decision_default_config();
+    edge.guards.valence_guard = true;
+    edge.guards.min_valence = 0.0f;
+    assert(atp_graph_action_decide(graph, "alpha", &edge, &decision) == ATP_OK);
+    edge.guards.min_valence = -1.0f;
+    assert(atp_graph_action_decide(graph, "alpha", &edge, &decision) == ATP_OK);
+    atp_graph_destroy(graph);
+}
+
 int main(void) {
     test_empty_and_unknown_context_abstain_explicitly();
     test_low_support_abstains_with_threshold_evidence();
@@ -271,6 +417,10 @@ int main(void) {
     test_dead_end_remains_explicit();
     test_repeated_calls_are_deterministic_and_read_only();
     test_guard_validation();
+    test_valence_is_reported_but_never_scored();
+    test_valence_guard_vetoes_recorded_negative_experience();
+    test_valence_guard_truncates_prefix_and_spares_unvalued_and_positive();
+    test_valence_guard_validation();
     puts("action decision tests passed");
     return 0;
 }

@@ -517,6 +517,8 @@ rules and can either return a supported prefix or abstain completely.
 An abstention is a successful decision that the learned evidence is
 insufficient, not a runtime error.
 
+Candidates also report the token's explicit, experience-derived valence (never part of the score). An opt-in guard (`ATPERSON_DECISION_MIN_VALENCE`) can veto tokens with recorded negative experience, so outcomes the entity has actually experienced can steer what it proposes; it only narrows proposals and grants no permission. See [`action-termination.md`](action-termination.md).
+
 See [`action-inspection.md`](action-inspection.md) and
 [`action-termination.md`](action-termination.md) for the exact trace fields and
 default thresholds.
