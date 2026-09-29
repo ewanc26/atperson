@@ -165,6 +165,17 @@ atp_status atp_graph_prune_vocabulary(atp_graph *graph, size_t max_nodes,
     graph->episode_count = episode_out;
     free(remap);
 
+    /* Drop the stale index tables before rebuilding. The rebuild otherwise
+     * allocates at least double the old capacity, so repeated prunes would
+     * grow the tables without bound and briefly hold two copies. With the
+     * tables gone, a failed rebuild leaves lookups empty (never pointing at a
+     * remapped node); the graph must then be discarded, not used. */
+    free(graph->node_index_slots);
+    graph->node_index_slots = NULL;
+    graph->node_index_capacity = 0u;
+    free(graph->edge_index_slots);
+    graph->edge_index_slots = NULL;
+    graph->edge_index_capacity = 0u;
     if (!atp_graph_rebuild_indexes(graph) || !atp_episode_groups_rebuild(graph)) {
         return ATP_ERR_OUT_OF_MEMORY;
     }
