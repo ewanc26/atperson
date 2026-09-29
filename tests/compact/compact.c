@@ -433,6 +433,39 @@ static int run_release(const char *dir) {
     CHECK(after_replay.excluded_released == before_replay.replayed);
     atp_graph_destroy(second);
 
+    /* Withdrawing an already-released entry is durable: the outcome becomes
+     * WITHDRAWN, the marker and the dedup tombstone survive reopen, and replay
+     * no longer counts the entry as merely released. */
+    CHECK(atp_ledger_withdraw(ledger, ids[0]) == ATP_OK);
+    for (int pass = 0; pass < 2; ++pass) {
+        atp_ledger_entry entry = {0};
+        CHECK(atp_ledger_entry_at(ledger, 0u, &entry) == ATP_OK);
+        CHECK(entry.id == ids[0]);
+        CHECK(entry.outcome == ATP_LEDGER_OUTCOME_WITHDRAWN);
+        CHECK(atp_ledger_entry_payload_released(ledger, ids[0]));
+
+        uint64_t id = 0u;
+        atp_status status = ATP_OK;
+        CHECK(atp_ledger_append(ledger, "at://c/1", "did:plc:a", 100u,
+                                atp_ledger_digest("wolf moon", 9u), ATPERSON_SCHEMA_VERSION,
+                                ATP_LEDGER_OUTCOME_LEARNED, "wolf moon", 9u, &id,
+                                &status) == ATP_LEDGER_EXISTS_COMMITTED);
+        CHECK(id == ids[0]);
+
+        atp_graph *third = atp_graph_create(&config);
+        atp_replay_report withdrawn_replay = {0};
+        CHECK(atp_replay_ledger(ledger, third, &withdrawn_replay) == ATP_OK);
+        CHECK(withdrawn_replay.replayed == 0u);
+        CHECK(withdrawn_replay.excluded_released == before_replay.replayed - 1u);
+        atp_graph_destroy(third);
+
+        if (pass == 0) {
+            CHECK(atp_ledger_release_payloads(ledger, 1u, &report) == ATP_OK);
+            atp_ledger_destroy(ledger);
+            ledger = open_ledger(dir);
+        }
+    }
+
     atp_ledger_destroy(ledger);
     remove_dir_files(dir);
     printf("release: ok\n");
