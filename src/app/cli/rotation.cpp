@@ -35,6 +35,14 @@ constexpr std::uint64_t kMirrorBytesPerEntry = 130u;
  * forgetting it costs. */
 constexpr double kMinUsefulShrink = 0.02;
 
+/* Nodes to keep for one pass: scale only the prunable (non-mirror) part of the
+ * file. Callers have already checked size > cap and floor < cap. */
+std::size_t model_keep_target(std::size_t nodes, std::uint64_t size, std::uint64_t floor,
+                              std::uint64_t cap) {
+    const double keep = 0.8 * static_cast<double>(cap - floor) / static_cast<double>(size - floor);
+    return std::max<std::size_t>(1u, static_cast<std::size_t>(static_cast<double>(nodes) * keep));
+}
+
 } // namespace
 
 SizeCaps size_caps_from_env() {
@@ -76,11 +84,8 @@ void rotate_by_size(std::ostream &out, Ledger &ledger, LanguageGraph &graph,
     }
     for (int pass = 0; pass < kMaxModelPasses && size > caps.model_max_bytes && size > floor;
          ++pass) {
-        const std::size_t nodes = graph.stats().node_count;
-        const double keep = 0.8 * static_cast<double>(caps.model_max_bytes - floor) /
-                            static_cast<double>(size - floor);
-        const std::size_t target =
-            std::max<std::size_t>(1u, static_cast<std::size_t>(static_cast<double>(nodes) * keep));
+        const std::size_t target = model_keep_target(graph.stats().node_count, size, floor,
+                                                     caps.model_max_bytes);
         const auto report = graph.prune_vocabulary(target);
         if (report.nodes_after == report.nodes_before) {
             break;
@@ -100,6 +105,45 @@ void rotate_by_size(std::ostream &out, Ledger &ledger, LanguageGraph &graph,
     if (size > caps.model_max_bytes) {
         out << "rotate: warning: model is " << size << " bytes, above the "
             << caps.model_max_bytes << "-byte cap\n";
+    }
+}
+
+void plan_rotation(std::ostream &out, const Ledger &ledger, const LanguageGraph &graph,
+                   const std::filesystem::path &model_path, const SizeCaps &caps) {
+    out << "rotate (dry run): nothing will be changed\n";
+    if (caps.ledger_max_bytes != 0u) {
+        const auto plan = ledger.release_plan(caps.ledger_max_bytes);
+        if (plan.payloads_released == 0u) {
+            out << "rotate: ledger " << plan.bytes_before << " bytes, cap "
+                << caps.ledger_max_bytes
+                << ": would release no payloads"
+                << (plan.bytes_before > caps.ledger_max_bytes
+                        ? " (per-entry metadata alone exceeds the cap)"
+                        : "")
+                << '\n';
+        } else {
+            out << "rotate: ledger " << plan.bytes_before << " bytes, cap "
+                << caps.ledger_max_bytes << ": would release " << plan.payloads_released
+                << " payload(s), ~" << plan.bytes_after << " bytes after\n";
+        }
+    }
+    if (caps.model_max_bytes != 0u && std::filesystem::exists(model_path)) {
+        const std::uint64_t size = std::filesystem::file_size(model_path);
+        const std::uint64_t floor = ledger.count() * kMirrorBytesPerEntry;
+        const std::size_t nodes = graph.stats().node_count;
+        if (size <= caps.model_max_bytes) {
+            out << "rotate: model " << size << " bytes, cap " << caps.model_max_bytes
+                << ": within the cap\n";
+        } else if (floor >= caps.model_max_bytes) {
+            out << "rotate: model " << size << " bytes, cap " << caps.model_max_bytes
+                << " is below the ~" << floor
+                << "-byte ledger mirror: would not prune vocabulary\n";
+        } else {
+            out << "rotate: model " << size << " bytes, cap " << caps.model_max_bytes
+                << ": would prune vocabulary from " << nodes << " to ~"
+                << model_keep_target(nodes, size, floor, caps.model_max_bytes)
+                << " node(s) on the first pass (up to " << kMaxModelPasses << " passes)\n";
+        }
     }
 }
 

@@ -263,6 +263,14 @@ demand with `atperson rotate`:
 - `ATPERSON_MODEL_MAX_BYTES`: prunes the least-observed vocabulary (protecting
   tokens with valence history), remaps edges and episodes, then saves.
 
+`atperson rotate --dry-run` previews a rotation without changing anything: it
+prints how many ledger payloads would be released and roughly what the size
+would be afterwards, and, for the model, the vocabulary size a first pass would
+prune to (or that the cap is below the floor and nothing would be pruned). The
+model figure is a single-pass estimate, since valence-protected tokens can keep
+it higher. Like other read commands it opens the ledger, so it performs only
+the recovery that opening always does.
+
 Both are deliberate forgetting. A `rebuild` cannot regrow released observations
 or pruned tokens, and a pruned model is not what replay would produce. Released
 entries still cost ~130 B of metadata each, and the model keeps a mirror of it,

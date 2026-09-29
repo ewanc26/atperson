@@ -15,6 +15,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* A payload is releasable when the entry is LEARNED or SKIPPED and still holds
+ * text. Pending and failed entries keep theirs (they can still close to
+ * LEARNED); withdrawn text is dropped by compaction regardless. */
+static bool atp_payload_releasable(const atp_ledger *ledger, size_t i) {
+    return ledger->payloads[i] && ledger->payload_lens[i] > 0u &&
+           ledger->payload_lens[i] != ATP_LEDGER_PAYLOAD_RELEASED &&
+           (ledger->entries[i].outcome == ATP_LEDGER_OUTCOME_LEARNED ||
+            ledger->entries[i].outcome == ATP_LEDGER_OUTCOME_SKIPPED);
+}
+
 static atp_status atp_ledger_compact_release(atp_ledger *ledger, atp_compact_report *report,
                                              uint64_t release_bytes) {
     if (report) {
@@ -101,10 +111,8 @@ static atp_status atp_ledger_compact_release(atp_ledger *ledger, atp_compact_rep
         const unsigned char *payload = ledger->payloads[i];
         size_t payload_len = ledger->payload_lens[i];
 
-        if (release_bytes > 0u && released_bytes < release_bytes && payload && payload_len > 0u &&
-            payload_len != ATP_LEDGER_PAYLOAD_RELEASED &&
-            (entry->outcome == ATP_LEDGER_OUTCOME_LEARNED ||
-             entry->outcome == ATP_LEDGER_OUTCOME_SKIPPED)) {
+        if (release_bytes > 0u && released_bytes < release_bytes &&
+            atp_payload_releasable(ledger, i)) {
             released_bytes += payload_len;
             payload = NULL;
             payload_len = ATP_LEDGER_PAYLOAD_RELEASED;
@@ -226,10 +234,7 @@ atp_status atp_ledger_release_payloads(atp_ledger *ledger, uint64_t max_bytes,
      * whole log just to release zero payloads. */
     bool releasable = false;
     for (size_t i = 0u; i < ledger->count && !releasable; ++i) {
-        releasable = ledger->payloads[i] && ledger->payload_lens[i] > 0u &&
-                     ledger->payload_lens[i] != ATP_LEDGER_PAYLOAD_RELEASED &&
-                     (ledger->entries[i].outcome == ATP_LEDGER_OUTCOME_LEARNED ||
-                      ledger->entries[i].outcome == ATP_LEDGER_OUTCOME_SKIPPED);
+        releasable = atp_payload_releasable(ledger, i);
     }
     if (!releasable) {
         if (report) {
@@ -242,4 +247,32 @@ atp_status atp_ledger_release_payloads(atp_ledger *ledger, uint64_t max_bytes,
      * cross it again. */
     const uint64_t target = max_bytes - max_bytes / 5u;
     return atp_ledger_compact_release(ledger, report, ledger->committed_offset - target);
+}
+
+atp_status atp_ledger_release_plan(const atp_ledger *ledger, uint64_t max_bytes,
+                                   atp_compact_report *report) {
+    if (report) {
+        memset(report, 0, sizeof(*report));
+    }
+    if (!ledger || !report || max_bytes == 0u) {
+        return ATP_ERR_INVALID_ARGUMENT;
+    }
+    report->bytes_before = ledger->committed_offset;
+    report->bytes_after = ledger->committed_offset;
+    if (ledger->committed_offset <= max_bytes) {
+        return ATP_OK;
+    }
+    /* Mirror atp_ledger_release_payloads: release oldest-first until the log
+     * would be about 80% of the cap. */
+    const uint64_t target = max_bytes - max_bytes / 5u;
+    const uint64_t need = ledger->committed_offset - target;
+    uint64_t released_bytes = 0u;
+    for (size_t i = 0u; i < ledger->count && released_bytes < need; ++i) {
+        if (atp_payload_releasable(ledger, i)) {
+            released_bytes += ledger->payload_lens[i];
+            report->payloads_released++;
+        }
+    }
+    report->bytes_after = ledger->committed_offset - released_bytes;
+    return ATP_OK;
 }

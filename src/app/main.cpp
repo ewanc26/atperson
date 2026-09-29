@@ -496,6 +496,12 @@ int main(int argc, char **argv) {
                              "ATPERSON_MODEL_MAX_BYTES to rotate\n";
                 return 2;
             }
+            if (argc >= 3 && std::string_view(argv[2]) == "--dry-run") {
+                /* Read-only preview: no write headroom, no writer lock. */
+                const atperson::Ledger ledger(atperson::cli::ledger_path());
+                atperson::cli::plan_rotation(std::cout, ledger, graph, path, caps);
+                return 0;
+            }
             atperson::require_runtime_write_headroom(resource_status);
             const atperson::StateLock writer_lock(atperson::cli::data_dir());
             /* The model was loaded before the lock; reload it so a concurrent

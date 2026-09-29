@@ -405,8 +405,20 @@ static int run_release(const char *dir) {
     CHECK(report.bytes_before == report.bytes_after);
     CHECK(atp_ledger_release_payloads(ledger, 0u, &report) == ATP_ERR_INVALID_ARGUMENT);
 
+    /* The plan predicts the release exactly and changes nothing. */
+    atp_compact_report plan = {0};
+    CHECK(atp_ledger_release_plan(ledger, 0u, &plan) == ATP_ERR_INVALID_ARGUMENT);
+    CHECK(atp_ledger_release_plan(ledger, UINT64_C(1) << 30u, &plan) == ATP_OK);
+    CHECK(plan.payloads_released == 0u && plan.bytes_before == plan.bytes_after);
+    CHECK(atp_ledger_release_plan(ledger, 1u, &plan) == ATP_OK);
+    CHECK(plan.payloads_released >= before_replay.replayed);
+    CHECK(plan.bytes_after < plan.bytes_before);
+    CHECK(!atp_ledger_entry_payload_released(ledger, ids[0]));
+
     /* Over the cap: release every releasable payload. */
     CHECK(atp_ledger_release_payloads(ledger, 1u, &report) == ATP_OK);
+    CHECK(report.payloads_released == plan.payloads_released);
+    CHECK(report.bytes_before == plan.bytes_before);
     CHECK(report.payloads_released >= before_replay.replayed);
     CHECK(report.bytes_after < report.bytes_before);
     /* Once anything is released the log carries the released-payload header, so

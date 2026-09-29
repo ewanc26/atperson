@@ -168,4 +168,10 @@ atp_compact_report Ledger::release_payloads(std::uint64_t max_bytes) {
     return report;
 }
 
+atp_compact_report Ledger::release_plan(std::uint64_t max_bytes) const {
+    atp_compact_report report = {};
+    require(atp_ledger_release_plan(ledger_, max_bytes, &report), "plan ledger payload release");
+    return report;
+}
+
 } // namespace atperson
