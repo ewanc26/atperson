@@ -421,7 +421,7 @@ void EvidenceLedger::refresh_index() {
     if (error) throw std::runtime_error("stat protocol evidence ledger");
     if (index_valid_ && size == indexed_size_) return;
     index_.clear();
-    for (const auto &entry : entries()) index_.insert(evidence_digest(entry));
+    for_each_entry([&](ProtocolEvidence &&entry) { index_.insert(evidence_digest(entry)); });
     indexed_size_ = size;
     index_valid_ = true;
 }
@@ -474,9 +474,9 @@ bool EvidenceLedger::append(ProtocolEvidence evidence) {
     return true;
 }
 
-std::vector<ProtocolEvidence> EvidenceLedger::entries() const {
-    std::vector<ProtocolEvidence> result;
-    if (!std::filesystem::exists(path_)) return result;
+void EvidenceLedger::for_each_entry(
+    const std::function<void(ProtocolEvidence &&)> &visit) const {
+    if (!std::filesystem::exists(path_)) return;
     std::ifstream in(path_, std::ios::binary);
     while (in.peek() != std::char_traits<char>::eof()) {
         std::uint32_t magic = 0;
@@ -499,8 +499,13 @@ std::vector<ProtocolEvidence> EvidenceLedger::entries() const {
         evidence.event_type = read_field(in);
         evidence.subject = read_field(in);
         evidence.payload = read_field(in);
-        result.push_back(std::move(evidence));
+        visit(std::move(evidence));
     }
+}
+
+std::vector<ProtocolEvidence> EvidenceLedger::entries() const {
+    std::vector<ProtocolEvidence> result;
+    for_each_entry([&](ProtocolEvidence &&e) { result.push_back(std::move(e)); });
     return result;
 }
 

@@ -120,7 +120,8 @@ JetstreamRunResult run_jetstream_backfill(LanguageGraph &graph, Ledger &ledger,
             state.catchup.protocol_repo = protocol_cursor.repo;
             state.catchup.protocol_revision = protocol_cursor.repo_revision;
         }
-        if (protocol_ledger != nullptr) {
+        if (protocol_ledger != nullptr &&
+            (limits.record_commit_evidence || event.protocol_only || event.deleted)) {
             (void)protocol::append_firehose_event(
                 *protocol_ledger, "jetstream",
                 event.deleted ? "#commit/delete" : event.event_type,

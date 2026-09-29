@@ -46,6 +46,11 @@ Two practical notes:
   laptop the auto-selected `large` class trains several seconds per post, far
   below the network's post rate; set `ATPERSON_NEURAL_CAPACITY=baseline` (or
   `capable`) before the first creation or a rebuild to keep up with the feed.
+- The protocol evidence ledger normally gains one fsynced entry per commit,
+  which reached ~6 GB after a day of whole-network ingestion. Set
+  `ATPERSON_PROTOCOL_EVIDENCE=control` to keep only identity, account, sync,
+  delete and cursor-gap evidence; routine commits stay durable in the
+  observation ledger regardless.
 
 ## Status inspection
 

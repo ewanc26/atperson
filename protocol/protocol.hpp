@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -235,6 +236,7 @@ class EvidenceLedger {
      * while the file is exactly the size this instance last saw; any other
      * size means another writer appended and the index is rebuilt. */
     void refresh_index();
+    void for_each_entry(const std::function<void(ProtocolEvidence &&)> &visit) const;
     std::filesystem::path path_;
     std::unordered_set<EvidenceDigest, EvidenceDigestHash> index_;
     std::uintmax_t indexed_size_{};

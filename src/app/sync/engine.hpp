@@ -112,6 +112,10 @@ SyncResult run_sync(LanguageGraph &graph, Ledger &ledger, IngestionState &state,
 struct JetstreamLimits {
     std::uint64_t max_events{0}; /* 0 = unbounded */
     std::int64_t max_ms{0};      /* 0 = unbounded */
+    /* false keeps only identity/account/sync/delete/gap evidence, not one
+     * entry per routine record commit; each commit is already durable in the
+     * observation ledger. Bounds evidence growth on whole-network streams. */
+    bool record_commit_evidence{true};
 };
 
 struct JetstreamRunResult {

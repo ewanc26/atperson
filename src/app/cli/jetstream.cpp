@@ -235,7 +235,9 @@ int run_jetstream(std::ostream &out, const RuntimeResourceStatus &resource_statu
         atperson::load_ingestion_state(state_file, endpoint, "",
                                        kSourceKindJetstream);
 
-    const JetstreamLimits limits = parse_limits(max_events, max_ms);
+    JetstreamLimits limits = parse_limits(max_events, max_ms);
+    limits.record_commit_evidence =
+        env_or("ATPERSON_PROTOCOL_EVIDENCE", "all") != "control";
     const auto budget_start = std::chrono::steady_clock::now();
     const std::vector<std::string> collections =
         collections_file.empty()
