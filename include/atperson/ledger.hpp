@@ -97,6 +97,13 @@ class Ledger {
      */
     atp_compact_report release_payloads(std::uint64_t max_bytes);
 
+    /**
+     * What release_payloads(`max_bytes`) would do, changing nothing: how many
+     * payloads it would release and an estimate of the resulting size. Throws
+     * on error.
+     */
+    [[nodiscard]] atp_compact_report release_plan(std::uint64_t max_bytes) const;
+
     /** Dedup query on the unique (source id + digest) index. */
     [[nodiscard]] LedgerResult lookup(std::string_view source_id, std::uint64_t content_digest,
                                       atp_ledger_entry *out_entry) const;

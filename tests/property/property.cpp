@@ -402,6 +402,69 @@ void test_prune_properties() {
     }
 }
 
+/* ---------------------------------------------------------------- */
+/* Payload release properties                                        */
+/* ---------------------------------------------------------------- */
+
+void test_release_partitions_replay() {
+    for (std::uint64_t seed = 1u; seed <= 8u; ++seed) {
+        Xorshift rng(seed * 0xA24BAED4963EE407ull);
+        const auto dir = scratch_dir("release");
+        const auto path = dir / "ledger.bin";
+
+        struct Kept {
+            std::string uri;
+            std::string text;
+        };
+        std::vector<Kept> all;
+        {
+            atperson::Ledger ledger(path);
+            for (std::uint32_t i = 0u; i < 30u; ++i) {
+                const std::string text = random_text(rng, 6u) + " n" + std::to_string(i);
+                const std::string uri = random_uri(rng, i);
+                std::uint64_t id = 0u;
+                assert(ledger.append(uri, random_did(rng), i, atperson::Ledger::digest(text),
+                                     ATPERSON_SCHEMA_VERSION, ATP_LEDGER_OUTCOME_LEARNED, text,
+                                     &id) == atperson::LedgerResult::New);
+                all.push_back({uri, text});
+            }
+        }
+
+        atperson::Ledger ledger(path);
+        atperson::LanguageGraph before;
+        const auto full = before.replay(ledger);
+        assert(full.replayed == all.size());
+
+        /* Any cap: replay splits exactly into replayed + excluded_released,
+         * nothing is trained twice and nothing is lost from the partition. */
+        const std::uint64_t cap = 1u + rng.below(4000u);
+        (void)ledger.release_payloads(cap);
+        atperson::LanguageGraph after;
+        const auto partial = after.replay(ledger);
+        assert(partial.replayed + partial.excluded_released == full.replayed);
+        assert(partial.replayed <= full.replayed);
+
+        /* Dedup identity survives release, even across a reopen: released
+         * content is never learned again. */
+        atperson::Ledger reopened(path);
+        atperson::LanguageGraph again;
+        const auto reopened_report = again.replay(reopened);
+        assert(reopened_report.replayed == partial.replayed);
+        assert(reopened_report.excluded_released == partial.excluded_released);
+        for (const auto &item : all) {
+            std::uint64_t id = 0u;
+            assert(reopened.append(item.uri, "did:plc:x", 0u,
+                                   atperson::Ledger::digest(item.text), ATPERSON_SCHEMA_VERSION,
+                                   ATP_LEDGER_OUTCOME_LEARNED, item.text,
+                                   &id) == atperson::LedgerResult::ExistsCommitted);
+        }
+
+        /* Release is monotone: a second pass at the same cap changes nothing. */
+        const auto second = reopened.release_payloads(cap);
+        assert(second.payloads_released == 0u);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -410,6 +473,7 @@ int main() {
     test_replay_converges_to_observed_state();
     test_valence_round_trip_equivalence();
     test_prune_properties();
+    test_release_partitions_replay();
 
     std::printf("property tests passed\n");
     return 0;

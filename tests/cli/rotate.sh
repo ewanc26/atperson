@@ -25,6 +25,12 @@ before=$("$BIN" stats)
 echo "$before" | grep -q "^observations: 8$" || { echo "expected 8 observations"; echo "$before"; exit 1; }
 size=$(wc -c <"$DIR/training/ledger.bin")
 
+# A dry run reports what would be released and changes nothing.
+ATPERSON_LEDGER_MAX_BYTES=$((size / 2)) "$BIN" rotate --dry-run >"$DIR/dry.out"
+grep -q "would release" "$DIR/dry.out" || { echo "expected dry-run plan"; cat "$DIR/dry.out"; exit 1; }
+[ "$(wc -c <"$DIR/training/ledger.bin")" -eq "$size" ] || { echo "dry run changed the ledger"; exit 1; }
+if "$BIN" rotate --dry-run >/dev/null 2>&1; then echo "dry run without a cap should not succeed"; exit 1; fi
+
 # A cap far below the payload total releases text, never entries.
 ATPERSON_LEDGER_MAX_BYTES=$((size / 2)) "$BIN" rotate >"$DIR/rot.out"
 grep -q "released" "$DIR/rot.out" || { echo "expected released payloads"; cat "$DIR/rot.out"; exit 1; }
@@ -52,3 +58,7 @@ ATPERSON_MODEL_MAX_BYTES=1 "$BIN" rotate >"$DIR/model.out"
 grep -q "not pruning vocabulary" "$DIR/model.out" || { echo "expected floor warning"; cat "$DIR/model.out"; exit 1; }
 nodes_after=$("$BIN" stats | sed -n 's/^nodes: //p')
 [ "$nodes_before" = "$nodes_after" ] || { echo "vocabulary eroded: $nodes_before -> $nodes_after"; exit 1; }
+
+# The dry run explains the same refusal without acting on it.
+ATPERSON_MODEL_MAX_BYTES=1 "$BIN" rotate --dry-run >"$DIR/model-dry.out"
+grep -q "would not prune vocabulary" "$DIR/model-dry.out" || { echo "expected dry-run model refusal"; cat "$DIR/model-dry.out"; exit 1; }

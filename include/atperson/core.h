@@ -758,6 +758,16 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report);
 atp_status atp_ledger_release_payloads(atp_ledger *ledger, uint64_t max_bytes,
                                        atp_compact_report *report);
 
+/**
+ * What atp_ledger_release_payloads(`ledger`, `max_bytes`) would do, without
+ * changing anything: `payloads_released` is how many payloads it would
+ * release, `bytes_before` the current committed size and `bytes_after` an
+ * estimate of the size afterwards (the real pass also flattens patch
+ * records, so it can be slightly smaller). `max_bytes` must be non-zero.
+ */
+atp_status atp_ledger_release_plan(const atp_ledger *ledger, uint64_t max_bytes,
+                                   atp_compact_report *report);
+
 /** True when the entry's raw text was released by a size-cap pass. */
 bool atp_ledger_entry_payload_released(const atp_ledger *ledger, uint64_t id);
 

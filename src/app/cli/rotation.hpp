@@ -38,6 +38,15 @@ SizeCaps size_caps_from_env();
 void rotate_by_size(std::ostream &out, Ledger &ledger, LanguageGraph &graph,
                     const std::filesystem::path &model_path, const SizeCaps &caps);
 
+/**
+ * Print what rotate_by_size(`caps`) would do, changing nothing: the ledger
+ * payloads it would release and an estimate of the vocabulary the model would
+ * be pruned to. Read-only, so it needs no state lock. The model figure is a
+ * single-pass estimate; protected (valence) tokens can keep it higher.
+ */
+void plan_rotation(std::ostream &out, const Ledger &ledger, const LanguageGraph &graph,
+                   const std::filesystem::path &model_path, const SizeCaps &caps);
+
 } // namespace cli
 } // namespace atperson
 
