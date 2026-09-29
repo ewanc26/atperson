@@ -34,8 +34,11 @@ cursor when it ends, so run it in bounded chunks:
 
 ```sh
 set -a; . "$HOME/.ewanc26/atperson/.env"; set +a
-scripts/whole-network.sh ./build/atperson 300
+scripts/whole-network.sh ./build/atperson 300 1   # binary, chunk seconds, max hours
 ```
+
+The loop stops after the hour limit (`0` runs until stopped) and idles while
+`atperson control pause` is in effect.
 
 Two practical notes:
 
