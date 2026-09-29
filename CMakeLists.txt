@@ -237,6 +237,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/journal/command.cpp
     src/app/journal/rules.cpp
     src/app/journal/resolve.cpp
+    src/app/journal/trace.cpp
     src/app/control/state.cpp
     src/app/control/envelope.cpp
     src/app/control/remote.cpp
@@ -873,6 +874,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/journal/resolve.cpp
     src/app/journal/rules.cpp
     src/app/journal/store.cpp
+    src/app/journal/trace.cpp
     src/app/intent/state.cpp
     src/app/state/lock.cpp
     src/app/state/time.cpp)
@@ -896,6 +898,18 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-journal-resolve-test PRIVATE atperson-cpp)
   target_include_directories(atperson-journal-resolve-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-journal-resolve COMMAND atperson-journal-resolve-test)
+
+  # Per-action trace: the read-only join of one action's frozen record, linked
+  # events, resolution, citing valence updates and intents. Offline.
+  add_executable(
+    atperson-journal-trace-test
+    tests/journal/trace.cpp
+    src/app/journal/trace.cpp
+    src/app/journal/store.cpp)
+  target_compile_features(atperson-journal-trace-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-journal-trace-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-journal-trace-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-journal-trace COMMAND atperson-journal-trace-test)
 
   # Pending social intents (#150): configuration bounds, derived open/expired/
   # closed states, the idempotent expiry sweep, record_pending_intent

@@ -16,6 +16,7 @@
 #include "lock.hpp"
 #include "resolve.hpp"
 #include "rules.hpp"
+#include "trace.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -209,6 +210,18 @@ int run_journal_command(std::ostream &out, LanguageGraph &graph,
         const std::size_t limit =
             argument_count >= 1u ? std::stoul(std::string(arguments[0])) : kDefaultListLimit;
         print_valence(out, journal, limit);
+        return 0;
+    }
+    if (subcommand == "trace") {
+        if (argument_count < 1u) {
+            return 2;
+        }
+        const auto trace = build_action_trace(journal, arguments[0]);
+        if (!trace.has_value()) {
+            out << "no journal action with id " << arguments[0] << "\n";
+            return 1;
+        }
+        render_action_trace(out, *trace);
         return 0;
     }
     if (subcommand == "resolutions") {
