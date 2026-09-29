@@ -554,7 +554,8 @@ bool append_repository_fact(EvidenceLedger &ledger, const RepositoryFact &fact,
         fact.verification);
 }
 
-CursorResult observe_sequence(CursorState &state, std::uint64_t sequence) {
+CursorResult observe_sequence(CursorState &state, std::uint64_t sequence,
+                              bool contiguous) {
     if (sequence == 0u) return CursorResult::Rejected;
     if (state.last_sequence == 0) {
         state.last_sequence = sequence;
@@ -564,7 +565,7 @@ CursorResult observe_sequence(CursorState &state, std::uint64_t sequence) {
     if (state.resync_required) return CursorResult::Gap;
     if (sequence == state.last_sequence) return CursorResult::Duplicate;
     if (sequence < state.last_sequence) return CursorResult::Rewind;
-    if (sequence != state.last_sequence + 1) {
+    if (contiguous && sequence != state.last_sequence + 1) {
         state.resync_required = true;
         return CursorResult::Gap;
     }
@@ -573,9 +574,10 @@ CursorResult observe_sequence(CursorState &state, std::uint64_t sequence) {
 }
 
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
-                            std::string_view repo, std::string_view revision) {
+                            std::string_view repo, std::string_view revision,
+                            bool contiguous) {
     if (!is_did(repo) || !is_tid(revision)) return CursorResult::Rejected;
-    const auto result = observe_sequence(state, sequence);
+    const auto result = observe_sequence(state, sequence, contiguous);
     if (result != CursorResult::Initialized && result != CursorResult::Advanced)
         return result;
     if (result == CursorResult::Initialized) {

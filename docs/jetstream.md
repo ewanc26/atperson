@@ -42,9 +42,15 @@ The loop stops after the hour limit (`0` runs until stopped) and idles while
 
 Two practical notes:
 
-- Filtered subscriptions skip most of the global sequence, so sequence gaps
-  are expected and do not block checkpointing. On an unfiltered stream a gap
-  still requests reconciliation.
+- Filtered subscriptions skip most of the global sequence, so sequence jumps
+  are expected: the protocol cursor advances across them (a regression is still
+  a rewind and still requires resync) and they do not block checkpointing. They
+  stay visible as reconciliation signals: each batch that jumped appends one
+  `#filtered-sequence-jump` evidence entry (`jumps`, `first_after`, `last_to`)
+  with `Unverified` status, and `JetstreamRunResult::filtered_sequence_jumps`
+  carries the count. Nothing is inferred about the skipped events and no
+  repository revision is marked verified. On an unfiltered stream a gap still
+  requests reconciliation and holds the checkpoint.
 - Neural training cost per post grows steeply with the capacity class. On a
   laptop the auto-selected `large` class trains several seconds per post, far
   below the network's post rate; set `ATPERSON_NEURAL_CAPACITY=baseline` (or

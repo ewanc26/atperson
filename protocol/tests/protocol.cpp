@@ -206,6 +206,21 @@ int main() {
     assert(observe_sequence(sequence_only, 20) == CursorResult::Initialized);
     assert(observe_sequence(sequence_only, 22) == CursorResult::Gap);
 
+    /* A filtered stream is a subset of the global sequence: forward jumps
+     * advance without raising resync, but a regression is still a Rewind. */
+    CursorState filtered;
+    assert(observe_stream(filtered, 10, "did:plc:abc", "3jui3s7xq2m2a", false) ==
+           CursorResult::Initialized);
+    assert(observe_stream(filtered, 40, "did:plc:abc", "3jui3s7xq2m2b", false) ==
+           CursorResult::Advanced);
+    assert(!filtered.resync_required && filtered.last_sequence == 40u);
+    assert(observe_stream(filtered, 90, "did:plc:other", "3jui3s7xq2m2c", false) ==
+           CursorResult::Advanced);
+    assert(!filtered.resync_required && filtered.last_sequence == 90u);
+    assert(observe_stream(filtered, 50, "did:plc:abc", "3jui3s7xq2m2d", false) ==
+           CursorResult::Rewind);
+    assert(filtered.last_sequence == 90u);
+
     const auto path = std::filesystem::temp_directory_path() / "atperson-protocol-evidence-test.bin";
     std::error_code error;
     std::filesystem::remove(path, error);

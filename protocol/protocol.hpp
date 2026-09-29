@@ -274,9 +274,17 @@ struct CursorState {
 };
 
 enum class CursorResult { Initialized, Advanced, Duplicate, Gap, Rewind, Rejected };
-CursorResult observe_sequence(CursorState &state, std::uint64_t sequence);
+/* `contiguous` is true for a stream whose sequence numbers are consecutive, so
+ * a forward jump means lost events and raises `resync_required`. A filtered
+ * Jetstream subscription sees only a subset of the global sequence: its jumps
+ * are expected, so pass false to advance across them (a regression is still a
+ * Rewind). The caller decides how to keep such jumps visible; they are
+ * reconciliation signals, never proof that anything was lost or verified. */
+CursorResult observe_sequence(CursorState &state, std::uint64_t sequence,
+                              bool contiguous = true);
 CursorResult observe_stream(CursorState &state, std::uint64_t sequence,
-                            std::string_view repo, std::string_view revision);
+                            std::string_view repo, std::string_view revision,
+                            bool contiguous = true);
 std::optional<std::string> revision_for(const CursorState &state,
                                         std::string_view repo);
 
