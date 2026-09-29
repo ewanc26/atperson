@@ -1028,6 +1028,13 @@ if(ATPERSON_BUILD_TESTS)
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/ingest_ledger.sh
               $<TARGET_FILE:atperson>)
 
+    # Size-capped rotation: released text is forgotten by rebuild, never
+    # re-learned, and dedup survives.
+    add_test(
+      NAME atperson-cli-rotate
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/rotate.sh
+              $<TARGET_FILE:atperson>)
+
     # Jetstream client construction can be tested without opening a socket:
     # persisted cursor/self/filter validation happens before lazy connect.
     add_executable(
