@@ -639,6 +639,27 @@ Loading a graph restores its learned state and the runtime reapplies current
 capacity policy afterwards. Lowering a ceiling below current counts evicts
 nothing; it only blocks further growth.
 
+### Size-capped rotation (deliberate forgetting)
+
+Ceilings stop growth; rotation reclaims disk. Both caps are opt-in
+(`ATPERSON_LEDGER_MAX_BYTES`, `ATPERSON_MODEL_MAX_BYTES`, `0` = off) and are
+applied by `atperson rotate` and after ingestion and daemon saves.
+
+- **Ledger:** the raw text of the oldest learned or skipped observations is
+  released. Identity, digest, outcome and dedup are kept, so released content is
+  never learned again, and a later withdrawal of a released entry stays durable.
+  A released entry is marked on disk by `payload_len = UINT32_MAX`; older
+  readers reject it and fail closed.
+- **Model:** the least-observed vocabulary is dropped (fewest observations, then
+  lowest familiarity, then lowest index). Tokens with valence history are never
+  dropped. Edges, valence records and episode summaries are remapped in one
+  pass, and an episode left with no tokens is evicted.
+
+Neither is compaction. A `rebuild` counts released observations as
+`excluded_released` and does not regrow them, and a pruned model is not what
+replay would produce. This is the one place where learned state is knowingly
+not reconstructable from the ledger, which is why it is off by default.
+
 Vocabulary pruning is separate future work because episodes refer to graph
 nodes by stable index. The safe current behaviour is fail-closed growth, not
 silent deletion.
