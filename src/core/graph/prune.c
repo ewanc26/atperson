@@ -107,6 +107,35 @@ atp_status atp_graph_prune_vocabulary(atp_graph *graph, size_t max_nodes,
     free(candidates);
     free(protect);
 
+    /* Reserve every allocation the rewrite below needs BEFORE touching the
+     * graph, so an out-of-memory failure leaves it exactly as it was and the
+     * mutation phase has nothing left that can fail: the replacement index
+     * tables (sized for the surviving nodes and edges), room in the episode
+     * group structures (the worst case is one group per episode, since summary
+     * changes can split groups) and the group eviction counters to carry. */
+    size_t edges_after = 0u;
+    for (size_t i = 0u; i < graph->edge_count; ++i) {
+        const uint32_t source = graph->edges[i].source;
+        const uint32_t target = graph->edges[i].target;
+        if (source < node_count && target < node_count && remap[source] != ATP_PRUNED &&
+            remap[target] != ATP_PRUNED) {
+            edges_after++;
+        }
+    }
+    atp_index_reservation reservation;
+    atp_group_carry *carry = NULL;
+    size_t carry_count = 0u;
+    if (!atp_graph_reserve_indexes(node_count - drop, edges_after, &reservation)) {
+        free(remap);
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
+    if (!atp_episode_groups_reserve(graph, graph->episode_count) ||
+        !atp_episode_groups_capture(graph, &carry, &carry_count)) {
+        atp_graph_release_indexes(&reservation);
+        free(remap);
+        return ATP_ERR_OUT_OF_MEMORY;
+    }
+
     size_t next = 0u;
     for (size_t i = 0u; i < node_count; ++i) {
         if (remap[i] == ATP_PRUNED) {
@@ -165,19 +194,10 @@ atp_status atp_graph_prune_vocabulary(atp_graph *graph, size_t max_nodes,
     graph->episode_count = episode_out;
     free(remap);
 
-    /* Drop the stale index tables before rebuilding. The rebuild otherwise
-     * allocates at least double the old capacity, so repeated prunes would
-     * grow the tables without bound and briefly hold two copies. With the
-     * tables gone, a failed rebuild leaves lookups empty (never pointing at a
-     * remapped node); the graph must then be discarded, not used. */
-    free(graph->node_index_slots);
-    graph->node_index_slots = NULL;
-    graph->node_index_capacity = 0u;
-    free(graph->edge_index_slots);
-    graph->edge_index_slots = NULL;
-    graph->edge_index_capacity = 0u;
-    if (!atp_graph_rebuild_indexes(graph) || !atp_episode_groups_rebuild(graph)) {
-        return ATP_ERR_OUT_OF_MEMORY;
+    /* Cannot fail: the tables, group room and carry were reserved above. */
+    atp_graph_install_indexes(graph, &reservation);
+    if (!atp_episode_groups_rebuild_carried(graph, carry, carry_count)) {
+        return ATP_ERR_OUT_OF_MEMORY; /* unreachable given the reservation */
     }
     if (report) {
         report->nodes_after = graph->node_count;

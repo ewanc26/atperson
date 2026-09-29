@@ -20,6 +20,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Test-only allocation fault injection: the atperson-core-fi build routes the
+ * graph scope's allocations through hooks a test can arm to fail the Nth call,
+ * to prove that failure paths leave the graph unchanged. Not compiled into the
+ * shipped library. */
+#ifdef ATPERSON_FAULT_INJECTION
+void *atp_fi_malloc(size_t size);
+void *atp_fi_calloc(size_t count, size_t size);
+void *atp_fi_realloc(void *pointer, size_t size);
+#define malloc atp_fi_malloc
+#define calloc atp_fi_calloc
+#define realloc atp_fi_realloc
+#endif
+
 /* --- Neural architecture helpers (lifecycle.c) --- */
 
 atp_neural_architecture atp_neural_legacy_architecture(void);
@@ -32,9 +45,40 @@ bool atp_edge_index_maybe_grow(atp_graph *graph);
 void atp_edge_index_insert(atp_graph *graph, uint32_t edge_index);
 bool atp_graph_rebuild_indexes(atp_graph *graph);
 
+/* Pre-allocated replacement index tables. Reserving them before a destructive
+ * rewrite of the node/edge arrays (vocabulary pruning) lets the rewrite finish
+ * without any allocation that could fail: install fills and swaps them in. */
+typedef struct atp_index_reservation {
+    uint32_t *node_slots;
+    size_t node_capacity;
+    uint32_t *edge_slots;
+    size_t edge_capacity;
+} atp_index_reservation;
+
+/* Reserve tables sized for `nodes` and `edges` entries. False on allocation
+ * failure, in which case nothing is held. */
+bool atp_graph_reserve_indexes(size_t nodes, size_t edges, atp_index_reservation *out);
+/* Fill the reserved tables from the graph's canonical arrays and swap them in,
+ * freeing the old tables. Cannot fail; consumes the reservation. */
+void atp_graph_install_indexes(atp_graph *graph, atp_index_reservation *reservation);
+/* Free an unused reservation. */
+void atp_graph_release_indexes(atp_index_reservation *reservation);
+
 /* --- Episode group index (groups.c) --- */
 
+/* Eviction counters carried across a membership reset, keyed by group key. */
+typedef struct atp_group_carry {
+    uint64_t key;
+    uint64_t evictions;
+} atp_group_carry;
+
 bool atp_episode_groups_rebuild(atp_graph *graph);
+/* The split form of the rebuild, for callers that must not fail midway:
+ * reserve room for up to `max_groups` groups and capture the carry first (both
+ * may fail), then rebuild_carried (which then cannot, and frees the carry). */
+bool atp_episode_groups_reserve(atp_graph *graph, size_t max_groups);
+bool atp_episode_groups_capture(const atp_graph *graph, atp_group_carry **carry, size_t *count);
+bool atp_episode_groups_rebuild_carried(atp_graph *graph, atp_group_carry *carry, size_t count);
 bool atp_episode_groups_append(atp_graph *graph);
 void atp_episode_groups_note_eviction(atp_graph *graph, size_t episode_index);
 uint32_t atp_episode_group_of(const atp_graph *graph, size_t episode_index);

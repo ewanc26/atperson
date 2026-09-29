@@ -33,6 +33,29 @@ static uint64_t atp_hash_edge_key(uint32_t source, uint32_t target) {
     return hash;
 }
 
+/* Insert every existing node/edge into an empty table of `capacity` slots. */
+static void atp_node_index_fill(const atp_graph *graph, uint32_t *slots, size_t capacity) {
+    for (size_t i = 0u; i < graph->node_count; ++i) {
+        const uint64_t hash = atp_hash_token(graph->nodes[i].token);
+        size_t slot = (size_t)(hash & (uint64_t)(capacity - 1u));
+        while (slots[slot] != ATP_INDEX_EMPTY) {
+            slot = (slot + 1u) & (capacity - 1u);
+        }
+        slots[slot] = (uint32_t)i;
+    }
+}
+
+static void atp_edge_index_fill(const atp_graph *graph, uint32_t *slots, size_t capacity) {
+    for (size_t i = 0u; i < graph->edge_count; ++i) {
+        const uint64_t hash = atp_hash_edge_key(graph->edges[i].source, graph->edges[i].target);
+        size_t slot = (size_t)(hash & (uint64_t)(capacity - 1u));
+        while (slots[slot] != ATP_INDEX_EMPTY) {
+            slot = (slot + 1u) & (capacity - 1u);
+        }
+        slots[slot] = (uint32_t)i;
+    }
+}
+
 /* Grow (or create) the node index so it holds node_count entries at a load
  * factor <= 0.5, then reinsert every existing node. */
 static bool atp_node_index_rebuild(atp_graph *graph, size_t needed) {
@@ -52,14 +75,7 @@ static bool atp_node_index_rebuild(atp_graph *graph, size_t needed) {
         slots[i] = ATP_INDEX_EMPTY;
     }
 
-    for (size_t i = 0u; i < graph->node_count; ++i) {
-        const uint64_t hash = atp_hash_token(graph->nodes[i].token);
-        size_t slot = (size_t)(hash & (uint64_t)(capacity - 1u));
-        while (slots[slot] != ATP_INDEX_EMPTY) {
-            slot = (slot + 1u) & (capacity - 1u);
-        }
-        slots[slot] = (uint32_t)i;
-    }
+    atp_node_index_fill(graph, slots, capacity);
 
     free(graph->node_index_slots);
     graph->node_index_slots = slots;
@@ -105,14 +121,7 @@ static bool atp_edge_index_rebuild(atp_graph *graph, size_t needed) {
         slots[i] = ATP_INDEX_EMPTY;
     }
 
-    for (size_t i = 0u; i < graph->edge_count; ++i) {
-        const uint64_t hash = atp_hash_edge_key(graph->edges[i].source, graph->edges[i].target);
-        size_t slot = (size_t)(hash & (uint64_t)(capacity - 1u));
-        while (slots[slot] != ATP_INDEX_EMPTY) {
-            slot = (slot + 1u) & (capacity - 1u);
-        }
-        slots[slot] = (uint32_t)i;
-    }
+    atp_edge_index_fill(graph, slots, capacity);
 
     free(graph->edge_index_slots);
     graph->edge_index_slots = slots;
@@ -190,4 +199,64 @@ int32_t atp_find_edge(const atp_graph *graph, uint32_t source, uint32_t target) 
         }
         slot = (slot + 1u) & (size_t)mask;
     }
+}
+
+/* Smallest power-of-two capacity holding `entries` at load <= 0.5, with the
+ * same floor the incremental grow path assumes. */
+static bool atp_index_capacity_for(size_t entries, size_t minimum, size_t *out) {
+    size_t capacity = minimum;
+    while (capacity < (entries + 1u) * 2u) {
+        if (capacity > SIZE_MAX / 2u) {
+            return false;
+        }
+        capacity *= 2u;
+    }
+    *out = capacity;
+    return true;
+}
+
+bool atp_graph_reserve_indexes(size_t nodes, size_t edges, atp_index_reservation *out) {
+    if (!out) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!atp_index_capacity_for(nodes, 64u, &out->node_capacity) ||
+        !atp_index_capacity_for(edges, 128u, &out->edge_capacity)) {
+        memset(out, 0, sizeof(*out));
+        return false;
+    }
+    out->node_slots = malloc(out->node_capacity * sizeof(*out->node_slots));
+    out->edge_slots = malloc(out->edge_capacity * sizeof(*out->edge_slots));
+    if (!out->node_slots || !out->edge_slots) {
+        atp_graph_release_indexes(out);
+        return false;
+    }
+    return true;
+}
+
+void atp_graph_install_indexes(atp_graph *graph, atp_index_reservation *reservation) {
+    for (size_t i = 0u; i < reservation->node_capacity; ++i) {
+        reservation->node_slots[i] = ATP_INDEX_EMPTY;
+    }
+    for (size_t i = 0u; i < reservation->edge_capacity; ++i) {
+        reservation->edge_slots[i] = ATP_INDEX_EMPTY;
+    }
+    atp_node_index_fill(graph, reservation->node_slots, reservation->node_capacity);
+    atp_edge_index_fill(graph, reservation->edge_slots, reservation->edge_capacity);
+    free(graph->node_index_slots);
+    free(graph->edge_index_slots);
+    graph->node_index_slots = reservation->node_slots;
+    graph->node_index_capacity = reservation->node_capacity;
+    graph->edge_index_slots = reservation->edge_slots;
+    graph->edge_index_capacity = reservation->edge_capacity;
+    memset(reservation, 0, sizeof(*reservation));
+}
+
+void atp_graph_release_indexes(atp_index_reservation *reservation) {
+    if (!reservation) {
+        return;
+    }
+    free(reservation->node_slots);
+    free(reservation->edge_slots);
+    memset(reservation, 0, sizeof(*reservation));
 }

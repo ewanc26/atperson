@@ -196,32 +196,69 @@ static bool atp_group_index_episode(atp_graph *graph, size_t episode_index) {
     return true;
 }
 
-/* Rebuild all group membership from the episode array. Derived state only;
- * per-group eviction counters survive the rebuild keyed by group key. */
-bool atp_episode_groups_rebuild(atp_graph *graph) {
-    if (!graph) {
+/* Capture the per-group eviction counters so they survive a membership reset.
+ * `*carry` is NULL when there are no groups. False only on allocation failure. */
+bool atp_episode_groups_capture(const atp_graph *graph, atp_group_carry **carry, size_t *count) {
+    *carry = NULL;
+    *count = graph->group_count;
+    if (graph->group_count == 0u) {
+        return true;
+    }
+    atp_group_carry *captured = malloc(graph->group_count * sizeof(*captured));
+    if (!captured) {
         return false;
     }
+    for (size_t g = 0u; g < graph->group_count; ++g) {
+        captured[g].key = graph->groups[g].key;
+        captured[g].evictions = graph->groups[g].evictions;
+    }
+    *carry = captured;
+    return true;
+}
 
-    /* Snapshot eviction counters keyed by group key so they survive the
-     * membership reset. */
-    typedef struct {
-        uint64_t key;
-        uint64_t evictions;
-    } atp_group_eviction_carry;
-    atp_group_eviction_carry *carry = NULL;
-    if (graph->group_count > 0u) {
-        carry = malloc(graph->group_count * sizeof(*carry));
-        if (!carry) {
+/* Make room for up to `max_groups` groups (array, key table and the parallel
+ * member array) so a later
+ * rebuild that produces at most that many cannot fail on allocation. Existing
+ * groups are untouched. */
+bool atp_episode_groups_reserve(atp_graph *graph, size_t max_groups) {
+    /* The parallel member array must also cover every episode the rebuild will
+     * index (a group per episode is the worst case). */
+    if (!atp_group_members_reserve(graph, max_groups)) {
+        return false;
+    }
+    if (max_groups > graph->group_capacity) {
+        size_t next = graph->group_capacity ? graph->group_capacity : 8u;
+        while (next < max_groups) {
+            if (next > SIZE_MAX / 2u) {
+                return false;
+            }
+            next *= 2u;
+        }
+        atp_episode_group *grown = realloc(graph->groups, next * sizeof(*grown));
+        if (!grown) {
             return false;
         }
-        for (size_t g = 0u; g < graph->group_count; ++g) {
-            carry[g].key = graph->groups[g].key;
-            carry[g].evictions = graph->groups[g].evictions;
+        graph->groups = grown;
+        graph->group_capacity = next;
+    }
+    if (max_groups * 2u + 2u > graph->group_table_capacity) {
+        if (!atp_group_table_rebuild(graph, max_groups + 1u)) {
+            return false;
         }
     }
-    const size_t carry_count = graph->group_count;
+    return true;
+}
 
+/* Rebuild all group membership from the episode array using a pre-captured
+ * carry (freed here). Derived state only; per-group eviction counters survive
+ * keyed by group key. Allocation-free when the caller reserved room for the
+ * groups it will produce. */
+bool atp_episode_groups_rebuild_carried(atp_graph *graph, atp_group_carry *carry,
+                                        size_t carry_count) {
+    if (!graph) {
+        free(carry);
+        return false;
+    }
     if (!atp_group_members_reserve(graph, graph->episode_count)) {
         free(carry);
         return false;
@@ -273,6 +310,19 @@ bool atp_episode_groups_rebuild(atp_graph *graph) {
     }
     free(carry);
     return true;
+}
+
+/* Rebuild all group membership from the episode array. */
+bool atp_episode_groups_rebuild(atp_graph *graph) {
+    if (!graph) {
+        return false;
+    }
+    atp_group_carry *carry = NULL;
+    size_t carry_count = 0u;
+    if (!atp_episode_groups_capture(graph, &carry, &carry_count)) {
+        return false;
+    }
+    return atp_episode_groups_rebuild_carried(graph, carry, carry_count);
 }
 
 /* Incrementally index the most recently appended episode. Returns false on
