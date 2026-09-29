@@ -372,6 +372,10 @@ if(ATPERSON_BUILD_TESTS)
     COMMAND atperson-ledger-test payload-corruption
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-payload-corruption)
   add_test(
+    NAME atperson-ledger_released_recovery
+    COMMAND atperson-ledger-test released-recovery
+            ${CMAKE_CURRENT_BINARY_DIR}/ledger-released-recovery)
+  add_test(
     NAME atperson-ledger_migration
     COMMAND atperson-ledger-test migration
             ${CMAKE_CURRENT_BINARY_DIR}/ledger-migration)
