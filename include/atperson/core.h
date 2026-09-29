@@ -423,8 +423,8 @@ typedef struct atp_prune_report {
  *
  * This is deliberate forgetting, not compaction: replaying the ledger
  * regrows the full vocabulary. Returns ATP_OK and fills `report` on success.
- * After ATP_ERR_OUT_OF_MEMORY the graph's lookup indexes are gone and it must
- * be destroyed, not used or saved.
+ * Every allocation the rewrite needs is reserved before the graph is touched,
+ * so on ATP_ERR_OUT_OF_MEMORY the graph is unchanged and still usable.
  */
 atp_status atp_graph_prune_vocabulary(atp_graph *graph, size_t max_nodes,
                                       atp_prune_report *report);

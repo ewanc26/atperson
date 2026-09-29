@@ -659,6 +659,12 @@ applied by `atperson rotate` and after ingestion and daemon saves.
   lowest familiarity, then lowest index). Tokens with valence history are never
   dropped. Edges, valence records and episode summaries are remapped in one
   pass, and an episode left with no tokens is evicted.
+  The prune is all-or-nothing under allocation failure: every table it needs
+  (replacement hash indexes, episode-group room, eviction counters) is reserved
+  before the graph is touched, so an out-of-memory error leaves the graph
+  unchanged and usable. A fault-injection build of the core
+  (`atperson-core-fi`, test-only) fails each allocation in turn and checks the
+  snapshot stays byte-identical.
 
 Neither is compaction. A `rebuild` counts released observations as
 `excluded_released` and does not regrow them, and a pruned model is not what

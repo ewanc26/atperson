@@ -315,6 +315,25 @@ if(ATPERSON_BUILD_TESTS)
   target_link_libraries(atperson-prune-test PRIVATE atperson-core)
   add_test(NAME atperson-prune COMMAND atperson-prune-test)
 
+  # Prune atomicity under allocation failure: a copy of the core built with the
+  # graph scope's allocations routed through test hooks (never shipped).
+  get_target_property(ATPERSON_CORE_SOURCES atperson-core SOURCES)
+  add_library(atperson-core-fi STATIC ${ATPERSON_CORE_SOURCES})
+  target_compile_definitions(atperson-core-fi PRIVATE ATPERSON_FAULT_INJECTION)
+  target_include_directories(
+    atperson-core-fi
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
+  target_compile_features(atperson-core-fi PUBLIC c_std_23)
+  target_link_libraries(atperson-core-fi PUBLIC utf8proc)
+  if(UNIX)
+    target_compile_definitions(atperson-core-fi PRIVATE _POSIX_C_SOURCE=200809L)
+    target_link_libraries(atperson-core-fi PRIVATE m)
+  endif()
+  add_executable(atperson-prune-fault-test tests/core/prune_fault.c tests/core/fault_alloc.c)
+  target_link_libraries(atperson-prune-fault-test PRIVATE atperson-core-fi)
+  add_test(NAME atperson-prune-fault COMMAND atperson-prune-fault-test)
+
   add_executable(atperson-memory-test tests/memory/memory.c)
   target_link_libraries(atperson-memory-test PRIVATE atperson-core)
   add_test(NAME atperson-memory COMMAND atperson-memory-test)
