@@ -95,6 +95,7 @@ static atp_status atp_ledger_compact_release(atp_ledger *ledger, atp_compact_rep
     }
 
     uint64_t released_bytes = 0u;
+    bool any_released = false;
     for (size_t i = 0u; i < ledger->count && result == ATP_OK; ++i) {
         const atp_ledger_entry *entry = &ledger->entries[i];
         const unsigned char *payload = ledger->payloads[i];
@@ -125,6 +126,7 @@ static atp_status atp_ledger_compact_release(atp_ledger *ledger, atp_compact_rep
             }
         }
 
+        any_released = any_released || payload_len == ATP_LEDGER_PAYLOAD_RELEASED;
         const size_t body_len =
             atp_serialize_entry(body, entry, payload, payload_len, &ledger->contexts[i]);
         const size_t record_len =
@@ -136,6 +138,16 @@ static atp_status atp_ledger_compact_release(atp_ledger *ledger, atp_compact_rep
         }
     }
 
+    if (result == ATP_OK && any_released) {
+        /* The header was written before it was known whether anything is
+         * released; stamp the released-payload version now, before the log is
+         * made durable. */
+        header[7] = ATP_LEDGER_RELEASED_FILE_MAGIC_7;
+        atp_store_u32_le(&header[8], ATP_LEDGER_RELEASED_VERSION);
+        if (fseek(tmp, 0, SEEK_SET) != 0 || fwrite(header, 1u, sizeof(header), tmp) != sizeof(header)) {
+            result = ATP_ERR_IO;
+        }
+    }
     if (result == ATP_OK && (!atp_fsync(tmp) || fclose(tmp) != 0)) {
         result = ATP_ERR_IO;
     } else if (result == ATP_OK) {

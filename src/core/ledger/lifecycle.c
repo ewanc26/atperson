@@ -196,11 +196,14 @@ atp_ledger *atp_ledger_open(const char *path, atp_status *status) {
         }
     }
 
+    const bool current_header = header[7] == ATP_LEDGER_FILE_MAGIC_7 &&
+                                atp_load_u32_le(&header[8]) == ATPERSON_LEDGER_VERSION;
+    const bool released_header = header[7] == ATP_LEDGER_RELEASED_FILE_MAGIC_7 &&
+                                 atp_load_u32_le(&header[8]) == ATP_LEDGER_RELEASED_VERSION;
     if (header[0] != ATP_LEDGER_FILE_MAGIC_0 || header[1] != ATP_LEDGER_FILE_MAGIC_1 ||
         header[2] != ATP_LEDGER_FILE_MAGIC_2 || header[3] != ATP_LEDGER_FILE_MAGIC_3 ||
         header[4] != ATP_LEDGER_FILE_MAGIC_4 || header[5] != ATP_LEDGER_FILE_MAGIC_5 ||
-        header[6] != ATP_LEDGER_FILE_MAGIC_6 || header[7] != ATP_LEDGER_FILE_MAGIC_7 ||
-        atp_load_u32_le(&header[8]) != ATPERSON_LEDGER_VERSION) {
+        header[6] != ATP_LEDGER_FILE_MAGIC_6 || !(current_header || released_header)) {
         fclose(log);
         atp_ledger_release(ledger);
         if (status) {

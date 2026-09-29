@@ -355,6 +355,22 @@ static int run_rebuild_equivalence(const char *dir) {
     return 0;
 }
 
+/* Read the 12-byte log header: magic[7] and the version u32. */
+static int read_header(const char *dir, unsigned char *magic7, uint32_t *version) {
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ledger.bin", dir);
+    FILE *file = fopen(path, "rb");
+    CHECK(file != NULL);
+    unsigned char header[12];
+    CHECK(fread(header, 1u, sizeof(header), file) == sizeof(header));
+    CHECK(fclose(file) == 0);
+    CHECK(memcmp(header, "ATPLDG0", 7u) == 0);
+    *magic7 = header[7];
+    *version = (uint32_t)header[8] | ((uint32_t)header[9] << 8u) | ((uint32_t)header[10] << 16u) |
+               ((uint32_t)header[11] << 24u);
+    return 0;
+}
+
 /* Size-cap release: raw text of old learned entries is released, identity and
  * dedup survive compaction and reopen, and replay forgets only those entries. */
 static int run_release(const char *dir) {
@@ -375,6 +391,13 @@ static int run_release(const char *dir) {
     uint64_t outcomes[8] = {0};
     CHECK(snapshot_outcomes(ledger, outcomes, 8u) == 0);
 
+    /* A ledger with nothing released keeps the v3 header, so builds that
+     * predate released payloads can still read it. */
+    unsigned char magic7 = 0u;
+    uint32_t version = 0u;
+    CHECK(read_header(dir, &magic7, &version) == 0);
+    CHECK(magic7 == '3' && version == 3u);
+
     /* Within the cap: nothing changes. */
     atp_compact_report report = {0};
     CHECK(atp_ledger_release_payloads(ledger, UINT64_C(1) << 30u, &report) == ATP_OK);
@@ -386,6 +409,10 @@ static int run_release(const char *dir) {
     CHECK(atp_ledger_release_payloads(ledger, 1u, &report) == ATP_OK);
     CHECK(report.payloads_released >= before_replay.replayed);
     CHECK(report.bytes_after < report.bytes_before);
+    /* Once anything is released the log carries the released-payload header, so
+     * an older build refuses it up front instead of truncating mid-log. */
+    CHECK(read_header(dir, &magic7, &version) == 0);
+    CHECK(magic7 == '4' && version == 4u);
 
     for (int pass = 0; pass < 2; ++pass) {
         uint64_t after[8] = {0};
@@ -467,6 +494,35 @@ static int run_release(const char *dir) {
     }
 
     atp_ledger_destroy(ledger);
+
+    /* The released header survives reopen and a plain compaction. */
+    ledger = open_ledger(dir);
+    atp_compact_report plain = {0};
+    CHECK(atp_ledger_compact(ledger, &plain) == ATP_OK);
+    atp_ledger_destroy(ledger);
+    CHECK(read_header(dir, &magic7, &version) == 0);
+    CHECK(magic7 == '4' && version == 4u);
+
+    /* A header this build does not recognise is refused without touching the
+     * file (no truncation, whatever the marker says). */
+    char log_path[1024];
+    snprintf(log_path, sizeof(log_path), "%s/ledger.bin", dir);
+    FILE *log = fopen(log_path, "r+b");
+    CHECK(log != NULL);
+    CHECK(fseek(log, 7, SEEK_SET) == 0);
+    CHECK(fputc('9', log) == '9');
+    CHECK(fseek(log, 0, SEEK_END) == 0);
+    const long size_before = ftell(log);
+    CHECK(fclose(log) == 0);
+    atp_status refused = ATP_OK;
+    CHECK(atp_ledger_open(log_path, &refused) == NULL);
+    CHECK(refused == ATP_ERR_FORMAT);
+    log = fopen(log_path, "rb");
+    CHECK(log != NULL);
+    CHECK(fseek(log, 0, SEEK_END) == 0);
+    CHECK(ftell(log) == size_before);
+    CHECK(fclose(log) == 0);
+
     remove_dir_files(dir);
     printf("release: ok\n");
     return 0;

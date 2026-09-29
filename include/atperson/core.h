@@ -423,6 +423,8 @@ typedef struct atp_prune_report {
  *
  * This is deliberate forgetting, not compaction: replaying the ledger
  * regrows the full vocabulary. Returns ATP_OK and fills `report` on success.
+ * After ATP_ERR_OUT_OF_MEMORY the graph's lookup indexes are gone and it must
+ * be destroyed, not used or saved.
  */
 atp_status atp_graph_prune_vocabulary(atp_graph *graph, size_t max_nodes,
                                       atp_prune_report *report);
@@ -750,7 +752,7 @@ atp_status atp_ledger_compact(atp_ledger *ledger, atp_compact_report *report);
  * deliberately forgets released observations (counted as
  * `excluded_released`), unlike a payload-less v1 entry, which still fails
  * the rebuild. On the wire a released payload is payload_len UINT32_MAX,
- * which older readers reject rather than misread. Returns ATP_OK and fills
+ * and the log header becomes `ATPLDG04`/version 4, so older readers refuse the file rather than misread or truncate it. Returns ATP_OK and fills
  * `report` on success; the caller must reopen the ledger after a failure.
  */
 atp_status atp_ledger_release_payloads(atp_ledger *ledger, uint64_t max_bytes,

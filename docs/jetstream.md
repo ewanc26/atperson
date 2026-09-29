@@ -252,7 +252,8 @@ demand with `atperson rotate`:
 - `ATPERSON_LEDGER_MAX_BYTES`: releases the raw text of the oldest
   observations (down to ~80% of the cap). Identity, digest, outcome and dedup
   are kept, so an entry is never re-learned. On disk a released entry has
-  `payload_len = UINT32_MAX`, which older readers reject, so they fail closed.
+  `payload_len = UINT32_MAX` and the log header becomes `ATPLDG04` (version 4),
+  so builds that predate rotation refuse the ledger outright and fail closed.
 - `ATPERSON_MODEL_MAX_BYTES`: prunes the least-observed vocabulary (protecting
   tokens with valence history), remaps edges and episodes, then saves.
 

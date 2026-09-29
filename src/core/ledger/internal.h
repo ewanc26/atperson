@@ -48,6 +48,16 @@
 #define ATP_LEDGER_V1_OFF_MAGIC_7 '1'
 #define ATP_LEDGER_V1_VERSION 1u
 
+/* A log holding at least one released payload is written with this header
+ * (magic ...'4', version 4). The record layout is otherwise v3's; the distinct
+ * header makes a build that predates released payloads refuse the file up front
+ * with a format error instead of failing mid-log, where recovery without the
+ * .off marker would truncate everything after the first released record.
+ * Logs with no released payload keep the v3 header and stay readable by older
+ * builds. */
+#define ATP_LEDGER_RELEASED_FILE_MAGIC_7 '4'
+#define ATP_LEDGER_RELEASED_VERSION 4u
+
 #define ATP_LEDGER_V2_FILE_MAGIC_7 '2'
 #define ATP_LEDGER_V2_OFF_MAGIC_7 '2'
 #define ATP_LEDGER_V2_VERSION 2u
@@ -73,7 +83,9 @@
 /* In-memory payload_lens value for an entry whose raw text was released to
  * bound the log (see atp_ledger_release_payloads). On the wire it is the
  * payload_len field UINT32_MAX, which exceeds ATPERSON_LEDGER_PAYLOAD_LIMIT,
- * so a reader that predates released payloads fails closed. */
+ * in a log whose header is the released-payload version (see
+ * ATP_LEDGER_RELEASED_FILE_MAGIC_7), so a reader that predates released
+ * payloads refuses the file at the header. */
 #define ATP_LEDGER_PAYLOAD_RELEASED SIZE_MAX
 #define ATP_LEDGER_PAYLOAD_RELEASED_WIRE UINT32_MAX
 

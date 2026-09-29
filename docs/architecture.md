@@ -218,6 +218,10 @@ state rather than merely proving that an observation once existed.
 ### Files and layout
 
 - The record log begins with `"ATPLDG03"` and a little-endian version `u32`.
+  A log that holds at least one released payload (size-capped rotation) begins
+  with `"ATPLDG04"` and version 4 instead: same record layout, but builds that
+  predate released payloads refuse it at the header rather than failing mid-log.
+  Logs with nothing released keep the v3 header.
   v1/v2 logs (`"ATPLDG01"` / `"ATPLDG02"`) migrate on open.
 - Each record is `len u32 | crc u32 (FNV-1a 32) | type u8 | payload`, where
   type 1 is an observation entry and type 2 is an outcome patch.
@@ -648,8 +652,9 @@ applied by `atperson rotate` and after ingestion and daemon saves.
 - **Ledger:** the raw text of the oldest learned or skipped observations is
   released. Identity, digest, outcome and dedup are kept, so released content is
   never learned again, and a later withdrawal of a released entry stays durable.
-  A released entry is marked on disk by `payload_len = UINT32_MAX`; older
-  readers reject it and fail closed.
+  A released entry is marked on disk by `payload_len = UINT32_MAX`, and a log
+  containing one carries the v4 header, so older readers refuse the whole file
+  up front (fail closed, nothing truncated).
 - **Model:** the least-observed vocabulary is dropped (fewest observations, then
   lowest familiarity, then lowest index). Tokens with valence history are never
   dropped. Edges, valence records and episode summaries are remapped in one
