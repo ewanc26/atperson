@@ -23,6 +23,9 @@ The project has one architectural rule running through all of them: **learned st
 ## Runtime and outbound behaviour
 
 - [`daemon.md`](daemon.md) — long-running ingestion, retry/backoff and operator control.
+- [`autonomy.md`](autonomy.md) — the autonomous runtime: arming for unattended operation, the output guard, engagement consent, the circuit breaker, standing authorisation and recovery.
+- [`agent-loop.md`](agent-loop.md) — the perception → decision → policy → control → execution → journal contract.
+- [`agent-comparison.md`](agent-comparison.md) — ATperson compared with conventional LLM agents: what they do, what ATperson has, the gaps found and closed, and the open items.
 - [`outbound-policy.md`](outbound-policy.md) — default-deny action policy and durable rate budgets.
 - [`outbound-execution.md`](outbound-execution.md) — the operator-led `publish` path and its network-write gates.
 - [`network-state.md`](network-state.md) — publishing durable experience as AT Protocol records and reconstructing state from the network (#142).
