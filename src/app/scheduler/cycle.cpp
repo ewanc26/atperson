@@ -17,6 +17,7 @@
 #include "outbound/actions.hpp"
 #include "state/lock.hpp"
 #include "state/time.hpp"
+#include "text_guard.hpp"
 
 #include <atperson/core.h>
 
@@ -118,6 +119,34 @@ void write_proposal(const std::filesystem::path &path, std::string_view contents
     if (ec) throw std::runtime_error("cannot commit scheduler proposal");
 }
 
+
+/* Guard configuration for this cycle. The denylist is re-read every cycle so an
+ * operator's edit takes effect on the next one without a restart. */
+TextGuardConfig cycle_text_guard(const SchedulerConfig &config, const SchedulerCycle &cycle) {
+    TextGuardConfig guard = config.text_guard;
+    const char *override_path = std::getenv("ATPERSON_OUTPUT_DENYLIST");
+    const std::filesystem::path path = override_path != nullptr && override_path[0] != '\0'
+                                           ? std::filesystem::path(override_path)
+                                           : cycle.data_dir / "output-denylist.txt";
+    guard.denied_terms = load_denylist(path);
+    return guard;
+}
+
+/* Texts the entity already published, from the journal's executed actions. */
+std::vector<RecentText> executed_texts(const std::filesystem::path &journal_file) {
+    std::vector<RecentText> texts;
+    for (const JournalAction &action : load_journal(journal_file).actions) {
+        if (action.outcome == JournalActionOutcome::Executed && !action.text.empty()) {
+            texts.push_back({action.text, static_cast<std::int64_t>(
+                                              parse_rfc3339_epoch(action.at).value_or(0u))});
+        }
+    }
+    return texts;
+}
+
+bool is_text_kind(OutboundActionKind kind) noexcept {
+    return kind == OutboundActionKind::Post || kind == OutboundActionKind::Reply;
+}
 } // namespace
 
 SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const SchedulerCycle &cycle,
@@ -208,6 +237,27 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
      * reply into that conversation (root = the intent's thread root, parent
      * = the triggered observation). */
     const ControlState control = load_control_state(cycle.attempt.control_file);
+    const TextGuardConfig text_guard = cycle_text_guard(config, cycle);
+    /* Repeat detection sees what was published and what is already queued, so
+     * two contexts that decide the same words never both go out. */
+    std::vector<RecentText> recent_texts = executed_texts(cycle.attempt.journal_file);
+    {
+        std::error_code queued_ec;
+        for (std::filesystem::directory_iterator it(cycle.proposals_dir, queued_ec), end;
+             !queued_ec && it != end; it.increment(queued_ec)) {
+            if (it->is_regular_file(queued_ec) && it->path().extension() == ".json") {
+                try {
+                    const OutboundAction queued = load_outbound_action(it->path());
+                    if (!queued.text.empty()) {
+                        recent_texts.push_back({queued.text, cycle.now});
+                    }
+                } catch (const std::exception &) {
+                    /* An unreadable proposal is reported by execution; it has
+                     * no text to compare. */
+                }
+            }
+        }
+    }
     for (const std::size_t index : order) {
         if (report.proposals_written >= config.max_proposals) {
             break;
@@ -280,6 +330,14 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
             }
         }
         action.text = plan_text(decision);
+        if (const TextVerdict verdict =
+                check_output_text(action.text, text_guard, recent_texts, cycle.now);
+            !verdict.allowed()) {
+            ++report.text_refused;
+            report.last_text_refusal = text_refusal_name(verdict.refusal);
+            continue;
+        }
+        recent_texts.push_back({action.text, cycle.now});
         action.rkey = proposal_tid(cycle.now, digest);
         action.created_at = now_rfc3339;
         action.digest = digest;
@@ -318,6 +376,7 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         }
         std::sort(proposals.begin(), proposals.end());
 
+        std::optional<std::vector<RecentText>> execution_texts;
         for (const std::filesystem::path &proposal : proposals) {
             if (report.executions_attempted >= config.max_executions) {
                 break;
@@ -328,6 +387,21 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
                 break;
             }
             const OutboundAction action = load_outbound_action(proposal);
+            /* The guard runs again at execution: a proposal frozen earlier is
+             * checked against today's denylist, and against anything published
+             * since it was written. */
+            if (is_text_kind(action.kind)) {
+                if (!execution_texts.has_value()) {
+                    execution_texts = executed_texts(cycle.attempt.journal_file);
+                }
+                if (const TextVerdict verdict = check_output_text(
+                        action.text, text_guard, *execution_texts, cycle.now);
+                    !verdict.allowed()) {
+                    ++report.text_refused;
+                    report.last_text_refusal = text_refusal_name(verdict.refusal);
+                    continue;
+                }
+            }
             /* Per-digest approval or a standing envelope (#141): the
              * proposal is a candidate only when one of the two would
              * authorise it. The attempt atom re-evaluates coverage at
@@ -357,6 +431,9 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
             switch (result.outcome) {
             case OutboundExecutionOutcome::Executed:
                 ++report.executed;
+                if (execution_texts.has_value() && !action.text.empty()) {
+                    execution_texts->push_back({action.text, cycle.now});
+                }
                 /* Pending intent (#150): an executed post or reply records
                  * its conversation — opening a new intent (while under the
                  * cap), continuing the one it answered, or refusing when the
@@ -409,6 +486,16 @@ SchedulerConfig scheduler_config_from_environment() {
     config.graduated_likes = graduated != nullptr && std::string_view(graduated) == "1";
     config.intents = intent_config_from_environment();
     apply_decision_env(config.decision);
+    if (const char *window = std::getenv("ATPERSON_OUTPUT_REPEAT_WINDOW");
+        window != nullptr && window[0] != '\0') {
+        char *end = nullptr;
+        const long long seconds = std::strtoll(window, &end, 10);
+        if (end == window || *end != '\0' || seconds < 0) {
+            throw std::runtime_error(
+                "ATPERSON_OUTPUT_REPEAT_WINDOW must be a non-negative number of seconds");
+        }
+        config.text_guard.repeat_window_seconds = seconds;
+    }
     return config;
 }
 

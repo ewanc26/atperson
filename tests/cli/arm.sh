@@ -51,6 +51,9 @@ grep -q "READY. The daemon will act" "$DIR/apply.out" || { echo "expected READY 
 [ -f "$DIR/envelopes/autonomy.json" ] && [ -f "$DIR/envelopes/autonomy-actions.json" ] \
     || { echo "expected the two envelopes"; ls "$DIR/envelopes"; exit 1; }
 env $READY_ENV "$BIN" autonomy preflight >"$DIR/ready.out" || { echo "preflight should pass"; cat "$DIR/ready.out"; exit 1; }
+grep -q "output-guard" "$DIR/ready.out" || { echo "preflight should report the output guard"; cat "$DIR/ready.out"; exit 1; }
+printf 'alpha\n' >"$DIR/output-denylist.txt"
+env $READY_ENV "$BIN" autonomy preflight | grep -q "denylist has 1 term" || { echo "preflight should count denylist terms"; exit 1; }
 grep -q "post: at most 3 per 1d" "$DIR/ready.out" || { echo "missing post bound"; exit 1; }
 grep -q "like: at most 20 per 1h" "$DIR/ready.out" || { echo "missing like bound"; exit 1; }
 

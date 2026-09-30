@@ -1,5 +1,7 @@
 #include "arming.hpp"
 
+#include "../scheduler/text_guard.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -276,6 +278,23 @@ PreflightReport run_preflight(const PreflightEnvironment &environment, const Arm
             ? "ATPERSON_SELF_DID is set, so the entity's own posts are excluded from learning"
             : "ATPERSON_SELF_DID is unset: the entity would learn from its own posts",
         /*advisory=*/true);
+
+    /* Output guard: the structural rules (no URLs, mentions or hashtags, length,
+     * no repeated text) are always on; the denylist is the operator's part. */
+    if (!paths.denylist_file.empty()) {
+        try {
+            const std::size_t terms = load_denylist(paths.denylist_file).size();
+            add("output-guard", terms > 0,
+                terms > 0 ? "structural rules on; denylist has " + std::to_string(terms) +
+                                " term(s)"
+                          : "structural rules on (no URLs, mentions or hashtags, length, no "
+                            "repeated text); no denylist terms: add words the entity must never "
+                            "say to " + paths.denylist_file.string(),
+                /*advisory=*/true);
+        } catch (const std::exception &error) {
+            add("output-guard", false, std::string("denylist unreadable: ") + error.what());
+        }
+    }
 
     /* Control state. */
     ControlState control;

@@ -86,6 +86,8 @@ struct ArmPaths {
     std::filesystem::path policy_file;
     std::filesystem::path control_file;
     std::filesystem::path envelopes_dir;
+    /* Optional: the output denylist, so the preflight can report it. */
+    std::filesystem::path denylist_file;
 };
 
 /* The changes arming would make, computed without touching disk. */

@@ -105,7 +105,10 @@ std::vector<ArmKindSpec> parse_kinds(const std::string &text) {
 std::string now_rfc3339() { return control_now_rfc3339(); }
 
 ArmPaths paths_from_config() {
-    return ArmPaths{outbound_policy_path(), control_state_path(), authorization_envelopes_path()};
+    const std::string denylist = env_or("ATPERSON_OUTPUT_DENYLIST");
+    return ArmPaths{outbound_policy_path(), control_state_path(), authorization_envelopes_path(),
+                    denylist.empty() ? data_dir() / "output-denylist.txt"
+                                     : std::filesystem::path(denylist)};
 }
 
 PreflightEnvironment environment_from_process() {

@@ -729,6 +729,112 @@ void test_armed_entity_still_obeys_pause_and_disarm() {
     }
 }
 
+/* Output guard (text_guard.hpp) at the scheduler: a denylisted word never
+ * becomes a proposal, lifting the term lets it through on the next cycle
+ * (the file is re-read every cycle), and the same words are never published
+ * twice. */
+void test_output_guard_refuses_denied_text_and_recovers_when_lifted() {
+    unsetenv("ATPERSON_OUTPUT_DENYLIST");
+    const GateFiles gates("guard-denied");
+    FakeWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+    write_file(gates.root / "output-denylist.txt", "# never say\nBETA\n");
+
+    SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.decisions == 1u);
+    assert(report.proposals_written == 0u);
+    assert(report.text_refused == 1u && report.last_text_refusal == "denied_term");
+    assert(!std::filesystem::exists(gates.root / "proposals") ||
+           std::filesystem::is_empty(gates.root / "proposals"));
+
+    /* The operator lifts the term; no restart needed. */
+    std::filesystem::remove(gates.root / "output-denylist.txt");
+    report = atperson::run_scheduler_cycle(enabled_config(),
+                                           make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.proposals_written == 1u && report.text_refused == 0u);
+}
+
+void test_output_guard_never_repeats_published_text() {
+    unsetenv("ATPERSON_OUTPUT_DENYLIST");
+    const GateFiles gates("guard-repeat");
+    arm_gates(gates);
+    FakeWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+    for (int cycle = 0; cycle < 2; ++cycle) {
+        atperson::run_scheduler_cycle(enabled_config(), make_cycle(gates, gates.root, writer),
+                                     graph, ledger);
+    }
+    assert(writer.put_calls == 1);
+
+    /* The same context decides the same words again: refused before it is even
+     * proposed, so nothing is queued and no refused attempt piles up. */
+    const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.text_refused == 1u && report.last_text_refusal == "repeated_text");
+    assert(report.proposals_written == 0u && report.executions_attempted == 0u);
+    assert(writer.put_calls == 1);
+
+    /* Turning the window off (0) is an explicit operator choice. */
+    SchedulerConfig open_window = enabled_config();
+    open_window.text_guard.repeat_window_seconds = 0;
+    const SchedulerCycleReport allowed = atperson::run_scheduler_cycle(
+        open_window, make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(allowed.text_refused == 0u && allowed.proposals_written == 1u);
+}
+
+void test_output_guard_rechecks_frozen_proposals_at_execution() {
+    unsetenv("ATPERSON_OUTPUT_DENYLIST");
+    const GateFiles gates("guard-exec");
+    FakeWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+
+    atperson::run_scheduler_cycle(enabled_config(), make_cycle(gates, gates.root, writer), graph,
+                                 ledger);
+    std::filesystem::path proposal;
+    for (const auto &entry : std::filesystem::directory_iterator(gates.root / "proposals")) {
+        proposal = entry.path();
+    }
+    const OutboundAction action = atperson::load_outbound_action(proposal);
+    ControlState control = atperson::load_control_state(gates.control);
+    control.approved_digests.push_back(action.digest);
+    atperson::save_control_state(control, gates.control);
+
+    /* Approved, but the operator has since denylisted the word: it must not go
+     * out, and the frozen proposal stays where it is for inspection. */
+    write_file(gates.root / "output-denylist.txt", "beta\n");
+    const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        enabled_config(), make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.text_refused >= 1u && report.last_text_refusal == "denied_term");
+    assert(report.executions_attempted == 0u);
+    assert(writer.put_calls == 0);
+    assert(std::filesystem::exists(proposal));
+}
+
+void test_output_guard_repeat_window_comes_from_the_environment() {
+    unsetenv("ATPERSON_OUTPUT_REPEAT_WINDOW");
+    assert(atperson::scheduler_config_from_environment().text_guard.repeat_window_seconds ==
+           7ll * 24 * 3600);
+    setenv("ATPERSON_OUTPUT_REPEAT_WINDOW", "3600", 1);
+    assert(atperson::scheduler_config_from_environment().text_guard.repeat_window_seconds == 3600);
+    setenv("ATPERSON_OUTPUT_REPEAT_WINDOW", "0", 1);
+    assert(atperson::scheduler_config_from_environment().text_guard.repeat_window_seconds == 0);
+    for (const char *bad : {"-1", "abc", "1.5", "10x"}) {
+        setenv("ATPERSON_OUTPUT_REPEAT_WINDOW", bad, 1);
+        bool threw = false;
+        try {
+            (void)atperson::scheduler_config_from_environment();
+        } catch (const std::runtime_error &) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    unsetenv("ATPERSON_OUTPUT_REPEAT_WINDOW");
+}
+
 void test_decision_valence_guard_comes_from_the_environment() {
     unsetenv("ATPERSON_DECISION_MIN_VALENCE");
     const atperson::SchedulerConfig off = atperson::scheduler_config_from_environment();
@@ -753,6 +859,10 @@ void test_decision_valence_guard_comes_from_the_environment() {
 int main() {
     test_armed_entity_publishes_with_no_human_step();
     test_armed_entity_still_obeys_pause_and_disarm();
+    test_output_guard_refuses_denied_text_and_recovers_when_lifted();
+    test_output_guard_never_repeats_published_text();
+    test_output_guard_rechecks_frozen_proposals_at_execution();
+    test_output_guard_repeat_window_comes_from_the_environment();
     test_decision_valence_guard_comes_from_the_environment();
     test_disabled_scheduler_is_inert();
     test_decision_writes_proposal_but_never_executes_unapproved();
