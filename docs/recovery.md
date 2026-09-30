@@ -232,8 +232,11 @@ graceful shutdown records `stopped`.
   file, then remove or rename it. Only run history and diagnostics are
   lost; learned state lives in the ledger and is untouched.
 - **Torn durable writes** from a crash are self-healing: a torn ledger
-  tail beyond the committed offset is truncated on load, and a torn
-  final journal line is truncated and reported. A fenced prefix that
+  tail beyond the committed offset is truncated on load, a torn
+  final journal line is reported on load and dropped by the next append, and
+  a partial final record in the protocol evidence ledger is ignored on read
+  and trimmed by the next append (present-but-wrong bytes in the middle of
+  it are still an error). A fenced prefix that
   fails validation is corruption, not a torn tail — recover via the
   network reconstruct path above.
 - If recovery cannot establish a trustworthy committed prefix, the

@@ -2,6 +2,7 @@
 
 #include "atperson/ledger.hpp"
 #include "journal/store.hpp"
+#include "protocol.hpp"
 #include "publish.hpp"
 #include "thought/store.hpp"
 
@@ -29,6 +30,44 @@ std::uint64_t rkey_to_id(const std::string &rkey) {
     return id;
 }
 
+
+/* Record keys come from the network. Only a syntactically valid record key is
+ * used at all (asked of the source, written to a file name, echoed in a
+ * message); anything else is counted as corrupt and skipped. */
+std::vector<std::string> usable_rkeys(std::vector<std::string> rkeys, ReconstructReport &report,
+                                      const char *label) {
+    std::vector<std::string> usable;
+    usable.reserve(rkeys.size());
+    for (std::string &rkey : rkeys) {
+        if (protocol::is_record_key(rkey)) {
+            usable.push_back(std::move(rkey));
+        } else {
+            ++report.records_corrupt;
+            report.failures.push_back(std::string(label) + " listing contained an invalid record key");
+        }
+    }
+    return usable;
+}
+
+/* The ledger refuses over-long fields by throwing, which would abort the whole
+ * recovery over one bad record. Check the same limits up front so a bad
+ * observation is reported and skipped and everything else still replays. */
+const char *observation_field_problem(const ObservationRecord &record) {
+    if (record.source_id.empty() || record.source_id.size() >= ATPERSON_LEDGER_SOURCE_BYTES) {
+        return "source id is empty or too long";
+    }
+    if (!record.author_did.empty() &&
+        (record.author_did.size() >= ATPERSON_LEDGER_AUTHOR_BYTES ||
+         !protocol::is_did(record.author_did))) {
+        return "author is not a valid DID";
+    }
+    if (record.context.reply_root_uri.size() >= ATPERSON_CONTEXT_URI_BYTES ||
+        record.context.reply_parent_uri.size() >= ATPERSON_CONTEXT_URI_BYTES ||
+        record.context.quote_uri.size() >= ATPERSON_CONTEXT_URI_BYTES) {
+        return "conversation context URI is too long";
+    }
+    return nullptr;
+}
 } // namespace
 
 ReconstructReport reconstruct_state(RecordSource &source,
@@ -50,7 +89,7 @@ ReconstructReport reconstruct_state(RecordSource &source,
      * are skipped — their experience is excluded by the withdrawal, and
      * the payload is gone from the source anyway. */
     const std::vector<std::string> observation_rkeys =
-        source.list_records(kObservationCollection);
+        usable_rkeys(source.list_records(kObservationCollection), report, "observation");
     std::vector<std::pair<std::uint64_t, ObservationRecord>> observations;
     observations.reserve(observation_rkeys.size());
     for (const std::string &rkey : observation_rkeys) {
@@ -76,11 +115,23 @@ ReconstructReport reconstruct_state(RecordSource &source,
             ++report.observations_skipped_withdrawn;
             continue;
         }
+        if (const char *problem = observation_field_problem(record)) {
+            ++report.observations_failed;
+            report.failures.push_back(std::string("observation ") + std::to_string(record.id) +
+                                      ": " + problem);
+            continue;
+        }
         const std::optional<std::string> content = source.fetch_content(record.source_id);
         if (!content) {
             ++report.observations_failed;
             report.failures.push_back("source unavailable for observation " +
                                      std::to_string(record.id));
+            continue;
+        }
+        if (content->size() > ATPERSON_LEDGER_PAYLOAD_LIMIT) {
+            ++report.observations_failed;
+            report.failures.push_back("observation " + std::to_string(record.id) +
+                                      ": content exceeds the ledger payload limit");
             continue;
         }
         if (Ledger::digest(*content) != record.content_digest) {
@@ -102,7 +153,7 @@ ReconstructReport reconstruct_state(RecordSource &source,
     }
 
     /* 2. Actions and valence: replay to the journal in id order. */
-    const std::vector<std::string> action_rkeys = source.list_records(kActionCollection);
+    const std::vector<std::string> action_rkeys = usable_rkeys(source.list_records(kActionCollection), report, "action");
     for (const std::string &rkey : action_rkeys) {
         const std::optional<std::string> json = source.get_record(kActionCollection, rkey);
         if (!json) {
@@ -130,7 +181,7 @@ ReconstructReport reconstruct_state(RecordSource &source,
         }
     }
 
-    const std::vector<std::string> valence_rkeys = source.list_records(kValenceCollection);
+    const std::vector<std::string> valence_rkeys = usable_rkeys(source.list_records(kValenceCollection), report, "valence");
     for (const std::string &rkey : valence_rkeys) {
         const std::optional<std::string> json = source.get_record(kValenceCollection, rkey);
         if (!json) {
@@ -160,7 +211,7 @@ ReconstructReport reconstruct_state(RecordSource &source,
      * carries the full text (self-authored), so there is nothing to
      * re-fetch or verify — a corrupt record is reported and skipped,
      * never replayed. */
-    const std::vector<std::string> thought_rkeys = source.list_records(kThoughtCollection);
+    const std::vector<std::string> thought_rkeys = usable_rkeys(source.list_records(kThoughtCollection), report, "thought");
     for (const std::string &rkey : thought_rkeys) {
         const std::optional<std::string> json = source.get_record(kThoughtCollection, rkey);
         if (!json) {
@@ -193,7 +244,7 @@ ReconstructReport reconstruct_state(RecordSource &source,
      * pending conversations on a new host. The record mirrors the journal
      * line exactly, so the rebuilt journal is what a local one would have
      * been; a corrupt record is reported and skipped, never replayed. */
-    const std::vector<std::string> intent_rkeys = source.list_records(kIntentCollection);
+    const std::vector<std::string> intent_rkeys = usable_rkeys(source.list_records(kIntentCollection), report, "intent");
     for (const std::string &rkey : intent_rkeys) {
         const std::optional<std::string> json = source.get_record(kIntentCollection, rkey);
         if (!json) {

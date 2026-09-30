@@ -112,6 +112,16 @@ ledger's dedup identity. A mutation sweep over a valid commit asserts the
 extractor never crashes and that anything it accepts names a real DID and post
 URI.
 
+## Untrusted records on reconstruct
+
+`atperson reconstruct` replays records from the network into fresh state. Record
+keys and ids from a listing are only used once they are valid record keys; the
+record store itself refuses any id that is not a plain file name, so a hostile
+listing cannot make a thought id write outside its directory. Observation fields
+are checked against the ledger limits (source, author DID, context URIs,
+payload size) before they are replayed, so one bad observation is counted as
+failed and skipped instead of aborting the whole recovery.
+
 ## Archive record payloads are DAG-CBOR
 
 Live Jetstream frames carry record payloads as JSON objects, but archive

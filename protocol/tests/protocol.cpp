@@ -1,6 +1,7 @@
 #include "../protocol.hpp"
 
 #include <cassert>
+#include <fstream>
 #include <string>
 #include <filesystem>
 
@@ -304,4 +305,66 @@ int main() {
         assert(restarted.entries().size() == 13);
     }
     std::filesystem::remove(path, error);
+
+    // A crash mid-append leaves a prefix of the last record. Every possible
+    // truncation point inside it must read as "the complete entries before it"
+    // (never an exception), and the next append must drop the partial bytes
+    // instead of burying them mid-file, where they would read as corruption
+    // and break every later read.
+    {
+        const auto torn_path =
+            std::filesystem::temp_directory_path() / "atperson-protocol-evidence-torn.bin";
+        std::filesystem::remove(torn_path, error);
+        std::uintmax_t first_end = 0;
+        std::uintmax_t full_end = 0;
+        {
+            EvidenceLedger writer(torn_path);
+            assert(append_firehose_event(writer, "wss://relay.example", "#sync", "did:plc:abc",
+                                         "first", 1, 10));
+            first_end = std::filesystem::file_size(torn_path);
+            assert(append_firehose_event(writer, "wss://relay.example", "#identity",
+                                         "did:plc:abc", "second-record-payload", 2, 11));
+            full_end = std::filesystem::file_size(torn_path);
+        }
+        assert(full_end > first_end + 1);
+        for (std::uintmax_t cut = first_end; cut < full_end; ++cut) {
+            std::filesystem::copy_file(torn_path, torn_path.string() + ".cut",
+                                       std::filesystem::copy_options::overwrite_existing);
+            std::filesystem::resize_file(torn_path.string() + ".cut", cut);
+            EvidenceLedger reader(torn_path.string() + ".cut");
+            assert(reader.entries().size() == 1u); // torn record ignored, not fatal
+
+            // Appending repairs the tail, so the ledger stays fully readable.
+            assert(append_firehose_event(reader, "wss://relay.example", "#account",
+                                         "did:plc:abc", "after-crash", 3, 12));
+            assert(reader.entries().size() == 2u);
+            EvidenceLedger fresh(torn_path.string() + ".cut");
+            const auto entries = fresh.entries();
+            assert(entries.size() == 2u && entries[1].payload == "after-crash");
+            // Dedup still sees the surviving entry after the repair.
+            assert(!append_firehose_event(fresh, "wss://relay.example", "#sync", "did:plc:abc",
+                                          "first", 1, 10));
+        }
+        // Corruption in the middle of the file (present but wrong bytes) is
+        // still an error, not something to trim silently.
+        {
+            std::filesystem::copy_file(torn_path, torn_path.string() + ".bad",
+                                       std::filesystem::copy_options::overwrite_existing);
+            std::fstream bad(torn_path.string() + ".bad",
+                             std::ios::binary | std::ios::in | std::ios::out);
+            bad.seekp(0);
+            bad.put('\x00');
+            bad.close();
+            bool threw = false;
+            try {
+                (void)EvidenceLedger(torn_path.string() + ".bad").entries();
+            } catch (const std::runtime_error &) {
+                threw = true;
+            }
+            assert(threw);
+        }
+        std::filesystem::remove(torn_path, error);
+        std::filesystem::remove(torn_path.string() + ".cut", error);
+        std::filesystem::remove(torn_path.string() + ".bad", error);
+    }
 }

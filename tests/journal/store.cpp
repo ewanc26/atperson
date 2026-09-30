@@ -184,6 +184,122 @@ void test_torn_tail_truncated() {
     assert(journal.events.empty());
 }
 
+// A crash mid-append leaves a partial final line. The next append must not
+// glue its line onto those bytes: that would turn the torn tail into a complete
+// but malformed line and make every later load throw, so the journal would be
+// unreadable for good. The append drops the partial bytes first.
+void test_append_after_torn_tail_keeps_journal_loadable() {
+    const auto root = scratch_dir("torn-append");
+    const auto path = root / "action-journal.jsonl";
+
+    atperson::append_journal_action(path, sample_action());
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::app);
+        file << "{\"type\":\"event\",\"action_id\":\"3l";
+    }
+    JournalAction second = sample_action();
+    second.id = "3lzc7a2pfxn2d";
+    atperson::append_journal_action(path, second);
+
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.actions.size() == 2u);
+    assert(journal.actions[1].id == "3lzc7a2pfxn2d");
+    assert(journal.events.empty());
+    assert(!journal.repaired_torn_tail); // the tail was repaired by the append
+
+    // A file that is only a torn fragment is repaired to empty, then appended.
+    const auto solo = root / "solo.jsonl";
+    {
+        std::ofstream file(solo, std::ios::binary);
+        file << "{\"type\":\"acti";
+    }
+    atperson::append_journal_action(solo, sample_action());
+    const JournalContents solo_journal = atperson::load_journal(solo);
+    assert(solo_journal.actions.size() == 1u);
+
+    // A healthy file ending in a newline is appended to untouched.
+    const auto before = std::filesystem::file_size(path);
+    atperson::append_journal_action(path, sample_action());
+    assert(std::filesystem::file_size(path) > before);
+    assert(atperson::load_journal(path).actions.size() == 3u);
+}
+
+// Totality of the loader on damaged files: whatever bytes are on disk, loading
+// either yields a journal or throws JournalError, never another exception type,
+// and a surviving load has consistent contents.
+void test_load_is_total_on_mutated_files() {
+    const auto root = scratch_dir("mutation");
+    const auto seed_path = root / "seed.jsonl";
+    atperson::append_journal_action(seed_path, sample_action());
+    JournalEvent event;
+    event.action_id = "3lzc7a2pfxn2c";
+    event.event_uri = "at://did:plc:x/app.bsky.feed.post/e1";
+    event.author_did = "did:plc:x";
+    event.via = "parent";
+    event.at = "2026-09-18T00:00:00Z";
+    atperson::append_journal_event(seed_path, event);
+    JournalValence valence;
+    valence.token = "moon";
+    valence.kind = "approach";
+    valence.signal = 0.5f;
+    valence.source = "3lzc7a2pfxn2c";
+    valence.at_epoch = 5u;
+    valence.at = "2026-09-18T00:00:01Z";
+    atperson::append_journal_valence(seed_path, valence);
+    std::string base;
+    {
+        std::ifstream in(seed_path, std::ios::binary);
+        base.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    assert(!base.empty() && base.back() == '\n');
+
+    std::uint64_t state = 0x853C49E6748FEA9Bull;
+    auto next = [&state]() {
+        state ^= state << 13u;
+        state ^= state >> 7u;
+        state ^= state << 17u;
+        return state;
+    };
+    const auto path = root / "mutated.jsonl";
+    std::size_t loaded = 0u;
+    for (int iteration = 0; iteration < 20000; ++iteration) {
+        std::string mutated = base;
+        const unsigned edits = 1u + static_cast<unsigned>(next() % 4u);
+        for (unsigned e = 0u; e < edits && !mutated.empty(); ++e) {
+            const std::size_t at = static_cast<std::size_t>(next() % mutated.size());
+            switch (next() % 4u) {
+            case 0u:
+                mutated[at] = static_cast<char>(next());
+                break;
+            case 1u:
+                mutated.insert(mutated.begin() + static_cast<std::ptrdiff_t>(at),
+                               static_cast<char>(next()));
+                break;
+            case 2u:
+                mutated.erase(mutated.begin() + static_cast<std::ptrdiff_t>(at));
+                break;
+            default:
+                mutated.resize(at);
+                break;
+            }
+        }
+        {
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            out << mutated;
+        }
+        try {
+            const JournalContents journal = atperson::load_journal(path);
+            ++loaded;
+            for (const auto &action : journal.actions) {
+                assert(!action.id.empty());
+            }
+        } catch (const JournalError &) {
+            // the expected refusal of a damaged journal
+        }
+    }
+    assert(loaded > 0u);
+}
+
 void test_malformed_line_rejected() {
     const auto root = scratch_dir("malformed");
     const auto path = root / "action-journal.jsonl";
@@ -665,6 +781,8 @@ int main() {
     test_append_order_across_kinds();
     test_outcome_names_round_trip();
     test_torn_tail_truncated();
+    test_append_after_torn_tail_keeps_journal_loadable();
+    test_load_is_total_on_mutated_files();
     test_malformed_line_rejected();
     test_unsupported_version_rejected();
     test_event_dedup_and_uri_lookup();

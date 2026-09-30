@@ -741,6 +741,30 @@ if(ATPERSON_BUILD_TESTS)
                                                          ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   add_test(NAME atperson-replicate COMMAND atperson-replicate-test)
 
+  # Reconstruct against a hostile record source: ids never become paths outside
+  # the state directories, one bad record never aborts recovery. Offline.
+  add_executable(
+    atperson-reconstruct-hardening-test
+    tests/replicate/reconstruct_hardening.cpp
+    src/app/replicate/records.cpp
+    src/app/replicate/file_writer.cpp
+    src/app/replicate/publish.cpp
+    src/app/replicate/publication.cpp
+    src/app/replicate/reconstruct.cpp
+    src/app/control/state.cpp
+    src/app/resource/budget.cpp
+    src/app/resource/runtime.cpp
+    src/app/state/lock.cpp
+    src/app/thought/store.cpp
+    src/app/state/records.cpp
+    src/app/journal/store.cpp
+    src/app/ledger.cpp)
+  target_compile_features(atperson-reconstruct-hardening-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-reconstruct-hardening-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-reconstruct-hardening-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS}
+                                                         ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+  add_test(NAME atperson-reconstruct-hardening COMMAND atperson-reconstruct-hardening-test)
+
   # Outbound execution (#25): the ordered gate chain (pause, policy, dry-run,
   # #22 approval), fail-closed refusal, budget recorded only on confirmed
   # success, idempotent frozen rkey, reply CID resolution and the audit log.

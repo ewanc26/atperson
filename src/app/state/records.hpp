@@ -28,7 +28,11 @@ void write_record(const std::filesystem::path &dir, std::string_view id,
                   std::string_view payload);
 
 /* The path a record will occupy. */
-[[nodiscard]] std::filesystem::path record_path(const std::filesystem::path &dir,
+[[nodiscard]] /* True when `id` is safe to use as a record file name: 1..200 bytes of
+ * [A-Za-z0-9._-], never "." or "..". */
+[[nodiscard]] bool is_plain_record_id(std::string_view id) noexcept;
+
+std::filesystem::path record_path(const std::filesystem::path &dir,
                                                 std::string_view id);
 
 /* True when `<dir>/<id>.json` already exists. */
