@@ -202,6 +202,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/daemon.cpp
     src/app/cli/daemon_passes.cpp
     src/app/cli/drives.cpp
+    src/app/cli/arm.cpp
     src/app/cli/profile.cpp
     src/app/cli/envelope.cpp
     src/app/cli/jetstream.cpp
@@ -231,6 +232,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/atproto/writer.cpp
     src/app/atproto/record_source.cpp
     src/app/action/tokens.cpp
+    src/app/autonomy/arming.cpp
     src/app/autonomy/heartbeat.cpp
     src/app/autonomy/run_state.cpp
     src/app/attestation/signer.cpp
@@ -583,6 +585,23 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson-control-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-control COMMAND atperson-control-test)
 
+  # Arming: the one-time setup for unattended operation and the preflight that
+  # proves it took. Real policy/envelope/control files, injected clock. Offline.
+  add_executable(
+    atperson-arming-test
+    tests/autonomy/arming.cpp
+    src/app/autonomy/arming.cpp
+    src/app/control/envelope.cpp
+    src/app/control/state.cpp
+    src/app/outbound/actions.cpp
+    src/app/outbound/budget.cpp
+    src/app/outbound/config.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-arming-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-arming-test PRIVATE atperson-cpp cjson)
+  target_include_directories(atperson-arming-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-arming COMMAND atperson-arming-test)
+
   # Remote operator control channel (#143): operator DID provenance, strict
   # sequencing, argument rules and the durable replay cursor. Offline.
   add_executable(atperson-remote-control-test tests/control/remote.cpp
@@ -812,6 +831,7 @@ if(ATPERSON_BUILD_TESTS)
   add_executable(
     atperson-scheduler-test
     tests/scheduler/scheduler.cpp
+    src/app/autonomy/arming.cpp
     src/app/action/inspection.cpp
     src/app/action/tokens.cpp
     src/app/control/envelope.cpp
@@ -1112,6 +1132,12 @@ if(ATPERSON_BUILD_TESTS)
     add_test(
       NAME atperson-cli-ingest-ledger
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/ingest_ledger.sh
+              $<TARGET_FILE:atperson>)
+
+    # Unattended-operation setup: arm / preflight / disarm through the real CLI.
+    add_test(
+      NAME atperson-cli-arm
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/arm.sh
               $<TARGET_FILE:atperson>)
 
     # Operator review of frozen scheduler proposals: read-only, with the policy

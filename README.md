@@ -87,7 +87,7 @@ The project is already beyond the initial scaffold. The important pieces current
 | Agent loop | Contract documented | Perception → decision → policy → control → execution → journal boundaries are defined; autonomous scheduler is off by default (`ATPERSON_SCHEDULER`) |
 | Experience-derived drives | Implemented | Curiosity (novelty × adjacency) and reciprocity (referenced-action) reorder scheduler contexts; off by default (`ATPERSON_SCHEDULER_DRIVES`), never weakens gates |
 | Pending social intents | Implemented | Open reply-invitation windows on autonomous conversations, bounded continuation replies into the same thread, and an idempotent expiry/closure sweep; off by default (`ATPERSON_INTENTS`) |
-| Autonomous social behaviour | Not enabled | Autonomous posting, replies, likes, follows, reposts, DMs and moderation remain fail-closed |
+| Autonomous social behaviour | Opt-in, off by default | After one deliberate setup step (`atperson autonomy arm`) the entity decides, freezes and publishes posts, replies, likes, reposts and follows on its own with no per-action approval, inside the ceilings, scope and expiry chosen at setup; `atperson autonomy preflight` proves the whole chain is in place. A fresh install, and anything not armed, stays fail-closed. DMs and moderation are not executable at all. See [`docs/autonomy.md`](docs/autonomy.md) |
 
 The model begins with **zero words and zero relationships**. Neural parameters have small deterministic initial values so training can start, but there is no seeded vocabulary, biography, ideology, personality or preference set.
 
@@ -387,12 +387,12 @@ See [`docs/recovery.md`](docs/recovery.md) for the runnable drill,
 `ATperson` currently does **not**:
 
 - read private messages or private data;
-- autonomously post, reply, like, follow, repost, DM or moderate;
+- act on the network unless it has been deliberately armed: posting, replying, liking, following and reposting are opt-in (`atperson autonomy arm`), and DMs and moderation cannot be executed at all;
 - use an LLM as a hidden personality or decision engine;
 - seed a biography, ideology, preferences or opinions into learned state;
 - treat generated language as evidence of consciousness or personhood.
 
-I do want the project to grow towards genuinely autonomous network behaviour, but not by skipping the hard parts. Sequence planning, policy, evidence, rate control, replay and operator-visible reasoning need to exist underneath it first.
+The project's goal is genuinely autonomous network behaviour, and once armed it acts with no per-action approval. It was not reached by skipping the hard parts: sequence planning, policy, evidence, rate control, replay and operator-visible reasoning sit underneath it, and arming only chooses the bounds those already enforce.
 
 ## Licence
 

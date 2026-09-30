@@ -153,6 +153,26 @@ operator controls, outbound policy/rate budgets and Wolfram-backed write path
 are implemented and tested. Do not bypass those gates to demonstrate that a
 planner can produce text.
 
+**Unattended operation is the intended end state, reached only by deliberate
+setup.** The owner's requirement is that, after setup, the entity acts
+completely on its own with no per-action human approval. That is implemented as
+`atperson autonomy arm` (a standing authorization envelope, the outbound policy
+and the control state, written together), verified by `atperson autonomy
+preflight`. Keep it that way:
+
+- a fresh install and anything not armed stays fail-closed; arming is an
+  explicit operator act, never a side effect of learning, memory or planning;
+- "no human in the loop" means no approval per action, not no bounds. The
+  ceilings, scope, spacing and duplicate suppression chosen at setup are
+  enforced on every action, and pause, dry-run, the publishing master switch
+  and the operator's kill switches (local and remote pause, `autonomy disarm`)
+  must keep working unchanged;
+- do not add a privileged write path or make any gate weaker to make
+  unattended operation easier; make setup and verification better instead;
+- anything that would silently leave the entity waiting for a human (an
+  unsatisfiable envelope, an expiry that lapses unnoticed) is a bug in arming
+  or in the preflight, not something for the operator to discover in production.
+
 Do not ingest private messages into the learning graph.
 
 Never log, commit or persist app passwords, tokens or other authentication

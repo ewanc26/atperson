@@ -5,6 +5,7 @@
 #include "autonomy/run_state.hpp"
 #include "inspection.hpp"
 #include "audit/command.hpp"
+#include "cli/arm.hpp"
 #include "cli/config.hpp"
 #include "cli/control.hpp"
 #include "cli/control_remote.hpp"
@@ -218,6 +219,14 @@ int main(int argc, char **argv) {
                 case atperson::AutonomyHealth::Unreadable: return 2;
                 }
                 return 2;
+            }
+            if (sub == "arm" || sub == "disarm" || sub == "preflight") {
+                std::vector<std::string_view> arm_arguments;
+                for (int i = 3; i < argc; ++i) {
+                    arm_arguments.emplace_back(argv[i]);
+                }
+                return atperson::cli::run_autonomy_arming(
+                    std::cout, sub, arm_arguments, static_cast<std::int64_t>(std::time(nullptr)));
             }
             if (sub != "status") {
                 usage(std::cerr);
