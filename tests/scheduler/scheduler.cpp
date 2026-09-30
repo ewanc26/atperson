@@ -338,6 +338,7 @@ void test_graduated_like_from_below_floor_abstention() {
 
     SchedulerConfig config = enabled_config();
     config.graduated_likes = true;
+    config.engagement.mode = atperson::EngagementMode::Open; /* consent is tested separately */
     const SchedulerCycleReport report = atperson::run_scheduler_cycle(
         config, make_cycle(gates, gates.root, writer), graph, ledger);
     assert(report.contexts_examined == 1u);
@@ -1069,6 +1070,140 @@ void test_breaker_settings_come_from_the_environment() {
     }
 }
 
+/* Engagement consent (engagement.hpp): by default the entity only likes people
+ * who engaged with it first, and never anyone on the do-not-engage list. */
+void seed_like_context(Ledger &ledger) {
+    std::uint64_t id = 0u;
+    ledger.append("at://did:plc:author/app.bsky.feed.post/3kabc", "did:plc:author", NOW,
+                  Ledger::digest("alpha"), 1u, ATP_LEDGER_OUTCOME_LEARNED, "alpha", &id);
+}
+
+SchedulerConfig like_config(atperson::EngagementMode mode) {
+    SchedulerConfig config = enabled_config();
+    config.graduated_likes = true;
+    config.engagement.mode = mode;
+    return config;
+}
+
+void test_likes_require_an_invitation_by_default() {
+    unsetenv("ATPERSON_DO_NOT_ENGAGE");
+    const GateFiles gates("consent-invited");
+    FakeWriter writer;
+    LanguageGraph graph;
+    Ledger ledger(gates.root / "ledger.bin");
+    seed_like_context(ledger);
+
+    /* A stranger's post is not liked. */
+    SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        like_config(atperson::EngagementMode::Invited), make_cycle(gates, gates.root, writer),
+        graph, ledger);
+    assert(report.engagement_refused == 1u && report.last_engagement_refusal == "not_invited");
+    assert(report.proposals_written == 0u);
+
+    /* Once that author has replied to something the entity published, they
+     * have engaged first, and the like goes through. */
+    atperson::JournalEvent event;
+    event.action_id = "3laction1";
+    event.event_uri = "at://did:plc:author/app.bsky.feed.post/3kreply";
+    event.author_did = "did:plc:author";
+    event.via = "parent";
+    event.at = "2026-09-17T00:00:00Z";
+    atperson::append_journal_event(gates.journal, event);
+    report = atperson::run_scheduler_cycle(like_config(atperson::EngagementMode::Invited),
+                                           make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.engagement_refused == 0u && report.proposals_written == 1u);
+    assert(report.graduated_likes_written == 1u);
+}
+
+void test_the_do_not_engage_list_wins_in_every_mode_and_is_live() {
+    unsetenv("ATPERSON_DO_NOT_ENGAGE");
+    const GateFiles gates("consent-optout");
+    FakeWriter writer;
+    LanguageGraph graph;
+    Ledger ledger(gates.root / "ledger.bin");
+    seed_like_context(ledger);
+    write_file(gates.root / "do-not-engage.txt",
+               "# no thanks\ndid:plc:author\nnot a did\n\n");
+
+    SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        like_config(atperson::EngagementMode::Open), make_cycle(gates, gates.root, writer), graph,
+        ledger);
+    assert(report.engagement_refused == 1u && report.last_engagement_refusal == "opted_out");
+    assert(report.proposals_written == 0u);
+    assert(report.engagement_invalid_lines == 1u); /* the typo is counted, not fatal */
+
+    /* Even an author who has engaged is refused once opted out. */
+    atperson::JournalEvent event;
+    event.action_id = "3laction1";
+    event.event_uri = "at://did:plc:author/app.bsky.feed.post/3kreply";
+    event.author_did = "did:plc:author";
+    event.via = "parent";
+    event.at = "2026-09-17T00:00:00Z";
+    atperson::append_journal_event(gates.journal, event);
+    report = atperson::run_scheduler_cycle(like_config(atperson::EngagementMode::Invited),
+                                           make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.last_engagement_refusal == "opted_out" && report.proposals_written == 0u);
+
+    /* Removing them from the list takes effect on the next cycle. */
+    write_file(gates.root / "do-not-engage.txt", "");
+    report = atperson::run_scheduler_cycle(like_config(atperson::EngagementMode::Invited),
+                                           make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.proposals_written == 1u);
+}
+
+void test_a_frozen_like_is_rechecked_against_the_list_at_execution() {
+    unsetenv("ATPERSON_DO_NOT_ENGAGE");
+    const GateFiles gates("consent-exec");
+    FakeWriter writer;
+    LanguageGraph graph;
+    Ledger ledger(gates.root / "ledger.bin");
+    seed_like_context(ledger);
+    const SchedulerConfig config = like_config(atperson::EngagementMode::Open);
+    atperson::run_scheduler_cycle(config, make_cycle(gates, gates.root, writer), graph, ledger);
+    std::filesystem::path proposal;
+    for (const auto &entry : std::filesystem::directory_iterator(gates.root / "proposals")) {
+        if (entry.path().extension() == ".json") {
+            proposal = entry.path();
+        }
+    }
+    const OutboundAction like = atperson::load_outbound_action(proposal);
+    assert(like.kind == OutboundActionKind::Like);
+    ControlState control = atperson::load_control_state(gates.control);
+    control.approved_digests.push_back(like.digest);
+    atperson::save_control_state(control, gates.control);
+
+    /* Approved, but the operator has opted that person out since. */
+    write_file(gates.root / "do-not-engage.txt", "did:plc:author\n");
+    const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        config, make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.engagement_refused >= 1u && report.last_engagement_refusal == "opted_out");
+    assert(report.executions_attempted == 0u && writer.put_calls == 0);
+    assert(std::filesystem::exists(proposal));
+}
+
+void test_engagement_mode_comes_from_the_environment() {
+    unsetenv("ATPERSON_ENGAGEMENT");
+    assert(atperson::scheduler_config_from_environment().engagement.mode ==
+           atperson::EngagementMode::Invited);
+    setenv("ATPERSON_ENGAGEMENT", "open", 1);
+    assert(atperson::scheduler_config_from_environment().engagement.mode ==
+           atperson::EngagementMode::Open);
+    setenv("ATPERSON_ENGAGEMENT", "invited", 1);
+    assert(atperson::scheduler_config_from_environment().engagement.mode ==
+           atperson::EngagementMode::Invited);
+    for (const char *bad : {"everyone", "Open", "1"}) {
+        setenv("ATPERSON_ENGAGEMENT", bad, 1);
+        bool threw = false;
+        try {
+            (void)atperson::scheduler_config_from_environment();
+        } catch (const std::runtime_error &) {
+            threw = true;
+        }
+        assert(threw);
+    }
+    unsetenv("ATPERSON_ENGAGEMENT");
+}
+
 void test_decision_valence_guard_comes_from_the_environment() {
     unsetenv("ATPERSON_DECISION_MIN_VALENCE");
     const atperson::SchedulerConfig off = atperson::scheduler_config_from_environment();
@@ -1103,6 +1238,10 @@ int main() {
     test_a_poison_proposal_is_quarantined_and_never_reproposed();
     test_the_pending_queue_is_capped();
     test_breaker_settings_come_from_the_environment();
+    test_likes_require_an_invitation_by_default();
+    test_the_do_not_engage_list_wins_in_every_mode_and_is_live();
+    test_a_frozen_like_is_rechecked_against_the_list_at_execution();
+    test_engagement_mode_comes_from_the_environment();
     test_decision_valence_guard_comes_from_the_environment();
     test_disabled_scheduler_is_inert();
     test_decision_writes_proposal_but_never_executes_unapproved();

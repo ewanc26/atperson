@@ -258,6 +258,35 @@ void test_preflight_reports_the_output_guard() {
     assert(find(run_preflight(full_environment(), scratch.paths, kNow), "output-guard") == nullptr);
 }
 
+void test_preflight_reports_engagement_and_flags_a_broken_opt_out_list() {
+    Scratch scratch("engagement");
+    apply_arm(plan_arm(request_for({{OutboundActionKind::Like, 3, 3600}}), default_outbound_policy(),
+                       ControlState{}, kNowText),
+              scratch.paths);
+    scratch.paths.do_not_engage_file = scratch.root / "dne.txt";
+
+    PreflightReport report = run_preflight(full_environment(), scratch.paths, kNow);
+    assert(report.ready && find(report, "engagement")->ok && find(report, "engagement")->advisory);
+    assert(find(report, "engagement")->detail.find("invited") != std::string::npos);
+    assert(find(report, "engagement")->detail.find("0 DID(s)") != std::string::npos);
+
+    PreflightEnvironment open_environment = full_environment();
+    open_environment.engagement_open = true;
+    report = run_preflight(open_environment, scratch.paths, kNow);
+    assert(find(report, "engagement")->detail.find("open") != std::string::npos);
+
+    std::ofstream(scratch.paths.do_not_engage_file) << "did:plc:one\ndid:plc:two\n";
+    assert(find(run_preflight(full_environment(), scratch.paths, kNow), "engagement")
+               ->detail.find("2 DID(s)") != std::string::npos);
+
+    /* A typo means someone the operator meant to exclude is not excluded, so
+     * it is a hard failure here, where it will be seen. */
+    std::ofstream(scratch.paths.do_not_engage_file) << "did:plc:one\nalice.bsky.social\n";
+    report = run_preflight(full_environment(), scratch.paths, kNow);
+    assert(!report.ready && !find(report, "engagement")->ok && !find(report, "engagement")->advisory);
+    assert(find(report, "engagement")->detail.find("NOT excluded") != std::string::npos);
+}
+
 void test_preflight_reports_an_open_breaker_without_blocking() {
     Scratch scratch("breaker");
     apply_arm(plan_arm(request_for({{OutboundActionKind::Post, 3, 86400}}), default_outbound_policy(),
@@ -387,6 +416,7 @@ int main() {
     test_arm_then_preflight_is_ready_and_states_the_bounds();
     test_every_missing_link_blocks_and_is_named();
     test_preflight_reports_the_output_guard();
+    test_preflight_reports_engagement_and_flags_a_broken_opt_out_list();
     test_preflight_reports_an_open_breaker_without_blocking();
     test_authorization_reflects_expiry_and_approval_mode();
     test_unsatisfiable_or_broken_envelopes_never_count();

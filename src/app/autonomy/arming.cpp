@@ -1,6 +1,7 @@
 #include "arming.hpp"
 
 #include "../scheduler/breaker.hpp"
+#include "../scheduler/engagement.hpp"
 #include "../state/time.hpp"
 #include "../scheduler/text_guard.hpp"
 
@@ -295,6 +296,33 @@ PreflightReport run_preflight(const PreflightEnvironment &environment, const Arm
                 /*advisory=*/true);
         } catch (const std::exception &error) {
             add("output-guard", false, std::string("denylist unreadable: ") + error.what());
+        }
+    }
+
+    /* Engagement consent: whom the entity may like, repost, follow or reply to.
+     * Lines in the do-not-engage list that are not DIDs are ignored at runtime
+     * (a typo must not stop the entity) but are a setup fault, so they fail
+     * here where the operator will see them. */
+    if (!paths.do_not_engage_file.empty()) {
+        try {
+            const DoNotEngage list = load_do_not_engage(paths.do_not_engage_file);
+            const std::string mode = environment.engagement_open
+                                         ? "open: any author may be liked, reposted or followed"
+                                         : "invited: only people who engaged with it first";
+            if (list.invalid_lines > 0) {
+                add("engagement", false,
+                    std::to_string(list.invalid_lines) + " line(s) in " +
+                        paths.do_not_engage_file.string() +
+                        " are not DIDs and are ignored, so the people they were meant to "
+                        "exclude are NOT excluded; fix them");
+            } else {
+                add("engagement", true,
+                    mode + "; do-not-engage list: " + std::to_string(list.dids.size()) +
+                        " DID(s)",
+                    /*advisory=*/true);
+            }
+        } catch (const std::exception &error) {
+            add("engagement", false, std::string("do-not-engage list unreadable: ") + error.what());
         }
     }
 

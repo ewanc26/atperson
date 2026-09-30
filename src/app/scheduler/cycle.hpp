@@ -59,6 +59,7 @@
 #include "intent/config.hpp"
 #include "outbound/attempt.hpp"
 #include "breaker.hpp"
+#include "engagement.hpp"
 #include "text_guard.hpp"
 
 #include "atperson/action.h"
@@ -123,6 +124,11 @@ struct SchedulerConfig {
      * unauthorised or breaker-held queue cannot grow without bound.
      * ATPERSON_SCHEDULER_MAX_PENDING. */
     std::size_t max_pending_proposals{50};
+    /* Whom the entity may like, repost, follow or reply to (see
+     * engagement.hpp). ATPERSON_ENGAGEMENT = invited (default: only people who
+     * engaged with it first) or open. The do-not-engage list
+     * (ATPERSON_DO_NOT_ENGAGE or <data>/do-not-engage.txt) applies in both. */
+    EngagementConfig engagement;
 };
 
 /* Accounting for one scheduler cycle, reported to the operator. */
@@ -147,6 +153,12 @@ struct SchedulerCycleReport {
     std::size_t quarantined{};
     /* Proposals not composed because the pending queue was full. */
     std::size_t proposals_capped{};
+    /* Interactions the engagement rules refused (at proposal or execution
+     * time), the latest reason, and lines in the do-not-engage list that are
+     * not a DID (ignored, and a setup fault the preflight reports). */
+    std::size_t engagement_refused{};
+    std::string last_engagement_refusal;
+    std::size_t engagement_invalid_lines{};
     std::size_t failed{};
     std::string detail;
     /* Non-zero when drives reordering (#148) was applied to the candidate
