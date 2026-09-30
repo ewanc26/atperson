@@ -184,6 +184,46 @@ void test_torn_tail_truncated() {
     assert(journal.events.empty());
 }
 
+// A crash mid-append leaves a partial final line. The next append must not
+// glue its line onto those bytes: that would turn the torn tail into a complete
+// but malformed line and make every later load throw, so the journal would be
+// unreadable for good. The append drops the partial bytes first.
+void test_append_after_torn_tail_keeps_journal_loadable() {
+    const auto root = scratch_dir("torn-append");
+    const auto path = root / "action-journal.jsonl";
+
+    atperson::append_journal_action(path, sample_action());
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::app);
+        file << "{\"type\":\"event\",\"action_id\":\"3l";
+    }
+    JournalAction second = sample_action();
+    second.id = "3lzc7a2pfxn2d";
+    atperson::append_journal_action(path, second);
+
+    const JournalContents journal = atperson::load_journal(path);
+    assert(journal.actions.size() == 2u);
+    assert(journal.actions[1].id == "3lzc7a2pfxn2d");
+    assert(journal.events.empty());
+    assert(!journal.repaired_torn_tail); // the tail was repaired by the append
+
+    // A file that is only a torn fragment is repaired to empty, then appended.
+    const auto solo = root / "solo.jsonl";
+    {
+        std::ofstream file(solo, std::ios::binary);
+        file << "{\"type\":\"acti";
+    }
+    atperson::append_journal_action(solo, sample_action());
+    const JournalContents solo_journal = atperson::load_journal(solo);
+    assert(solo_journal.actions.size() == 1u);
+
+    // A healthy file ending in a newline is appended to untouched.
+    const auto before = std::filesystem::file_size(path);
+    atperson::append_journal_action(path, sample_action());
+    assert(std::filesystem::file_size(path) > before);
+    assert(atperson::load_journal(path).actions.size() == 3u);
+}
+
 void test_malformed_line_rejected() {
     const auto root = scratch_dir("malformed");
     const auto path = root / "action-journal.jsonl";
@@ -665,6 +705,7 @@ int main() {
     test_append_order_across_kinds();
     test_outcome_names_round_trip();
     test_torn_tail_truncated();
+    test_append_after_torn_tail_keeps_journal_loadable();
     test_malformed_line_rejected();
     test_unsupported_version_rejected();
     test_event_dedup_and_uri_lookup();
