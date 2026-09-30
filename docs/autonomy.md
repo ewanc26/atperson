@@ -82,5 +82,76 @@ revocation takes effect on the next attempt. See
 CLI.
 
 The current implementation provides the bootstrap, daemon, control, resource,
-ledger-recovery, and outbound-gate primitives. Future autonomous scheduling
-must compose those same paths rather than introducing a privileged write API.
+ledger-recovery, and outbound-gate primitives. Autonomous scheduling composes
+those same paths rather than introducing a privileged write API.
+
+## Unattended operation: arm once, then it runs
+
+The entity is built to act on its own after a single, deliberate setup step.
+Off by default; nothing here changes what a fresh install does.
+
+```sh
+# 1. See exactly what would be authorised. Nothing is written without --apply.
+atperson autonomy arm --kinds post:3/1d,reply:5/1d,like:20/1h \
+    --scope moon,wolf --min-plan 0.3 --expires never
+
+# 2. Write it (policy, envelope(s), control state), then run the preflight.
+atperson autonomy arm --kinds post:3/1d,reply:5/1d,like:20/1h --scope moon,wolf --apply
+
+# 3. Put the printed environment lines in the .env file and start the daemon.
+#    ATPERSON_SCHEDULER=1  ATPERSON_ALLOW_EXTERNAL_PUBLISHING=true  (+ credentials)
+
+# Any time: is the whole chain in place, and what will it do?
+atperson autonomy preflight        # exit 0 ready, 1 not ready
+```
+
+`--kinds` takes `kind:count/window` (a window is seconds or a number with
+`s`, `m`, `h` or `d`). After `--apply` the daemon decides, freezes, and publishes
+on its own, one bounded cycle at a time, with no per-action approval.
+
+**What "no human in the loop" means.** It means no approval per action, not no
+bounds. The ceilings chosen at setup are enforced on every action, forever: the
+per-kind budget and spacing in the outbound policy, the same ceilings in the
+standing envelope (the tighter always wins), the optional scope terms and score
+floors, and duplicate suppression. Pause, dry-run, the publishing master switch
+and the outbound policy still apply exactly as before, and the recovery and
+fail-closed rules above are unchanged. An envelope can only narrow policy, and
+the arming plan is round-tripped through the real envelope parser so it can
+never be something the loader would reject or read differently.
+
+**What arming writes.**
+
+- the outbound policy: the requested kinds enabled with their ceilings, spacing
+  (`window / count / 2`) and duplicate suppression over the window; other kinds
+  are untouched;
+- a standing envelope. Scope terms and score floors constrain what the entity
+  *says*, so they bind `post` and `reply` only. A `like`, `repost` or `follow`
+  has no text and records no decision score, so a scope or floor could never be
+  satisfied and the action would silently wait for approval; those kinds go in a
+  companion envelope (`<id>-actions`) bounded by their ceilings alone. By
+  default the authorisation never expires (`--expires never`); pass an RFC 3339
+  time to make it lapse;
+- the control state: writes on, dry-run off, not paused. Per-action approval
+  stays enabled as the fallback for anything an envelope does not cover.
+
+The control state is written **last**. The envelope and policy grant nothing
+until writes are on, so a failure part-way through leaves the entity inert
+rather than half-armed.
+
+**The preflight** checks every link and names what is blocking: the scheduler
+switch, the publishing master switch, credentials, the control state (paused,
+writes off, dry-run, offline mode), that at least one kind is enabled, and that
+at least one enabled kind is covered by an unexpired envelope (using the real
+coverage logic, probed the way the executor sees each kind). It prints the exact
+bounds the entity will act within. A missing self DID is shown as a note: the
+entity would then learn from its own posts.
+
+**Staying in control.** Arming removes the routine approval, not your ability to
+stop it: `atperson control pause` (or a remote pause record from
+`ATPERSON_OPERATOR_DID`) halts publishing immediately, `atperson autonomy disarm`
+turns writes off and revokes the envelopes, and `atperson outbound proposals`,
+`atperson journal trace` and `atperson autonomy status` show what it has done
+and is about to do.
+
+The environment (`ATPERSON_SCHEDULER`, the publishing switch, credentials) is per
+process, so `arm` prints the lines for the `.env` file instead of editing it.

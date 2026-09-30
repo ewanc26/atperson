@@ -4,6 +4,7 @@
  * invited reply is composed as a continuation reply, and a closed window
  * expires the intent and resolves its action unmet. Offline: the network is a
  * fake OutboundWriter, the clock is injected, the ledger is real. */
+#include "autonomy/arming.hpp"
 #include "scheduler/cycle.hpp"
 
 #include "action/inspection.hpp"
@@ -623,6 +624,111 @@ void test_intent_conversation_lifecycle() {
 
 } // namespace
 
+/* Unattended operation end to end: after the one-time arming, decisions turn
+ * into published records with no per-action approval anywhere, every step
+ * still passes the gate chain, and the operator's kill switches still stop it. */
+atperson::ArmPaths arm_gates(const GateFiles &gates) {
+    atperson::ArmRequest request;
+    request.kinds = {{OutboundActionKind::Post, 5, 3600}};
+    atperson::ArmPaths paths{gates.policy, gates.control, gates.envelopes};
+    /* Start from the fail-closed posture a fresh install has: writes off, dry-run on. */
+    atperson::ControlState fresh;
+    atperson::save_control_state(fresh, gates.control);
+    atperson::apply_arm(atperson::plan_arm(request, atperson::load_outbound_policy(gates.policy),
+                                           fresh, "2026-09-17T10:00:00Z"),
+                        paths);
+    return paths;
+}
+
+void test_armed_entity_publishes_with_no_human_step() {
+    const GateFiles gates("armed");
+    arm_gates(gates);
+    FakeWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+
+    /* No control approve anywhere. A couple of cycles is all it takes to
+     * decide, freeze and publish. */
+    for (int cycle = 0; cycle < 2; ++cycle) {
+        atperson::run_scheduler_cycle(enabled_config(), make_cycle(gates, gates.root, writer), graph,
+                                     ledger);
+    }
+    assert(writer.put_calls == 1);
+    assert(atperson::load_control_state(gates.control).approved_digests.empty());
+
+    /* Exactly one record was published. A later cycle may re-decide the same
+     * context; the policy's duplicate suppression refuses it, and that refusal is
+     * itself journaled as a deferred attempt, never as a second publish. */
+    const JournalContents journal = atperson::load_journal(gates.journal);
+    std::size_t executed = 0u;
+    for (const auto &action : journal.actions) {
+        if (action.outcome == atperson::JournalActionOutcome::Executed) {
+            ++executed;
+            assert(action.text == "beta");
+        } else {
+            /* A repeat is refused by duplicate suppression, not published. */
+            assert(action.outcome == atperson::JournalActionOutcome::Deferred);
+            assert(action.reason == "duplicate_suppressed");
+        }
+    }
+    assert(executed == 1u);
+
+    /* The authorisation is on the record: the audit entry names the envelope. */
+    std::ifstream audit(gates.audit);
+    const std::string log((std::istreambuf_iterator<char>(audit)), std::istreambuf_iterator<char>());
+    assert(log.find("autonomy") != std::string::npos);
+
+    /* Consumed exactly once: further cycles publish nothing more. */
+    for (int cycle = 0; cycle < 2; ++cycle) {
+        atperson::run_scheduler_cycle(enabled_config(), make_cycle(gates, gates.root, writer), graph,
+                                     ledger);
+    }
+    assert(writer.put_calls == 1);
+}
+
+void test_armed_entity_still_obeys_pause_and_disarm() {
+    /* Pause holds the proposal; resuming lets the same frozen proposal go out
+     * with no approval. */
+    {
+        const GateFiles gates("armed-pause");
+        const atperson::ArmPaths paths = arm_gates(gates);
+        FakeWriter writer;
+        LanguageGraph graph = learned_graph();
+        Ledger ledger = populated_ledger(gates.root);
+
+        ControlState control = atperson::load_control_state(gates.control);
+        control.paused = true;
+        atperson::save_control_state(control, gates.control);
+        for (int cycle = 0; cycle < 2; ++cycle) {
+            atperson::run_scheduler_cycle(enabled_config(),
+                                         make_cycle(gates, gates.root, writer), graph, ledger);
+        }
+        assert(writer.put_calls == 0);
+
+        control.paused = false;
+        atperson::save_control_state(control, gates.control);
+        atperson::run_scheduler_cycle(enabled_config(), make_cycle(gates, gates.root, writer),
+                                     graph, ledger);
+        assert(writer.put_calls == 1);
+        (void)paths;
+    }
+    /* Disarming revokes the authorisation: nothing goes out, not even the
+     * proposals the entity keeps making. */
+    {
+        const GateFiles gates("armed-disarm");
+        const atperson::ArmPaths paths = arm_gates(gates);
+        atperson::disarm(paths, "autonomy");
+        FakeWriter writer;
+        LanguageGraph graph = learned_graph();
+        Ledger ledger = populated_ledger(gates.root);
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            atperson::run_scheduler_cycle(enabled_config(),
+                                         make_cycle(gates, gates.root, writer), graph, ledger);
+        }
+        assert(writer.put_calls == 0);
+    }
+}
+
 void test_decision_valence_guard_comes_from_the_environment() {
     unsetenv("ATPERSON_DECISION_MIN_VALENCE");
     const atperson::SchedulerConfig off = atperson::scheduler_config_from_environment();
@@ -645,6 +751,8 @@ void test_decision_valence_guard_comes_from_the_environment() {
 }
 
 int main() {
+    test_armed_entity_publishes_with_no_human_step();
+    test_armed_entity_still_obeys_pause_and_disarm();
     test_decision_valence_guard_comes_from_the_environment();
     test_disabled_scheduler_is_inert();
     test_decision_writes_proposal_but_never_executes_unapproved();
