@@ -1,5 +1,7 @@
 #include "arming.hpp"
 
+#include "../scheduler/breaker.hpp"
+#include "../state/time.hpp"
 #include "../scheduler/text_guard.hpp"
 
 #include <algorithm>
@@ -293,6 +295,32 @@ PreflightReport run_preflight(const PreflightEnvironment &environment, const Arm
                 /*advisory=*/true);
         } catch (const std::exception &error) {
             add("output-guard", false, std::string("denylist unreadable: ") + error.what());
+        }
+    }
+
+    /* Circuit breaker: it heals on its own, so an open breaker is informative
+     * rather than a setup fault, but an operator should be able to see why
+     * nothing is being published right now. */
+    if (!paths.breaker_file.empty()) {
+        try {
+            const BreakerState breaker = load_breaker_state(paths.breaker_file);
+            const BreakerGate gate = breaker_gate(breaker, now_unix);
+            if (gate == BreakerGate::Closed) {
+                add("circuit-breaker", true, "closed", /*advisory=*/true);
+            } else {
+                add("circuit-breaker", false,
+                    std::string(breaker_gate_name(gate)) + " after " +
+                        std::to_string(breaker.consecutive_failures) +
+                        " consecutive failure(s), " + std::to_string(breaker.trips) +
+                        " trip(s); it retries by itself" +
+                        (gate == BreakerGate::Open
+                             ? " at " + rfc3339_from_unix(breaker.open_until)
+                             : std::string(" on the next attempt")) +
+                        ". Last failure: " + breaker.last_failure_detail,
+                    /*advisory=*/true);
+            }
+        } catch (const std::exception &error) {
+            add("circuit-breaker", false, std::string("breaker state unreadable: ") + error.what());
         }
     }
 

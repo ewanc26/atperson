@@ -220,7 +220,7 @@ int main(int argc, char **argv) {
                 }
                 return 2;
             }
-            if (sub == "arm" || sub == "disarm" || sub == "preflight") {
+            if (sub == "arm" || sub == "disarm" || sub == "preflight" || sub == "breaker") {
                 std::vector<std::string_view> arm_arguments;
                 for (int i = 3; i < argc; ++i) {
                     arm_arguments.emplace_back(argv[i]);

@@ -17,6 +17,7 @@
 #include "outbound/actions.hpp"
 #include "state/lock.hpp"
 #include "state/time.hpp"
+#include "breaker.hpp"
 #include "text_guard.hpp"
 
 #include <atperson/core.h>
@@ -27,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -119,6 +121,38 @@ void write_proposal(const std::filesystem::path &path, std::string_view contents
     if (ec) throw std::runtime_error("cannot commit scheduler proposal");
 }
 
+
+
+constexpr const char *kBreakerFileName = "scheduler-breaker.json";
+constexpr const char *kQuarantineDirName = "quarantine";
+
+std::size_t count_proposals(const std::filesystem::path &dir) {
+    std::size_t count = 0;
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        if (it->is_regular_file(ec) && it->path().extension() == ".json") {
+            ++count;
+        }
+    }
+    return count;
+}
+
+/* Set a poison proposal aside so it is not retried and does not starve the
+ * queue behind it. It stays on disk, with the reason, for inspection. */
+void quarantine_proposal(const std::filesystem::path &proposal, std::string_view reason,
+                         std::int64_t now) {
+    const std::filesystem::path dir = proposal.parent_path() / kQuarantineDirName;
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const std::filesystem::path target = dir / proposal.filename();
+    std::filesystem::rename(proposal, target, ec);
+    if (ec) {
+        throw std::runtime_error("cannot quarantine " + proposal.string() + ": " + ec.message());
+    }
+    std::ofstream note(target.string() + ".reason", std::ios::trunc);
+    note << rfc3339_from_unix(now) << ' ' << reason << '\n';
+}
 
 /* Guard configuration for this cycle. The denylist is re-read every cycle so an
  * operator's edit takes effect on the next one without a restart. */
@@ -240,6 +274,7 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
     const TextGuardConfig text_guard = cycle_text_guard(config, cycle);
     /* Repeat detection sees what was published and what is already queued, so
      * two contexts that decide the same words never both go out. */
+    std::size_t pending_proposals = count_proposals(cycle.proposals_dir);
     std::vector<RecentText> recent_texts = executed_texts(cycle.attempt.journal_file);
     {
         std::error_code queued_ec;
@@ -260,6 +295,12 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
     }
     for (const std::size_t index : order) {
         if (report.proposals_written >= config.max_proposals) {
+            break;
+        }
+        /* Counted only when it is the cap, not the per-cycle limit, that
+         * stopped a proposal from being made. */
+        if (pending_proposals >= config.max_pending_proposals) {
+            ++report.proposals_capped;
             break;
         }
         const drives::ContextCandidate &candidate = candidates[index];
@@ -292,7 +333,9 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
                 graduated_like_digest(candidate.source_id, decision);
             const std::filesystem::path like_proposal =
                 cycle.proposals_dir / (like_digest + ".json");
-            if (std::filesystem::exists(like_proposal)) {
+            if (std::filesystem::exists(like_proposal) ||
+                std::filesystem::exists(cycle.proposals_dir / kQuarantineDirName /
+                                        (like_digest + ".json"))) {
                 ++report.proposals_existing;
                 ++report.abstentions;
                 continue;
@@ -305,6 +348,7 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
             like.digest = like_digest;
             write_proposal(like_proposal, serialise_outbound_action(like));
             ++report.proposals_written;
+            ++pending_proposals;
             ++report.graduated_likes_written;
             ++report.abstentions;
             continue;
@@ -312,7 +356,10 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         ++report.decisions;
         const std::string digest = decision_digest(candidate.payload, decision);
         const std::filesystem::path proposal = cycle.proposals_dir / (digest + ".json");
-        if (std::filesystem::exists(proposal)) {
+        if (std::filesystem::exists(proposal) ||
+            std::filesystem::exists(cycle.proposals_dir / kQuarantineDirName / (digest + ".json"))) {
+            /* Already queued, or set aside as a poison proposal: never
+             * re-proposed, or the same failure would repeat forever. */
             /* The approval binds to the exact bytes; an existing proposal
              * for the same digest is never rewritten. */
             ++report.proposals_existing;
@@ -351,6 +398,7 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         }
         write_proposal(proposal, serialise_outbound_action(action));
         ++report.proposals_written;
+        ++pending_proposals;
         if (action.kind == OutboundActionKind::Reply) {
             report.ordered_by_intents = true;
         }
@@ -362,7 +410,17 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
      * wins. The outbound lock serialises the budget read-modify-write with
      * any concurrent `atperson publish`. */
     const bool envelopes_available = !cycle.attempt.envelopes_dir.empty();
-    if (config.max_executions > 0u) {
+    const std::filesystem::path breaker_file = cycle.data_dir / kBreakerFileName;
+    BreakerState breaker = load_breaker_state(breaker_file);
+    bool breaker_dirty = false;
+    const BreakerGate gate = breaker_gate(breaker, cycle.now);
+    report.breaker_gate = breaker_gate_name(gate);
+    if (gate == BreakerGate::Open) {
+        report.detail = "circuit breaker open until " + rfc3339_from_unix(breaker.open_until) +
+                        " after " + std::to_string(breaker.consecutive_failures) +
+                        " consecutive failure(s): " + breaker.last_failure_detail;
+    }
+    if (config.max_executions > 0u && gate != BreakerGate::Open) {
         std::vector<std::filesystem::path> proposals;
         std::error_code ec;
         for (std::filesystem::directory_iterator it(cycle.proposals_dir, ec), end;
@@ -377,8 +435,20 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
         std::sort(proposals.begin(), proposals.end());
 
         std::optional<std::vector<RecentText>> execution_texts;
+        {
+            std::set<std::string> queued;
+            for (const std::filesystem::path &proposal : proposals) {
+                queued.insert(proposal.stem().string());
+            }
+            retain_proposals(breaker, queued);
+        }
+        bool stop_execution = false;
         for (const std::filesystem::path &proposal : proposals) {
-            if (report.executions_attempted >= config.max_executions) {
+            if (stop_execution || report.executions_attempted >= config.max_executions) {
+                break;
+            }
+            /* Half-open: exactly one attempt to test the dependency. */
+            if (gate == BreakerGate::HalfOpen && report.executions_attempted >= 1u) {
                 break;
             }
             if (config.max_cycle_ms > 0 && cycle.steady_ms &&
@@ -457,17 +527,38 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
                     }
                 }
                 std::filesystem::remove(proposal);
+                record_success(breaker, action.digest);
+                breaker_dirty = true;
                 break;
             case OutboundExecutionOutcome::DryRun:
             case OutboundExecutionOutcome::Denied:
             case OutboundExecutionOutcome::Deferred:
                 ++report.refused;
                 break;
-            case OutboundExecutionOutcome::Failed:
+            case OutboundExecutionOutcome::Failed: {
                 ++report.failed;
+                const FailureEffect effect = record_failure(
+                    breaker, config.breaker, action.digest,
+                    result.reason_code + (result.detail.empty() ? "" : ": " + result.detail),
+                    cycle.now);
+                breaker_dirty = true;
+                if (effect.quarantine) {
+                    quarantine_proposal(proposal, result.detail, cycle.now);
+                    ++report.quarantined;
+                }
+                if (effect.tripped) {
+                    ++report.breaker_trips;
+                    stop_execution = true; /* stop hammering it this cycle */
+                    report.detail = "circuit breaker opened until " +
+                                    rfc3339_from_unix(breaker.open_until);
+                }
                 break;
             }
+            }
         }
+    }
+    if (breaker_dirty) {
+        save_breaker_state(breaker, breaker_file);
     }
 
     if (report.detail.empty()) {
@@ -486,6 +577,40 @@ SchedulerConfig scheduler_config_from_environment() {
     config.graduated_likes = graduated != nullptr && std::string_view(graduated) == "1";
     config.intents = intent_config_from_environment();
     apply_decision_env(config.decision);
+    auto positive_env = [](const char *name, long long &target, long long minimum) {
+        const char *raw = std::getenv(name);
+        if (raw == nullptr || raw[0] == '\0') {
+            return;
+        }
+        char *end = nullptr;
+        const long long value = std::strtoll(raw, &end, 10);
+        if (end == raw || *end != '\0' || value < minimum) {
+            throw std::runtime_error(std::string(name) + " must be a whole number of at least " +
+                                     std::to_string(minimum));
+        }
+        target = value;
+    };
+    {
+        long long threshold = config.breaker.failure_threshold;
+        long long cooldown = config.breaker.base_cooldown_seconds;
+        long long max_cooldown = config.breaker.max_cooldown_seconds;
+        long long limit = config.breaker.proposal_failure_limit;
+        long long pending = static_cast<long long>(config.max_pending_proposals);
+        positive_env("ATPERSON_BREAKER_THRESHOLD", threshold, 1);
+        positive_env("ATPERSON_BREAKER_COOLDOWN", cooldown, 1);
+        positive_env("ATPERSON_BREAKER_MAX_COOLDOWN", max_cooldown, 1);
+        positive_env("ATPERSON_PROPOSAL_FAILURE_LIMIT", limit, 1);
+        positive_env("ATPERSON_SCHEDULER_MAX_PENDING", pending, 1);
+        if (max_cooldown < cooldown) {
+            throw std::runtime_error(
+                "ATPERSON_BREAKER_MAX_COOLDOWN must not be below ATPERSON_BREAKER_COOLDOWN");
+        }
+        config.breaker.failure_threshold = static_cast<std::uint32_t>(std::min(threshold, 1000000ll));
+        config.breaker.base_cooldown_seconds = cooldown;
+        config.breaker.max_cooldown_seconds = max_cooldown;
+        config.breaker.proposal_failure_limit = static_cast<std::uint32_t>(std::min(limit, 1000000ll));
+        config.max_pending_proposals = static_cast<std::size_t>(pending);
+    }
     if (const char *window = std::getenv("ATPERSON_OUTPUT_REPEAT_WINDOW");
         window != nullptr && window[0] != '\0') {
         char *end = nullptr;

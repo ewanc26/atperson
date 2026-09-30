@@ -88,6 +88,9 @@ struct ArmPaths {
     std::filesystem::path envelopes_dir;
     /* Optional: the output denylist, so the preflight can report it. */
     std::filesystem::path denylist_file;
+    /* Optional: the scheduler circuit-breaker state, so the preflight can
+     * report a breaker that is currently holding execution back. */
+    std::filesystem::path breaker_file;
 };
 
 /* The changes arming would make, computed without touching disk. */

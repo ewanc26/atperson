@@ -72,3 +72,19 @@ grep -q "disarmed" "$DIR/disarm.out" || { echo "expected disarmed"; cat "$DIR/di
 [ -z "$(ls "$DIR/envelopes")" ] || { echo "envelopes should be revoked"; exit 1; }
 if env $READY_ENV "$BIN" autonomy preflight >/dev/null 2>&1; then echo "disarmed must not be ready"; exit 1; fi
 "$BIN" autonomy disarm >/dev/null || { echo "disarm must be idempotent"; exit 1; }
+
+# The circuit breaker is visible and can be reset by hand.
+"$BIN" autonomy breaker >"$DIR/breaker.out"
+grep -q "circuit breaker: closed" "$DIR/breaker.out" || { echo "expected a closed breaker"; cat "$DIR/breaker.out"; exit 1; }
+cat >"$DIR/scheduler-breaker.json" <<JSON
+{"version":1,"consecutive_failures":3,"open_until":99999999999,"cooldown_seconds":900,"trips":2,"last_failure_at":1789639200,"last_failure_detail":"write_failed: network down","proposal_failures":{"abc":1}}
+JSON
+"$BIN" autonomy breaker status >"$DIR/breaker-open.out"
+grep -q "circuit breaker: open" "$DIR/breaker-open.out" || { echo "expected an open breaker"; cat "$DIR/breaker-open.out"; exit 1; }
+grep -q "network down" "$DIR/breaker-open.out" || { echo "expected the last failure"; exit 1; }
+env $READY_ENV "$BIN" autonomy arm --kinds post:3/1d --apply >"$DIR/rearm.out"
+grep -q "circuit-breaker" "$DIR/rearm.out" || { echo "preflight should show the breaker"; cat "$DIR/rearm.out"; exit 1; }
+"$BIN" autonomy breaker reset >/dev/null
+[ ! -e "$DIR/scheduler-breaker.json" ] || { echo "reset should clear the state"; exit 1; }
+"$BIN" autonomy breaker | grep -q "circuit breaker: closed" || { echo "closed after reset"; exit 1; }
+if "$BIN" autonomy breaker bogus >/dev/null 2>&1; then echo "bad breaker subcommand accepted"; exit 1; fi

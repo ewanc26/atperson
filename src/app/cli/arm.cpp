@@ -3,11 +3,14 @@
 #include "autonomy/arming.hpp"
 #include "config.hpp"
 #include "control/state.hpp"
+#include "scheduler/breaker.hpp"
+#include "state/time.hpp"
 
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
 #include <ostream>
+#include <system_error>
 #include <stdexcept>
 #include <string>
 
@@ -21,7 +24,7 @@ namespace {
         "autonomy usage: autonomy <arm --kinds kind:count/window[,...] [--scope a,b] "
         "[--min-plan n] [--min-support n] [--expires RFC3339|never] [--id id] [--apply] "
         "[--drives] [--intents] [--graduated-likes] [--valence-guard n] | "
-        "disarm [--id id] | preflight>");
+        "disarm [--id id] | preflight | breaker [status|reset]>");
 }
 
 std::vector<std::string> split(std::string_view text, char separator) {
@@ -108,7 +111,8 @@ ArmPaths paths_from_config() {
     const std::string denylist = env_or("ATPERSON_OUTPUT_DENYLIST");
     return ArmPaths{outbound_policy_path(), control_state_path(), authorization_envelopes_path(),
                     denylist.empty() ? data_dir() / "output-denylist.txt"
-                                     : std::filesystem::path(denylist)};
+                                     : std::filesystem::path(denylist),
+                    data_dir() / "scheduler-breaker.json"};
 }
 
 PreflightEnvironment environment_from_process() {
@@ -162,6 +166,39 @@ int run_autonomy_arming(std::ostream &out, std::string_view sub,
             usage_error();
         }
         return print_preflight(out, now_unix);
+    }
+
+    if (sub == "breaker") {
+        const std::filesystem::path file = data_dir() / "scheduler-breaker.json";
+        const std::string action = arguments.empty() ? "status" : std::string(arguments[0]);
+        if (arguments.size() > 1u || (action != "status" && action != "reset")) {
+            usage_error();
+        }
+        if (action == "reset") {
+            std::error_code ec;
+            std::filesystem::remove(file, ec);
+            out << "circuit breaker reset: closed, failure history cleared.\n";
+            return 0;
+        }
+        const BreakerState state = load_breaker_state(file);
+        const BreakerGate gate = breaker_gate(state, now_unix);
+        out << "circuit breaker: " << breaker_gate_name(gate) << '\n'
+            << "consecutive failures: " << state.consecutive_failures << '\n'
+            << "trips: " << state.trips << '\n';
+        if (state.open_until != 0) {
+            out << "open until: " << rfc3339_from_unix(state.open_until)
+                << " (cool-down " << state.cooldown_seconds << "s)\n";
+        }
+        if (!state.last_failure_detail.empty()) {
+            out << "last failure: " << rfc3339_from_unix(state.last_failure_at) << " "
+                << state.last_failure_detail << '\n';
+        }
+        if (!state.proposal_failures.empty()) {
+            out << "proposals with failures: " << state.proposal_failures.size() << '\n';
+        }
+        out << "it heals by itself: after the cool-down one attempt is made, and a success "
+               "closes it.\n";
+        return 0;
     }
 
     ArmRequest request;

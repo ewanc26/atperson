@@ -80,6 +80,25 @@ struct FakeWriter final : OutboundWriter {
     }
 };
 
+struct FlakyWriter final : OutboundWriter {
+    int put_calls = 0;
+    bool fail = true;
+
+    std::string resolve_record_cid(const std::string &) override { return "bafycid"; }
+
+    OutboundWriteResult put_record(const std::string &, const std::string &rkey,
+                                   const std::string &) override {
+        ++put_calls;
+        if (fail) {
+            throw std::runtime_error("network down");
+        }
+        OutboundWriteResult written;
+        written.uri = "at://did:plc:self/app.bsky.feed.post/" + rkey;
+        written.cid = "bafyrecord";
+        return written;
+    }
+};
+
 /* Gate files: policy allows posts, control has writes enabled with
  * approval required (the fail-closed default posture). */
 struct GateFiles {
@@ -835,6 +854,221 @@ void test_output_guard_repeat_window_comes_from_the_environment() {
     unsetenv("ATPERSON_OUTPUT_REPEAT_WINDOW");
 }
 
+/* Circuit breaker (breaker.hpp) at the scheduler: repeated genuine failures stop
+ * the hammering, the cool-down elapsing allows a single probe, and a probe that
+ * works closes it again with no human involved. */
+SchedulerConfig breaker_config(std::uint32_t threshold, std::uint32_t proposal_limit) {
+    SchedulerConfig config = enabled_config();
+    config.breaker.failure_threshold = threshold;
+    config.breaker.base_cooldown_seconds = 900;
+    config.breaker.max_cooldown_seconds = 7200;
+    config.breaker.proposal_failure_limit = proposal_limit;
+    return config;
+}
+
+void test_breaker_opens_on_repeated_failures_and_heals_itself() {
+    unsetenv("ATPERSON_OUTPUT_DENYLIST");
+    const GateFiles gates("breaker");
+    arm_gates(gates);
+    FlakyWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+    const SchedulerConfig config = breaker_config(2, 100);
+    auto run = [&](std::int64_t now) {
+        return atperson::run_scheduler_cycle(config, make_cycle(gates, gates.root, writer, now),
+                                             graph, ledger);
+    };
+
+    SchedulerCycleReport report = run(NOW);
+    assert(report.failed == 1u && report.breaker_gate == "closed" && report.breaker_trips == 0u);
+    report = run(NOW + 1); /* the second consecutive failure opens it */
+    assert(report.failed == 1u && report.breaker_trips == 1u);
+    assert(writer.put_calls == 2);
+
+    /* Held back for the whole cool-down: nothing reaches the network, and the
+     * cycle says why. Deciding and proposing carry on. */
+    for (const std::int64_t offset : {2, 100, 899}) {
+        report = run(NOW + 1 + offset);
+        assert(report.breaker_gate == "open" && report.executions_attempted == 0u);
+        assert(report.detail.find("circuit breaker open") != std::string::npos);
+    }
+    assert(writer.put_calls == 2);
+
+    /* Half-open: the cool-down elapsed. One probe; the dependency is back. */
+    writer.fail = false;
+    report = run(NOW + 1 + 900);
+    assert(report.breaker_gate == "half-open");
+    assert(report.executions_attempted == 1u && report.executed == 1u);
+    assert(writer.put_calls == 3);
+    const atperson::BreakerState healed = atperson::load_breaker_state(gates.root / "scheduler-breaker.json");
+    assert(atperson::breaker_gate(healed, NOW + 5000) == atperson::BreakerGate::Closed);
+    assert(healed.consecutive_failures == 0u && healed.cooldown_seconds == 0);
+}
+
+void test_a_failed_probe_reopens_with_a_longer_cooldown() {
+    unsetenv("ATPERSON_OUTPUT_DENYLIST");
+    const GateFiles gates("breaker-probe");
+    arm_gates(gates);
+    FlakyWriter writer; /* stays down */
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+    const SchedulerConfig config = breaker_config(1, 100);
+    auto run = [&](std::int64_t now) {
+        return atperson::run_scheduler_cycle(config, make_cycle(gates, gates.root, writer, now),
+                                             graph, ledger);
+    };
+    run(NOW); /* opens at once: threshold 1 */
+    assert(atperson::load_breaker_state(gates.root / "scheduler-breaker.json").cooldown_seconds ==
+           900);
+    const SchedulerCycleReport probe = run(NOW + 900);
+    assert(probe.breaker_gate == "half-open" && probe.breaker_trips == 1u);
+    const atperson::BreakerState reopened = atperson::load_breaker_state(gates.root / "scheduler-breaker.json");
+    assert(reopened.cooldown_seconds == 1800 && reopened.trips == 2u);
+    assert(writer.put_calls == 2); /* exactly one probe, then quiet again */
+    assert(run(NOW + 901).executions_attempted == 0u);
+}
+
+/* Policy, control and guard refusals are the system working, not faults: they
+ * must never trip the breaker. */
+void test_refusals_do_not_trip_the_breaker() {
+    unsetenv("ATPERSON_OUTPUT_DENYLIST");
+    const GateFiles gates("breaker-refusals");
+    arm_gates(gates);
+    ControlState control = atperson::load_control_state(gates.control);
+    control.paused = true;
+    atperson::save_control_state(control, gates.control);
+    FlakyWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+    const SchedulerConfig config = breaker_config(1, 1);
+    for (int cycle = 0; cycle < 5; ++cycle) {
+        const SchedulerCycleReport report = atperson::run_scheduler_cycle(
+            config, make_cycle(gates, gates.root, writer, NOW + cycle), graph, ledger);
+        assert(report.failed == 0u && report.breaker_trips == 0u && report.quarantined == 0u);
+    }
+    assert(writer.put_calls == 0);
+    assert(!std::filesystem::exists(gates.root / "scheduler-breaker.json"));
+}
+
+void test_a_poison_proposal_is_quarantined_and_never_reproposed() {
+    unsetenv("ATPERSON_OUTPUT_DENYLIST");
+    const GateFiles gates("quarantine");
+    arm_gates(gates);
+    FlakyWriter writer;
+    LanguageGraph graph = learned_graph();
+    Ledger ledger = populated_ledger(gates.root);
+    const SchedulerConfig config = breaker_config(100, 2); /* quarantine before any trip */
+    auto run = [&](std::int64_t now) {
+        return atperson::run_scheduler_cycle(config, make_cycle(gates, gates.root, writer, now),
+                                             graph, ledger);
+    };
+    assert(run(NOW).quarantined == 0u);
+    const SchedulerCycleReport report = run(NOW + 1);
+    assert(report.quarantined == 1u && report.breaker_trips == 0u);
+    assert(writer.put_calls == 2);
+
+    /* Set aside with the reason, out of the live queue. */
+    std::size_t live = 0;
+    for (const auto &entry : std::filesystem::directory_iterator(gates.root / "proposals")) {
+        live += entry.is_regular_file() ? 1u : 0u;
+    }
+    assert(live == 0u);
+    std::size_t quarantined = 0;
+    bool has_reason = false;
+    for (const auto &entry :
+         std::filesystem::directory_iterator(gates.root / "proposals" / "quarantine")) {
+        quarantined += entry.path().extension() == ".json" ? 1u : 0u;
+        has_reason = has_reason || entry.path().extension() == ".reason";
+    }
+    assert(quarantined == 1u && has_reason);
+
+    /* The same context decides the same words again; it is not re-proposed, so
+     * the failure does not repeat forever. */
+    for (int cycle = 2; cycle < 6; ++cycle) {
+        const SchedulerCycleReport later = run(NOW + cycle);
+        assert(later.proposals_written == 0u && later.executions_attempted == 0u);
+    }
+    assert(writer.put_calls == 2);
+}
+
+void test_the_pending_queue_is_capped() {
+    unsetenv("ATPERSON_OUTPUT_DENYLIST");
+    const GateFiles gates("queue-cap"); /* approval required: proposals wait */
+    FakeWriter writer;
+    LanguageGraph graph = learned_graph();
+    for (std::size_t i = 0u; i < 8u; ++i) {
+        graph.observe("gamma delta", "at://scheduler/observe-2/" + std::to_string(i));
+    }
+    Ledger ledger = populated_ledger(gates.root);
+    const std::uint64_t digest = Ledger::digest("gamma");
+    std::uint64_t id = 0u;
+    ledger.append("at://scheduler/context/2", "did:plc:other", NOW, digest, 1u,
+                  ATP_LEDGER_OUTCOME_LEARNED, "gamma", &id);
+
+    SchedulerConfig config = enabled_config();
+    config.max_pending_proposals = 1;
+    SchedulerCycleReport report = atperson::run_scheduler_cycle(
+        config, make_cycle(gates, gates.root, writer), graph, ledger);
+    assert(report.proposals_written == 1u && report.proposals_capped == 0u);
+    report = atperson::run_scheduler_cycle(config, make_cycle(gates, gates.root, writer), graph,
+                                           ledger);
+    assert(report.proposals_written == 0u && report.proposals_capped == 1u);
+
+    config.max_pending_proposals = 5; /* room again */
+    report = atperson::run_scheduler_cycle(config, make_cycle(gates, gates.root, writer), graph,
+                                           ledger);
+    assert(report.proposals_written == 1u);
+}
+
+void test_breaker_settings_come_from_the_environment() {
+    for (const char *name : {"ATPERSON_BREAKER_THRESHOLD", "ATPERSON_BREAKER_COOLDOWN",
+                             "ATPERSON_BREAKER_MAX_COOLDOWN", "ATPERSON_PROPOSAL_FAILURE_LIMIT",
+                             "ATPERSON_SCHEDULER_MAX_PENDING"}) {
+        unsetenv(name);
+    }
+    const SchedulerConfig defaults = atperson::scheduler_config_from_environment();
+    assert(defaults.breaker.failure_threshold == 3u && defaults.breaker.base_cooldown_seconds == 900);
+    assert(defaults.max_pending_proposals == 50u);
+
+    setenv("ATPERSON_BREAKER_THRESHOLD", "5", 1);
+    setenv("ATPERSON_BREAKER_COOLDOWN", "60", 1);
+    setenv("ATPERSON_BREAKER_MAX_COOLDOWN", "600", 1);
+    setenv("ATPERSON_PROPOSAL_FAILURE_LIMIT", "4", 1);
+    setenv("ATPERSON_SCHEDULER_MAX_PENDING", "7", 1);
+    const SchedulerConfig tuned = atperson::scheduler_config_from_environment();
+    assert(tuned.breaker.failure_threshold == 5u && tuned.breaker.base_cooldown_seconds == 60);
+    assert(tuned.breaker.max_cooldown_seconds == 600 && tuned.breaker.proposal_failure_limit == 4u);
+    assert(tuned.max_pending_proposals == 7u);
+
+    for (const auto &[name, bad] :
+         {std::pair<const char *, const char *>{"ATPERSON_BREAKER_THRESHOLD", "0"},
+          {"ATPERSON_BREAKER_COOLDOWN", "-5"},
+          {"ATPERSON_BREAKER_MAX_COOLDOWN", "30"}, /* below the cool-down (60) */
+          {"ATPERSON_PROPOSAL_FAILURE_LIMIT", "abc"},
+          {"ATPERSON_SCHEDULER_MAX_PENDING", "0"}}) {
+        setenv(name, bad, 1);
+        bool threw = false;
+        try {
+            (void)atperson::scheduler_config_from_environment();
+        } catch (const std::runtime_error &) {
+            threw = true;
+        }
+        assert(threw);
+        unsetenv(name);
+        /* restore the valid tuned value for the next iteration */
+        if (std::string(name) == "ATPERSON_BREAKER_THRESHOLD") setenv(name, "5", 1);
+        if (std::string(name) == "ATPERSON_BREAKER_COOLDOWN") setenv(name, "60", 1);
+        if (std::string(name) == "ATPERSON_BREAKER_MAX_COOLDOWN") setenv(name, "600", 1);
+        if (std::string(name) == "ATPERSON_PROPOSAL_FAILURE_LIMIT") setenv(name, "4", 1);
+        if (std::string(name) == "ATPERSON_SCHEDULER_MAX_PENDING") setenv(name, "7", 1);
+    }
+    for (const char *name : {"ATPERSON_BREAKER_THRESHOLD", "ATPERSON_BREAKER_COOLDOWN",
+                             "ATPERSON_BREAKER_MAX_COOLDOWN", "ATPERSON_PROPOSAL_FAILURE_LIMIT",
+                             "ATPERSON_SCHEDULER_MAX_PENDING"}) {
+        unsetenv(name);
+    }
+}
+
 void test_decision_valence_guard_comes_from_the_environment() {
     unsetenv("ATPERSON_DECISION_MIN_VALENCE");
     const atperson::SchedulerConfig off = atperson::scheduler_config_from_environment();
@@ -863,6 +1097,12 @@ int main() {
     test_output_guard_never_repeats_published_text();
     test_output_guard_rechecks_frozen_proposals_at_execution();
     test_output_guard_repeat_window_comes_from_the_environment();
+    test_breaker_opens_on_repeated_failures_and_heals_itself();
+    test_a_failed_probe_reopens_with_a_longer_cooldown();
+    test_refusals_do_not_trip_the_breaker();
+    test_a_poison_proposal_is_quarantined_and_never_reproposed();
+    test_the_pending_queue_is_capped();
+    test_breaker_settings_come_from_the_environment();
     test_decision_valence_guard_comes_from_the_environment();
     test_disabled_scheduler_is_inert();
     test_decision_writes_proposal_but_never_executes_unapproved();

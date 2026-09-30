@@ -58,6 +58,7 @@ void print_usage(std::ostream &out) {
            "(set up unattended operation; dry run without --apply)\n"
         << "  atperson autonomy preflight   (end-to-end readiness; exit 0 ready, 1 not)\n"
         << "  atperson autonomy disarm   (writes off, authorisation revoked)\n"
+        << "  atperson autonomy breaker [status|reset]   (execution circuit breaker)\n"
         << "environment:\n"
         << "  ATPERSON_TRAINING_HOME    training data directory "
            "(default ~/.ewanc26/atperson/training)\n"
