@@ -181,9 +181,21 @@ std::optional<LexiconFact> accept_lexicon_fact(std::string_view nsid, XrpcKind o
 }
 
 bool is_did(std::string_view value) noexcept {
-    if (!value.starts_with("did:") || value.size() <= 8 ||
-        value.find_first_of(" /?#") != std::string_view::npos) {
+    /* AT Protocol DID syntax: at most 2048 bytes, only [A-Za-z0-9._:%-], and
+     * no trailing ':'. Anything else (control characters, quotes, non-ASCII,
+     * URI delimiters) is not an identifier and must never be spliced into an
+     * AT URI or stored as an author. */
+    if (!value.starts_with("did:") || value.size() <= 8 || value.size() > 2048 ||
+        value.back() == ':') {
         return false;
+    }
+    for (const char c : value) {
+        const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') || c == '.' || c == '_' || c == ':' ||
+                             c == '%' || c == '-';
+        if (!allowed) {
+            return false;
+        }
     }
     const auto method_end = value.find(':', 4);
     if (method_end == std::string_view::npos || method_end == 4 ||
@@ -228,6 +240,23 @@ bool is_cid(std::string_view value) noexcept {
     if (!value.starts_with("b") || value.size() < 10) return false;
     for (const char c : value.substr(1)) {
         if (!((c >= 'a' && c <= 'z') || (c >= '2' && c <= '7'))) return false;
+    }
+    return true;
+}
+
+bool is_record_key(std::string_view value) noexcept {
+    /* AT Protocol record key syntax: 1..512 bytes of [A-Za-z0-9._:~-], and
+     * neither "." nor "..". */
+    if (value.empty() || value.size() > 512 || value == "." || value == "..") {
+        return false;
+    }
+    for (const char c : value) {
+        const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') || c == '.' || c == '_' || c == ':' ||
+                             c == '~' || c == '-';
+        if (!allowed) {
+            return false;
+        }
     }
     return true;
 }

@@ -1058,6 +1058,21 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson-jetstream-extract-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-jetstream-extract COMMAND atperson-jetstream-extract-test)
 
+  # Totality of the Jetstream commit extractor on hostile firehose input:
+  # never crashes or hangs, and anything accepted is well formed. Offline.
+  add_executable(
+    atperson-jetstream-mutation-test
+    tests/atproto/jetstream_mutation.cpp
+    src/app/atproto/jetstream.cpp
+    src/app/atproto/extract.cpp
+    src/app/ingestion/policy.cpp
+    src/app/sync/engine.cpp
+    src/app/state/time.cpp)
+  target_compile_features(atperson-jetstream-mutation-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-jetstream-mutation-test PRIVATE atperson-cpp cjson)
+  target_include_directories(atperson-jetstream-mutation-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-jetstream-mutation COMMAND atperson-jetstream-mutation-test)
+
   if(ATPERSON_BUILD_NETWORK)
     # Local ingest goes through the durable ledger: dedup, episodes, rebuild.
     add_test(
