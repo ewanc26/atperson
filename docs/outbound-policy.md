@@ -13,7 +13,7 @@ The split is intentionally boring and explicit:
 - **Wolfram** owns the actual AT Protocol mechanics.
 - **Operator policy and budgets are runtime metadata**, not learned state. They are not stored in model snapshots and cannot become personality by accident.
 
-The current runtime vocabulary is `post`, `reply`, `like`, `repost`, `follow`, `unfollow` and `moderation`. The operator-led execution path currently implements posts and replies; unsupported write kinds stay closed rather than being silently translated into something else.
+The current runtime vocabulary is `post`, `reply`, `like`, `repost`, `follow`, `unfollow` and `moderation`. The operator-led execution path implements posts, replies, likes, reposts and follows; `unfollow` and `moderation` stay closed rather than being silently translated into something else.
 
 ## Default deny
 

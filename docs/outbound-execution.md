@@ -40,9 +40,21 @@ Execution takes an `atperson-outbound-action` v1 document:
 }
 ```
 
-Only `post` and `reply` are currently executable. Other outbound action kinds remain unsupported rather than being downgraded to a post.
+`post`, `reply`, `like`, `repost` and `follow` are executable. `unfollow` and `moderation` are refused at parse time rather than being downgraded to something else. A `like` or `repost` carries a `subject` (the subject record's AT URI) and a `follow` carries a `subject` (the subject DID); all three must have no `text`. A `post` or `reply` carries `text` and must not carry a `subject`. Each kind is its own default-off policy entry with its own rate budget, so enabling posts never enables likes.
 
-The digest is the 16-character lowercase hexadecimal control digest for the exact inspected action. Replies carry stable root and parent AT URIs; their current CIDs are resolved from the live records at execution time and used as `com.atproto.repo.strongRef`s. The text itself is never regenerated during execution.
+The digest is the 16-character lowercase hexadecimal control digest for the exact inspected action. Replies carry stable root and parent AT URIs, and likes and reposts a subject AT URI; the current CIDs are resolved from the live records at execution time and used as `com.atproto.repo.strongRef`s. The text itself is never regenerated during execution.
+
+## Reviewing scheduler proposals
+
+When the autonomous scheduler is enabled it only ever *freezes* proposals: each is written as `<digest>.json` under `ATPERSON_SCHEDULER_PROPOSALS` (default `<data>/scheduler/proposals`) and waits there for an operator approval or a standing authorization envelope. To see what is waiting, without reading the directory by hand:
+
+```sh
+atperson outbound proposals [digest]
+```
+
+For every pending proposal it prints the digest, kind, record key and creation time, the text (previewed in the list, complete when a digest is given) or the reply/subject targets, any recorded decision evidence, and two verdicts computed for that exact frozen action: the outbound **policy** answer (allow, deny or defer, with the stable reason code) and the **control gate** answer (paused, writes off, dry-run, or digest not yet approved). Unreadable files are reported by name.
+
+The command is strictly read-only: it approves nothing, consumes no budget, removes no proposal and opens no session. Approving a digest stays an explicit `atperson control approve <digest>`. A standing authorization envelope can also cover a proposal, and that is evaluated only at execution time, so the control-gate line reflects per-digest approval only.
 
 ## Idempotency
 

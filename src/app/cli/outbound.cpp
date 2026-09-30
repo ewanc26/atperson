@@ -4,14 +4,18 @@
 #include "config.hpp"
 #include "outbound/budget.hpp"
 #include "outbound/config.hpp"
+#include "outbound/action.hpp"
 #include "outbound/evaluate.hpp"
 #include "outbound/spool.hpp"
 
+#include <algorithm>
 #include <cstddef>
+#include <system_error>
 #include <optional>
 #include <ostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace atperson {
 namespace cli {
@@ -20,7 +24,7 @@ namespace {
 [[noreturn]] void usage_error() {
     throw std::runtime_error(
         "outbound usage: outbound <status [kind]|rules|evaluate <kind> [target] [digest]|"
-        "admit <kind> [target] [digest]|spool>");
+        "admit <kind> [target] [digest]|spool|proposals [digest]>");
 }
 
 std::string seconds_text(std::int64_t seconds) {
@@ -38,26 +42,31 @@ void print_budget(std::ostream &out, const OutboundBudgetStatus &budget) {
         << "s" << ", last action " << seconds_text(budget.seconds_since_last) << '\n';
 }
 
-void print_control_gate(std::ostream &out, const std::filesystem::path &control_file,
-                        std::string_view digest) {
-    std::string verdict;
+std::string control_gate_verdict(const std::filesystem::path &control_file,
+                                 std::string_view digest) {
     try {
         const ControlState control = load_control_state(control_file);
         if (control.paused) {
-            verdict = "blocked (runtime is paused)";
-        } else if (!control.writes_enabled) {
-            verdict = "blocked (network writes are disabled)";
-        } else if (control.dry_run) {
-            verdict = "blocked (dry-run mode is on)";
-        } else if (control.approval_required && !is_digest_approved(control, digest)) {
-            verdict = "blocked (action digest is not approved)";
-        } else {
-            verdict = "would pass";
+            return "blocked (runtime is paused)";
         }
+        if (!control.writes_enabled) {
+            return "blocked (network writes are disabled)";
+        }
+        if (control.dry_run) {
+            return "blocked (dry-run mode is on)";
+        }
+        if (control.approval_required && !is_digest_approved(control, digest)) {
+            return "blocked (action digest is not approved)";
+        }
+        return "would pass";
     } catch (const std::exception &error) {
-        verdict = std::string("blocked (control state unreadable: ") + error.what() + ")";
+        return std::string("blocked (control state unreadable: ") + error.what() + ")";
     }
-    out << "control gate: " << verdict << '\n';
+}
+
+void print_control_gate(std::ostream &out, const std::filesystem::path &control_file,
+                        std::string_view digest) {
+    out << "control gate: " << control_gate_verdict(control_file, digest) << '\n';
 }
 
 void print_decision(std::ostream &out, const OutboundPolicyDecision &decision,
@@ -113,6 +122,92 @@ int run_outbound_command(std::ostream &out, const std::filesystem::path &policy_
         out << "denied: " << status.denied_count << '\n'
             << "last sequence: " << status.last_seq << '\n'
             << "spool directory: " << paths.root.string() << '\n';
+        return 0;
+    }
+
+    if (sub == "proposals") {
+        /* Operator review of what the scheduler has frozen and left for
+         * approval. Strictly read-only: nothing is approved, admitted,
+         * consumed or executed here, and no session is opened. The verdicts
+         * are the same policy and control-gate answers `evaluate` gives for
+         * the frozen action; a standing authorization envelope can also
+         * cover a proposal and is evaluated only at execution time. */
+        if (arguments.size() > 1u) {
+            usage_error();
+        }
+        const std::filesystem::path directory = scheduler_proposals_path();
+        std::vector<std::filesystem::path> files;
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it(directory, ec), end; !ec && it != end;
+             it.increment(ec)) {
+            if (it->is_regular_file(ec) && it->path().extension() == ".json") {
+                files.push_back(it->path());
+            }
+        }
+        std::sort(files.begin(), files.end());
+
+        const OutboundPolicy policy = load_outbound_policy(policy_file);
+        OutboundBudgetState budget = load_outbound_budget_state(budget_file);
+        prune_outbound_budget_state(budget, policy, now);
+
+        const std::string wanted = arguments.empty() ? std::string{} : std::string(arguments[0]);
+        std::size_t shown = 0u;
+        for (const std::filesystem::path &file : files) {
+            OutboundAction action;
+            try {
+                action = load_outbound_action(file);
+            } catch (const std::exception &error) {
+                if (wanted.empty()) {
+                    out << file.filename().string() << ": unreadable (" << error.what() << ")\n";
+                    ++shown;
+                }
+                continue;
+            }
+            if (!wanted.empty() && action.digest != wanted) {
+                continue;
+            }
+            ++shown;
+            const OutboundActionProposal proposal = outbound_action_proposal(action);
+            const OutboundPolicyDecision decision =
+                evaluate_outbound_policy(policy, budget, proposal, now);
+            out << action.digest << ' ' << outbound_kind_name(action.kind) << " rkey "
+                << action.rkey << " created " << action.created_at << '\n';
+            if (!action.text.empty()) {
+                constexpr std::size_t kPreview = 120u;
+                if (!wanted.empty() || action.text.size() <= kPreview) {
+                    out << "  text: " << action.text << '\n';
+                } else {
+                    out << "  text: " << action.text.substr(0, kPreview) << "... ("
+                        << action.text.size() << " bytes; `outbound proposals " << action.digest
+                        << "` shows all)\n";
+                }
+            }
+            if (!action.reply_parent.empty()) {
+                out << "  reply parent: " << action.reply_parent << "\n  reply root: "
+                    << action.reply_root << '\n';
+            }
+            if (!action.subject.empty()) {
+                out << "  subject: " << action.subject << '\n';
+            }
+            if (action.plan_score) {
+                out << "  decision evidence: plan score " << *action.plan_score;
+                if (action.support_score) {
+                    out << ", support " << *action.support_score;
+                }
+                out << '\n';
+            }
+            out << "  policy: " << outbound_outcome_name(decision.outcome) << " ("
+                << outbound_reason_code(decision.reason) << ")\n  control gate: "
+                << control_gate_verdict(control_file, action.digest) << '\n';
+        }
+        if (shown == 0u) {
+            out << (wanted.empty() ? "no pending scheduler proposals"
+                                   : "no pending scheduler proposal with that digest")
+                << " (" << directory.string() << ")\n";
+        } else if (wanted.empty()) {
+            out << shown << " pending proposal(s); this command approves and executes nothing "
+                << "(approve a digest with `atperson control approve <digest>`)\n";
+        }
         return 0;
     }
 

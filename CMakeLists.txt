@@ -1065,6 +1065,13 @@ if(ATPERSON_BUILD_TESTS)
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/ingest_ledger.sh
               $<TARGET_FILE:atperson>)
 
+    # Operator review of frozen scheduler proposals: read-only, with the policy
+    # and control-gate verdicts, approving and consuming nothing.
+    add_test(
+      NAME atperson-cli-proposals
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/proposals.sh
+              $<TARGET_FILE:atperson>)
+
     # Size-capped rotation: released text is forgotten by rebuild, never
     # re-learned, and dedup survives.
     add_test(

@@ -40,7 +40,7 @@ void print_usage(std::ostream &out) {
            "approval <on|off>|approve <digest>|revoke <digest>|shutdown|cancel-shutdown>\n"
         << "  atperson control remote <status|poll|emit <op> [digest]>\n"
         << "  atperson outbound <status [kind]|rules|evaluate <kind> [target] [digest]|"
-           "admit <kind> [target] [digest]>\n"
+           "admit <kind> [target] [digest]|spool|proposals [digest]>\n"
         << "  atperson publish <action-file>\n"
         << "  atperson statepub <status|drain [--offline]>\n"
         << "  atperson reconstruct --into <dir>\n"
