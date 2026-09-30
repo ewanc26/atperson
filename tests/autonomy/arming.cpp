@@ -234,6 +234,29 @@ void test_every_missing_link_blocks_and_is_named() {
     assert(!find(run_preflight(full_environment(), scratch.paths, kNow), "policy")->ok);
 }
 
+void test_preflight_reports_the_output_guard() {
+    Scratch scratch("guard");
+    apply_arm(plan_arm(request_for({{OutboundActionKind::Post, 3, 86400}}), default_outbound_policy(),
+                       ControlState{}, kNowText),
+              scratch.paths);
+    scratch.paths.denylist_file = scratch.root / "denylist.txt";
+
+    /* No terms: advisory only, still ready, and it says how to add some. */
+    PreflightReport report = run_preflight(full_environment(), scratch.paths, kNow);
+    assert(report.ready);
+    assert(find(report, "output-guard") != nullptr && find(report, "output-guard")->advisory);
+    assert(find(report, "output-guard")->detail.find("no denylist terms") != std::string::npos);
+
+    std::ofstream(scratch.paths.denylist_file) << "alpha\nbeta\n";
+    report = run_preflight(full_environment(), scratch.paths, kNow);
+    assert(report.ready && find(report, "output-guard")->ok);
+    assert(find(report, "output-guard")->detail.find("2 term(s)") != std::string::npos);
+
+    /* Without a configured path the check is simply absent. */
+    scratch.paths.denylist_file.clear();
+    assert(find(run_preflight(full_environment(), scratch.paths, kNow), "output-guard") == nullptr);
+}
+
 void test_authorization_reflects_expiry_and_approval_mode() {
     Scratch scratch("auth");
     ArmRequest request = request_for({{OutboundActionKind::Post, 3, 86400}});
@@ -325,6 +348,7 @@ int main() {
     test_plan_is_pure_and_only_touches_requested_kinds();
     test_arm_then_preflight_is_ready_and_states_the_bounds();
     test_every_missing_link_blocks_and_is_named();
+    test_preflight_reports_the_output_guard();
     test_authorization_reflects_expiry_and_approval_mode();
     test_unsatisfiable_or_broken_envelopes_never_count();
     test_disarm_stops_everything_and_is_idempotent();

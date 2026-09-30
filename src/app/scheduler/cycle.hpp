@@ -58,6 +58,7 @@
 
 #include "intent/config.hpp"
 #include "outbound/attempt.hpp"
+#include "text_guard.hpp"
 
 #include "atperson/action.h"
 #include "atperson/graph.hpp"
@@ -108,6 +109,11 @@ struct SchedulerConfig {
      * see action/decision_env.hpp). It only narrows what may be proposed: a
      * vetoed plan is an ordinary abstention and every gate is unchanged. */
     atp_action_decision_config decision{atp_action_decision_default_config()};
+    /* Output guard for autonomous text (see text_guard.hpp). The denylist is
+     * read each cycle from ATPERSON_OUTPUT_DENYLIST or <data>/output-denylist.txt;
+     * the repeat window comes from ATPERSON_OUTPUT_REPEAT_WINDOW (seconds, 0
+     * disables). URLs, mentions and hashtags are always refused. */
+    TextGuardConfig text_guard;
 };
 
 /* Accounting for one scheduler cycle, reported to the operator. */
@@ -120,6 +126,10 @@ struct SchedulerCycleReport {
     std::size_t executions_attempted{};
     std::size_t executed{};
     std::size_t refused{};
+    /* Post/reply texts the output guard refused (at proposal or execution
+     * time), and the stable reason of the latest one. */
+    std::size_t text_refused{};
+    std::string last_text_refusal;
     std::size_t failed{};
     std::string detail;
     /* Non-zero when drives reordering (#148) was applied to the candidate

@@ -85,6 +85,42 @@ The current implementation provides the bootstrap, daemon, control, resource,
 ledger-recovery, and outbound-gate primitives. Autonomous scheduling composes
 those same paths rather than introducing a privileged write API.
 
+## Output guard: what an unattended account may say
+
+The text the entity posts on its own is assembled from learned tokens, and the
+tokens come from whatever public text it has read. Nothing in the guarded
+decision layer says the result is safe to publish unattended, so the scheduler
+runs every autonomous post and reply through a deterministic output guard, when
+the proposal is composed and again just before it is executed (so a proposal
+frozen earlier is checked against today's rules). It is the equivalent of a
+conventional agent's output guardrail, with a stable reason for every refusal
+and no model in the loop.
+
+Refused, in order: empty text; invalid UTF-8; more than 300 characters (the
+platform's post limit); a URL (a scheme, `www.`, a domain-shaped word, or the
+words http/https/www); a mention (`@name`, or a DID); a hashtag; a term on the
+operator's denylist; and text identical to one already published or queued
+within the repeat window (case, spacing and punctuation ignored). URLs,
+mentions and hashtags are always refused for autonomous text: they are how an
+unattended account becomes a spam source, and nothing the entity learned
+justifies them. Repeating the same words is the other classic way, which the
+platform's own rules call out ("repeatedly post content"); the existing
+duplicate suppression is keyed to the decision, not the words, so two different
+contexts that decide the same text would otherwise both go out. An operator
+posting through `publish` is not routed through the guard.
+
+The denylist is operator policy, not persona: the entity starts with no
+opinions and an empty list, and you decide what it must never say. It is a file,
+one term per line (`#` comments), at `ATPERSON_OUTPUT_DENYLIST` or
+`<data>/output-denylist.txt`, and it is re-read every cycle, so adding a term
+takes effect on the next cycle with no restart and works as a live brake. A
+term matches as a whole word, case-insensitively, so `ass` does not block
+`class`; a term with a space or punctuation matches as a phrase. The repeat
+window is `ATPERSON_OUTPUT_REPEAT_WINDOW` seconds (default 7 days, `0` turns it
+off). The cycle report counts refusals (`text_refused`) and names the latest
+reason, and `autonomy preflight` shows the guard and how many denylist terms are
+active.
+
 ## Unattended operation: arm once, then it runs
 
 The entity is built to act on its own after a single, deliberate setup step.
