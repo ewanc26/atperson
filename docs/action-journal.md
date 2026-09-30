@@ -222,7 +222,7 @@ Verification is standalone: given the entry and the key, the digest mismatch, si
 ## Crash and format handling
 
 - A missing journal means an empty journal.
-- A torn final line is reported and truncated during load.
+- A torn final line (a crash mid-append) is reported when loaded, and the next append drops those partial bytes before writing, so a new line is never glued onto a fragment. Loading itself does not modify the file.
 - Unsupported versions, malformed entries and impossible field combinations fail explicitly.
 - Unknown entry types are not skipped.
 - The current journal format version is 4. v1 action entries and v2 action/event/valence entries load unchanged (absent expectations are exactly nullopt); a v2 resolution line is refused as foreign schema, and an `intent` line inside an older (`< 4`) file is refused as foreign schema exactly like it.

@@ -238,9 +238,17 @@ class EvidenceLedger {
      * size means another writer appended and the index is rebuilt. */
     void refresh_index();
     void for_each_entry(const std::function<void(ProtocolEvidence &&)> &visit) const;
+    /* Reads every complete record. A record cut short by the end of the file
+     * (a crash mid-append) is not an error: `torn` is set and `good_end` is the
+     * offset just past the last complete record. Bytes that are present but
+     * wrong still throw. */
+    void scan(const std::function<void(ProtocolEvidence &&)> &visit, std::uintmax_t &good_end,
+              bool &torn) const;
     std::filesystem::path path_;
     std::unordered_set<EvidenceDigest, EvidenceDigestHash> index_;
     std::uintmax_t indexed_size_{};
+    std::uintmax_t good_end_{}; /* end of the last complete record */
+    bool torn_{};                /* the file ends in a partial record */
     bool index_valid_{};
 };
 

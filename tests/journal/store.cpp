@@ -224,6 +224,82 @@ void test_append_after_torn_tail_keeps_journal_loadable() {
     assert(atperson::load_journal(path).actions.size() == 3u);
 }
 
+// Totality of the loader on damaged files: whatever bytes are on disk, loading
+// either yields a journal or throws JournalError, never another exception type,
+// and a surviving load has consistent contents.
+void test_load_is_total_on_mutated_files() {
+    const auto root = scratch_dir("mutation");
+    const auto seed_path = root / "seed.jsonl";
+    atperson::append_journal_action(seed_path, sample_action());
+    JournalEvent event;
+    event.action_id = "3lzc7a2pfxn2c";
+    event.event_uri = "at://did:plc:x/app.bsky.feed.post/e1";
+    event.author_did = "did:plc:x";
+    event.via = "parent";
+    event.at = "2026-09-18T00:00:00Z";
+    atperson::append_journal_event(seed_path, event);
+    JournalValence valence;
+    valence.token = "moon";
+    valence.kind = "approach";
+    valence.signal = 0.5f;
+    valence.source = "3lzc7a2pfxn2c";
+    valence.at_epoch = 5u;
+    valence.at = "2026-09-18T00:00:01Z";
+    atperson::append_journal_valence(seed_path, valence);
+    std::string base;
+    {
+        std::ifstream in(seed_path, std::ios::binary);
+        base.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    assert(!base.empty() && base.back() == '\n');
+
+    std::uint64_t state = 0x853C49E6748FEA9Bull;
+    auto next = [&state]() {
+        state ^= state << 13u;
+        state ^= state >> 7u;
+        state ^= state << 17u;
+        return state;
+    };
+    const auto path = root / "mutated.jsonl";
+    std::size_t loaded = 0u;
+    for (int iteration = 0; iteration < 20000; ++iteration) {
+        std::string mutated = base;
+        const unsigned edits = 1u + static_cast<unsigned>(next() % 4u);
+        for (unsigned e = 0u; e < edits && !mutated.empty(); ++e) {
+            const std::size_t at = static_cast<std::size_t>(next() % mutated.size());
+            switch (next() % 4u) {
+            case 0u:
+                mutated[at] = static_cast<char>(next());
+                break;
+            case 1u:
+                mutated.insert(mutated.begin() + static_cast<std::ptrdiff_t>(at),
+                               static_cast<char>(next()));
+                break;
+            case 2u:
+                mutated.erase(mutated.begin() + static_cast<std::ptrdiff_t>(at));
+                break;
+            default:
+                mutated.resize(at);
+                break;
+            }
+        }
+        {
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            out << mutated;
+        }
+        try {
+            const JournalContents journal = atperson::load_journal(path);
+            ++loaded;
+            for (const auto &action : journal.actions) {
+                assert(!action.id.empty());
+            }
+        } catch (const JournalError &) {
+            // the expected refusal of a damaged journal
+        }
+    }
+    assert(loaded > 0u);
+}
+
 void test_malformed_line_rejected() {
     const auto root = scratch_dir("malformed");
     const auto path = root / "action-journal.jsonl";
@@ -706,6 +782,7 @@ int main() {
     test_outcome_names_round_trip();
     test_torn_tail_truncated();
     test_append_after_torn_tail_keeps_journal_loadable();
+    test_load_is_total_on_mutated_files();
     test_malformed_line_rejected();
     test_unsupported_version_rejected();
     test_event_dedup_and_uri_lookup();

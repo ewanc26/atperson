@@ -18,13 +18,25 @@ void write_field(std::ostream &out, std::string_view value) {
     out.write(value.data(), static_cast<std::streamsize>(value.size()));
 }
 
+/* Thrown when the file ends in the middle of a record. A crash mid-append can
+ * only leave a prefix of the last record, so this is a torn tail (recoverable),
+ * as opposed to bytes that are present but wrong (corruption, fatal). */
+struct TornRecord {};
+
 std::string read_field(std::istream &in) {
     std::uint64_t size = 0;
     in.read(reinterpret_cast<char *>(&size), sizeof(size));
-    if (!in || size > 16u * 1024u * 1024u) throw std::runtime_error("invalid protocol evidence field");
+    if (!in) {
+        if (in.eof()) throw TornRecord{};
+        throw std::runtime_error("invalid protocol evidence field");
+    }
+    if (size > 16u * 1024u * 1024u) throw std::runtime_error("invalid protocol evidence field");
     std::string value(size, '\0');
     in.read(value.data(), static_cast<std::streamsize>(size));
-    if (!in) throw std::runtime_error("truncated protocol evidence ledger");
+    if (!in) {
+        if (in.eof()) throw TornRecord{};
+        throw std::runtime_error("truncated protocol evidence ledger");
+    }
     return value;
 }
 
@@ -450,7 +462,8 @@ void EvidenceLedger::refresh_index() {
     if (error) throw std::runtime_error("stat protocol evidence ledger");
     if (index_valid_ && size == indexed_size_) return;
     index_.clear();
-    for_each_entry([&](ProtocolEvidence &&entry) { index_.insert(evidence_digest(entry)); });
+    scan([&](ProtocolEvidence &&entry) { index_.insert(evidence_digest(entry)); }, good_end_,
+         torn_);
     indexed_size_ = size;
     index_valid_ = true;
 }
@@ -466,6 +479,16 @@ bool EvidenceLedger::append(ProtocolEvidence evidence) {
     refresh_index();
     const EvidenceDigest digest = evidence_digest(evidence);
     if (index_.contains(digest)) return false;
+    if (torn_) {
+        /* A crash mid-append left a partial final record. Appending after it
+         * would bury it mid-file, where it reads as corruption and makes every
+         * later read throw; drop the partial bytes first. */
+        std::error_code error;
+        std::filesystem::resize_file(path_, good_end_, error);
+        if (error) throw std::runtime_error("repair torn protocol evidence ledger");
+        indexed_size_ = good_end_;
+        torn_ = false;
+    }
     if (const auto parent = path_.parent_path(); !parent.empty()) {
         std::error_code error;
         std::filesystem::create_directories(parent, error);
@@ -503,33 +526,56 @@ bool EvidenceLedger::append(ProtocolEvidence evidence) {
     return true;
 }
 
-void EvidenceLedger::for_each_entry(
-    const std::function<void(ProtocolEvidence &&)> &visit) const {
+void EvidenceLedger::scan(const std::function<void(ProtocolEvidence &&)> &visit,
+                          std::uintmax_t &good_end, bool &torn) const {
+    good_end = 0;
+    torn = false;
     if (!std::filesystem::exists(path_)) return;
     std::ifstream in(path_, std::ios::binary);
     while (in.peek() != std::char_traits<char>::eof()) {
-        std::uint32_t magic = 0;
-        in.read(reinterpret_cast<char *>(&magic), sizeof(magic));
-        if (!in || magic != 0x41545045u) throw std::runtime_error("invalid protocol evidence ledger");
-        std::uint8_t kind = 0, verification = 0;
         ProtocolEvidence evidence;
-        in.read(reinterpret_cast<char *>(&kind), sizeof(kind));
-        in.read(reinterpret_cast<char *>(&verification), sizeof(verification));
-        in.read(reinterpret_cast<char *>(&evidence.sequence), sizeof(evidence.sequence));
-        in.read(reinterpret_cast<char *>(&evidence.observed_at), sizeof(evidence.observed_at));
-        in.read(reinterpret_cast<char *>(&evidence.confidence), sizeof(evidence.confidence));
-        if (!in || kind > static_cast<std::uint8_t>(EvidenceKind::Authorization) ||
-            verification > static_cast<std::uint8_t>(Verification::Rejected)) {
-            throw std::runtime_error("invalid protocol evidence header");
+        try {
+            std::uint32_t magic = 0;
+            in.read(reinterpret_cast<char *>(&magic), sizeof(magic));
+            if (!in) {
+                if (in.eof()) throw TornRecord{};
+                throw std::runtime_error("invalid protocol evidence ledger");
+            }
+            if (magic != 0x41545045u) throw std::runtime_error("invalid protocol evidence ledger");
+            std::uint8_t kind = 0, verification = 0;
+            in.read(reinterpret_cast<char *>(&kind), sizeof(kind));
+            in.read(reinterpret_cast<char *>(&verification), sizeof(verification));
+            in.read(reinterpret_cast<char *>(&evidence.sequence), sizeof(evidence.sequence));
+            in.read(reinterpret_cast<char *>(&evidence.observed_at), sizeof(evidence.observed_at));
+            in.read(reinterpret_cast<char *>(&evidence.confidence), sizeof(evidence.confidence));
+            if (!in) {
+                if (in.eof()) throw TornRecord{};
+                throw std::runtime_error("invalid protocol evidence header");
+            }
+            if (kind > static_cast<std::uint8_t>(EvidenceKind::Authorization) ||
+                verification > static_cast<std::uint8_t>(Verification::Rejected)) {
+                throw std::runtime_error("invalid protocol evidence header");
+            }
+            evidence.kind = static_cast<EvidenceKind>(kind);
+            evidence.verification = static_cast<Verification>(verification);
+            evidence.source = read_field(in);
+            evidence.event_type = read_field(in);
+            evidence.subject = read_field(in);
+            evidence.payload = read_field(in);
+        } catch (const TornRecord &) {
+            torn = true;
+            return;
         }
-        evidence.kind = static_cast<EvidenceKind>(kind);
-        evidence.verification = static_cast<Verification>(verification);
-        evidence.source = read_field(in);
-        evidence.event_type = read_field(in);
-        evidence.subject = read_field(in);
-        evidence.payload = read_field(in);
         visit(std::move(evidence));
+        good_end = static_cast<std::uintmax_t>(in.tellg());
     }
+}
+
+void EvidenceLedger::for_each_entry(
+    const std::function<void(ProtocolEvidence &&)> &visit) const {
+    std::uintmax_t good_end = 0;
+    bool torn = false;
+    scan(visit, good_end, torn); /* a torn tail simply ends the readable entries */
 }
 
 std::vector<ProtocolEvidence> EvidenceLedger::entries() const {
