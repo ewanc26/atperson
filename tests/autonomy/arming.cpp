@@ -3,6 +3,7 @@
  * directory, injected clock. */
 
 #include "autonomy/arming.hpp"
+#include "scheduler/breaker.hpp"
 
 #include <cassert>
 #include <cstdio>
@@ -257,6 +258,43 @@ void test_preflight_reports_the_output_guard() {
     assert(find(run_preflight(full_environment(), scratch.paths, kNow), "output-guard") == nullptr);
 }
 
+void test_preflight_reports_an_open_breaker_without_blocking() {
+    Scratch scratch("breaker");
+    apply_arm(plan_arm(request_for({{OutboundActionKind::Post, 3, 86400}}), default_outbound_policy(),
+                       ControlState{}, kNowText),
+              scratch.paths);
+    scratch.paths.breaker_file = scratch.root / "breaker.json";
+
+    /* No state file: closed. */
+    PreflightReport report = run_preflight(full_environment(), scratch.paths, kNow);
+    assert(report.ready && find(report, "circuit-breaker")->ok);
+
+    BreakerState state;
+    BreakerConfig config;
+    config.failure_threshold = 1;
+    (void)record_failure(state, config, "digest", "write_failed: network down", kNow);
+    save_breaker_state(state, scratch.paths.breaker_file);
+
+    /* Open: shown with the reason and the retry time, but the setup is still
+     * ready: the breaker heals itself and must not read as a setup fault. */
+    report = run_preflight(full_environment(), scratch.paths, kNow + 10);
+    assert(report.ready);
+    const PreflightCheck *check = find(report, "circuit-breaker");
+    assert(check != nullptr && check->advisory && !check->ok);
+    assert(check->detail.find("open") != std::string::npos);
+    assert(check->detail.find("network down") != std::string::npos);
+    assert(check->detail.find("retries by itself") != std::string::npos);
+
+    /* Half-open once the cool-down has passed. */
+    report = run_preflight(full_environment(), scratch.paths, kNow + 100000);
+    assert(find(report, "circuit-breaker")->detail.find("half-open") != std::string::npos);
+
+    /* A corrupt state file is a real fault, not an advisory. */
+    std::ofstream(scratch.paths.breaker_file, std::ios::trunc) << "{ nope";
+    report = run_preflight(full_environment(), scratch.paths, kNow);
+    assert(!report.ready && !find(report, "circuit-breaker")->advisory);
+}
+
 void test_authorization_reflects_expiry_and_approval_mode() {
     Scratch scratch("auth");
     ArmRequest request = request_for({{OutboundActionKind::Post, 3, 86400}});
@@ -349,6 +387,7 @@ int main() {
     test_arm_then_preflight_is_ready_and_states_the_bounds();
     test_every_missing_link_blocks_and_is_named();
     test_preflight_reports_the_output_guard();
+    test_preflight_reports_an_open_breaker_without_blocking();
     test_authorization_reflects_expiry_and_approval_mode();
     test_unsatisfiable_or_broken_envelopes_never_count();
     test_disarm_stops_everything_and_is_idempotent();

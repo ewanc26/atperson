@@ -121,6 +121,40 @@ off). The cycle report counts refusals (`text_refused`) and names the latest
 reason, and `autonomy preflight` shows the guard and how many denylist terms are
 active.
 
+## Failing safely: circuit breaker and quarantine
+
+An unattended entity has nobody watching for a failing dependency, so it stops
+hammering one on its own. Without this, a proposal that can never succeed (its
+reply parent was deleted) would be retried every cycle forever, and a systemic
+failure (the PDS is down, the session was revoked, the server is rate-limiting)
+would be retried at full speed every cycle.
+
+- **Circuit breaker.** After `ATPERSON_BREAKER_THRESHOLD` consecutive *failed*
+  executions (default 3) the breaker opens and the network write is held back for
+  a cool-down (`ATPERSON_BREAKER_COOLDOWN`, default 15 minutes). When it elapses
+  exactly one attempt is made (half-open): success closes it and resets the
+  cool-down, failure re-opens it at once with the cool-down doubled, up to
+  `ATPERSON_BREAKER_MAX_COOLDOWN` (default 6 hours). It heals by itself and never
+  needs a human. Deciding and proposing carry on while it is open; only the
+  write is held. Rate limiting is covered by the same backoff.
+- **Quarantine.** A proposal that fails `ATPERSON_PROPOSAL_FAILURE_LIMIT` times
+  (default 3) is moved to `<proposals>/quarantine/` with a `.reason` note, so one
+  poison proposal cannot starve the ones behind it. It is not re-proposed when the
+  same context decides the same words again.
+- **Queue cap.** Proposing stops while `ATPERSON_SCHEDULER_MAX_PENDING`
+  proposals (default 50) are already waiting, so an unauthorised or held queue
+  cannot grow without bound.
+
+Only genuine faults count. A refusal by policy, control, dry-run or the output
+guard is the system working as designed and never trips the breaker.
+
+`atperson autonomy breaker` shows the state (open until, consecutive failures,
+trips, the last failure); `autonomy breaker reset` closes it by hand;
+`autonomy preflight` reports it as a note, since it retries by itself; and the
+cycle report includes `breaker_gate`, `breaker_trips`, `quarantined` and
+`proposals_capped`. The state is one small file, `scheduler-breaker.json`, in the
+data directory.
+
 ## Unattended operation: arm once, then it runs
 
 The entity is built to act on its own after a single, deliberate setup step.

@@ -58,6 +58,7 @@
 
 #include "intent/config.hpp"
 #include "outbound/attempt.hpp"
+#include "breaker.hpp"
 #include "text_guard.hpp"
 
 #include "atperson/action.h"
@@ -114,6 +115,14 @@ struct SchedulerConfig {
      * the repeat window comes from ATPERSON_OUTPUT_REPEAT_WINDOW (seconds, 0
      * disables). URLs, mentions and hashtags are always refused. */
     TextGuardConfig text_guard;
+    /* Circuit breaker and proposal quarantine for execution failures (see
+     * breaker.hpp). Env: ATPERSON_BREAKER_THRESHOLD, ATPERSON_BREAKER_COOLDOWN,
+     * ATPERSON_BREAKER_MAX_COOLDOWN, ATPERSON_PROPOSAL_FAILURE_LIMIT. */
+    BreakerConfig breaker;
+    /* Stop proposing while this many proposals are already waiting, so an
+     * unauthorised or breaker-held queue cannot grow without bound.
+     * ATPERSON_SCHEDULER_MAX_PENDING. */
+    std::size_t max_pending_proposals{50};
 };
 
 /* Accounting for one scheduler cycle, reported to the operator. */
@@ -130,6 +139,14 @@ struct SchedulerCycleReport {
      * time), and the stable reason of the latest one. */
     std::size_t text_refused{};
     std::string last_text_refusal;
+    /* Circuit breaker: its gate at the start of execution ("closed", "open",
+     * "half-open"), how many times a failure opened it this cycle, and how
+     * many poison proposals were set aside. */
+    std::string breaker_gate{"closed"};
+    std::size_t breaker_trips{};
+    std::size_t quarantined{};
+    /* Proposals not composed because the pending queue was full. */
+    std::size_t proposals_capped{};
     std::size_t failed{};
     std::string detail;
     /* Non-zero when drives reordering (#148) was applied to the candidate

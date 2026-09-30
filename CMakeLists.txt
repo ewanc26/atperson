@@ -264,6 +264,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/outbound/spool.cpp
     src/app/outbound/expectation.cpp
     src/app/scheduler/cycle.cpp
+    src/app/scheduler/breaker.cpp
     src/app/scheduler/text_guard.cpp
     src/app/scheduler/drives.cpp
     src/app/intent/config.cpp
@@ -594,12 +595,22 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson-text-guard-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-text-guard COMMAND atperson-text-guard-test)
 
+  # Circuit breaker and quarantine state machine: thresholds, half-open probe,
+  # doubling cool-down with a cap, persistence and corruption. Pure, offline.
+  add_executable(atperson-breaker-test tests/scheduler/breaker.cpp
+                                        src/app/scheduler/breaker.cpp)
+  target_compile_features(atperson-breaker-test PRIVATE cxx_std_23)
+  target_link_libraries(atperson-breaker-test PRIVATE atperson-cpp cjson)
+  target_include_directories(atperson-breaker-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-breaker COMMAND atperson-breaker-test)
+
   # Arming: the one-time setup for unattended operation and the preflight that
   # proves it took. Real policy/envelope/control files, injected clock. Offline.
   add_executable(
     atperson-arming-test
     tests/autonomy/arming.cpp
     src/app/autonomy/arming.cpp
+    src/app/scheduler/breaker.cpp
     src/app/scheduler/text_guard.cpp
     src/app/control/envelope.cpp
     src/app/control/state.cpp
@@ -861,6 +872,7 @@ if(ATPERSON_BUILD_TESTS)
     src/app/outbound/execute.cpp
     src/app/outbound/expectation.cpp
     src/app/scheduler/cycle.cpp
+    src/app/scheduler/breaker.cpp
     src/app/scheduler/text_guard.cpp
     src/app/scheduler/drives.cpp
     src/app/intent/config.cpp
