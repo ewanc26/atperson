@@ -37,11 +37,35 @@ void sync_parent_directory(const std::filesystem::path &path) {
 
 } // namespace
 
+bool is_plain_record_id(std::string_view id) noexcept {
+    if (id.empty() || id.size() > 200u || id == "." || id == "..") {
+        return false;
+    }
+    for (const char c : id) {
+        const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+        if (!allowed) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::filesystem::path record_path(const std::filesystem::path &dir, std::string_view id) {
+    /* Ids name files. Several come from remote records (a reconstruct replays
+     * thought ids and spool ids off the network), so an id with a separator or
+     * "..", or an absurd length, must never become a path outside `dir`. */
+    if (!is_plain_record_id(id)) {
+        throw std::runtime_error("invalid record id '" + std::string(id) +
+                                 "': ids are plain file names of [A-Za-z0-9._-]");
+    }
     return dir / (std::string(id) + ".json");
 }
 
 bool record_exists(const std::filesystem::path &dir, std::string_view id) {
+    if (!is_plain_record_id(id)) {
+        return false; /* nothing with this id can exist in the store */
+    }
     std::error_code ec;
     return std::filesystem::exists(record_path(dir, id), ec);
 }
