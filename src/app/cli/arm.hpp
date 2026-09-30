@@ -15,6 +15,7 @@
 //         --min-support <0..1>     support-score floor
 //         --expires <RFC3339|never>   default: never
 //         --id <envelope-id>       default: autonomy
+//         --engagement <invited|open>   whom likes/reposts/follows may target
 //         --drives --intents --graduated-likes --valence-guard <-1..0>
 //                only add the matching environment line to the printed setup
 //   autonomy disarm [--id <envelope-id>]

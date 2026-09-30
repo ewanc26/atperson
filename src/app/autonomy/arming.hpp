@@ -91,6 +91,8 @@ struct ArmPaths {
     /* Optional: the scheduler circuit-breaker state, so the preflight can
      * report a breaker that is currently holding execution back. */
     std::filesystem::path breaker_file;
+    /* Optional: the do-not-engage list, so the preflight can report it. */
+    std::filesystem::path do_not_engage_file;
 };
 
 /* The changes arming would make, computed without touching disk. */
@@ -130,6 +132,7 @@ struct PreflightEnvironment {
     bool has_identifier{false};      /* ATPERSON_IDENTIFIER */
     bool has_password{false};        /* ATPERSON_APP_PASSWORD */
     bool has_self_did{false};        /* ATPERSON_SELF_DID (self-post exclusion) */
+    bool engagement_open{false};     /* ATPERSON_ENGAGEMENT=open (default: invited) */
 };
 
 struct PreflightCheck {

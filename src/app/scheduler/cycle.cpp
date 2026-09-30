@@ -5,6 +5,7 @@
 #include "control/envelope.hpp"
 #include "control/state.hpp"
 #include "drives.hpp"
+#include "engagement.hpp"
 #include "intent/mutate.hpp"
 #include "intent/state.hpp"
 #include "intent/sweep.hpp"
@@ -166,6 +167,14 @@ TextGuardConfig cycle_text_guard(const SchedulerConfig &config, const SchedulerC
     return guard;
 }
 
+/* The do-not-engage list, re-read every cycle so an addition is a live brake. */
+DoNotEngage cycle_do_not_engage(const SchedulerCycle &cycle) {
+    const char *override_path = std::getenv("ATPERSON_DO_NOT_ENGAGE");
+    return load_do_not_engage(override_path != nullptr && override_path[0] != '\0'
+                                  ? std::filesystem::path(override_path)
+                                  : cycle.data_dir / "do-not-engage.txt");
+}
+
 /* Texts the entity already published, from the journal's executed actions. */
 std::vector<RecentText> executed_texts(const std::filesystem::path &journal_file) {
     std::vector<RecentText> texts;
@@ -272,6 +281,9 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
      * = the triggered observation). */
     const ControlState control = load_control_state(cycle.attempt.control_file);
     const TextGuardConfig text_guard = cycle_text_guard(config, cycle);
+    const DoNotEngage opted_out = cycle_do_not_engage(cycle);
+    const std::set<std::string> invited = invited_authors(load_journal(cycle.attempt.journal_file));
+    report.engagement_invalid_lines = opted_out.invalid_lines;
     /* Repeat detection sees what was published and what is already queued, so
      * two contexts that decide the same words never both go out. */
     std::size_t pending_proposals = count_proposals(cycle.proposals_dir);
@@ -329,6 +341,15 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
                 ++report.abstentions;
                 continue;
             }
+            if (const EngagementRefusal refusal = check_engagement(
+                    OutboundActionKind::Like, candidate.author_did, config.engagement, invited,
+                    opted_out);
+                refusal != EngagementRefusal::None) {
+                ++report.engagement_refused;
+                report.last_engagement_refusal = engagement_refusal_name(refusal);
+                ++report.abstentions;
+                continue;
+            }
             const std::string like_digest =
                 graduated_like_digest(candidate.source_id, decision);
             const std::filesystem::path like_proposal =
@@ -374,6 +395,16 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
                 action.kind = OutboundActionKind::Reply;
                 action.reply_root = continuation->id;
                 action.reply_parent = candidate.source_id;
+            }
+        }
+        if (action.kind == OutboundActionKind::Reply) {
+            if (const EngagementRefusal refusal =
+                    check_engagement(OutboundActionKind::Reply, candidate.author_did,
+                                     config.engagement, invited, opted_out);
+                refusal != EngagementRefusal::None) {
+                ++report.engagement_refused;
+                report.last_engagement_refusal = engagement_refusal_name(refusal);
+                continue;
             }
         }
         action.text = plan_text(decision);
@@ -471,6 +502,17 @@ SchedulerCycleReport run_scheduler_cycle(const SchedulerConfig &config, const Sc
                     report.last_text_refusal = text_refusal_name(verdict.refusal);
                     continue;
                 }
+            }
+            /* Whom it is directed at is checked again at execution: a person
+             * added to the do-not-engage list after the proposal was frozen is
+             * never interacted with. */
+            if (const EngagementRefusal refusal =
+                    check_engagement(action.kind, action_target_did(action), config.engagement,
+                                     invited, opted_out);
+                refusal != EngagementRefusal::None) {
+                ++report.engagement_refused;
+                report.last_engagement_refusal = engagement_refusal_name(refusal);
+                continue;
             }
             /* Per-digest approval or a standing envelope (#141): the
              * proposal is a candidate only when one of the two would
@@ -610,6 +652,16 @@ SchedulerConfig scheduler_config_from_environment() {
         config.breaker.max_cooldown_seconds = max_cooldown;
         config.breaker.proposal_failure_limit = static_cast<std::uint32_t>(std::min(limit, 1000000ll));
         config.max_pending_proposals = static_cast<std::size_t>(pending);
+    }
+    if (const char *mode = std::getenv("ATPERSON_ENGAGEMENT"); mode != nullptr && mode[0] != '\0') {
+        const std::string value(mode);
+        if (value == "invited") {
+            config.engagement.mode = EngagementMode::Invited;
+        } else if (value == "open") {
+            config.engagement.mode = EngagementMode::Open;
+        } else {
+            throw std::runtime_error("ATPERSON_ENGAGEMENT must be 'invited' or 'open'");
+        }
     }
     if (const char *window = std::getenv("ATPERSON_OUTPUT_REPEAT_WINDOW");
         window != nullptr && window[0] != '\0') {

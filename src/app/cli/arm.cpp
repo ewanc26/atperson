@@ -23,7 +23,8 @@ namespace {
         (detail.empty() ? std::string() : detail + "\n") +
         "autonomy usage: autonomy <arm --kinds kind:count/window[,...] [--scope a,b] "
         "[--min-plan n] [--min-support n] [--expires RFC3339|never] [--id id] [--apply] "
-        "[--drives] [--intents] [--graduated-likes] [--valence-guard n] | "
+        "[--drives] [--intents] [--graduated-likes] [--engagement invited|open] "
+        "[--valence-guard n] | "
         "disarm [--id id] | preflight | breaker [status|reset]>");
 }
 
@@ -112,7 +113,10 @@ ArmPaths paths_from_config() {
     return ArmPaths{outbound_policy_path(), control_state_path(), authorization_envelopes_path(),
                     denylist.empty() ? data_dir() / "output-denylist.txt"
                                      : std::filesystem::path(denylist),
-                    data_dir() / "scheduler-breaker.json"};
+                    data_dir() / "scheduler-breaker.json",
+                    env_or("ATPERSON_DO_NOT_ENGAGE").empty()
+                        ? data_dir() / "do-not-engage.txt"
+                        : std::filesystem::path(env_or("ATPERSON_DO_NOT_ENGAGE"))};
 }
 
 PreflightEnvironment environment_from_process() {
@@ -126,6 +130,7 @@ PreflightEnvironment environment_from_process() {
     environment.has_identifier = !env_or("ATPERSON_IDENTIFIER").empty();
     environment.has_password = !env_or("ATPERSON_APP_PASSWORD").empty();
     environment.has_self_did = !env_or("ATPERSON_SELF_DID").empty();
+    environment.engagement_open = env_or("ATPERSON_ENGAGEMENT") == "open";
     return environment;
 }
 
@@ -206,6 +211,7 @@ int run_autonomy_arming(std::ostream &out, std::string_view sub,
     bool drives = false;
     bool intents = false;
     bool graduated_likes = false;
+    std::string engagement;
     std::string valence_guard;
     bool have_kinds = false;
     for (std::size_t i = 0; i < arguments.size(); ++i) {
@@ -242,6 +248,11 @@ int run_autonomy_arming(std::ostream &out, std::string_view sub,
             intents = true;
         } else if (flag == "--graduated-likes") {
             graduated_likes = true;
+        } else if (flag == "--engagement") {
+            engagement = value();
+            if (engagement != "invited" && engagement != "open") {
+                usage_error("--engagement must be 'invited' or 'open'");
+            }
         } else if (flag == "--valence-guard") {
             valence_guard = value();
             const double guard = parse_unit(valence_guard, "--valence-guard");
@@ -307,6 +318,9 @@ int run_autonomy_arming(std::ostream &out, std::string_view sub,
     }
     if (!valence_guard.empty()) {
         out << "  ATPERSON_DECISION_MIN_VALENCE=" << valence_guard << '\n';
+    }
+    if (engagement == "open") {
+        out << "  ATPERSON_ENGAGEMENT=open\n";
     }
     out << "  ATPERSON_IDENTIFIER / ATPERSON_APP_PASSWORD / ATPERSON_SELF_DID as for sync\n";
 

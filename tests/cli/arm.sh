@@ -88,3 +88,14 @@ grep -q "circuit-breaker" "$DIR/rearm.out" || { echo "preflight should show the 
 [ ! -e "$DIR/scheduler-breaker.json" ] || { echo "reset should clear the state"; exit 1; }
 "$BIN" autonomy breaker | grep -q "circuit breaker: closed" || { echo "closed after reset"; exit 1; }
 if "$BIN" autonomy breaker bogus >/dev/null 2>&1; then echo "bad breaker subcommand accepted"; exit 1; fi
+
+# Engagement consent: the preflight reports it and catches a broken opt-out list.
+env $READY_ENV "$BIN" autonomy arm --kinds like:5/1h --engagement open --apply >"$DIR/eng.out"
+grep -q "ATPERSON_ENGAGEMENT=open" "$DIR/eng.out" || { echo "expected the engagement env line"; cat "$DIR/eng.out"; exit 1; }
+grep -q "engagement" "$DIR/eng.out" || { echo "preflight should report engagement"; exit 1; }
+printf 'did:plc:one\nalice.bsky.social\n' >"$DIR/do-not-engage.txt"
+if env $READY_ENV "$BIN" autonomy preflight >"$DIR/eng-bad.out" 2>&1; then echo "a broken opt-out list must block"; cat "$DIR/eng-bad.out"; exit 1; fi
+grep -q "NOT excluded" "$DIR/eng-bad.out" || { echo "expected the opt-out warning"; cat "$DIR/eng-bad.out"; exit 1; }
+printf 'did:plc:one\n' >"$DIR/do-not-engage.txt"
+env $READY_ENV "$BIN" autonomy preflight >/dev/null || { echo "a valid opt-out list should be ready"; exit 1; }
+if "$BIN" autonomy arm --kinds like:5/1h --engagement everyone >/dev/null 2>&1; then echo "bad --engagement accepted"; exit 1; fi

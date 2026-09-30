@@ -121,6 +121,36 @@ off). The cycle report counts refusals (`text_refused`) and names the latest
 reason, and `autonomy preflight` shows the guard and how many denylist terms are
 active.
 
+## Whom it may interact with: consent and opt-out
+
+Bluesky's guidance for bots is to interact (like, repost, reply) with someone only
+after they have engaged with the bot, and its rules target indiscriminate volume.
+The scheduler's graduated likes used to target any post it had read. Two rules
+now apply, both deterministic:
+
+- **Consent.** In `invited` mode (the default, `ATPERSON_ENGAGEMENT=invited`) a
+  like, repost or follow needs the target's author to have engaged first: one of
+  their posts replied to or quoted something the entity published (a journal
+  event). `ATPERSON_ENGAGEMENT=open` drops that requirement; it is an explicit
+  operator choice, and `arm --engagement open` prints the line. A reply is always
+  a continuation of a conversation the entity started, which is itself an
+  invitation, and a plain post is directed at nobody, so neither is gated by
+  consent.
+- **Opt-out.** A do-not-engage list of DIDs, one per line (`#` comments), at
+  `ATPERSON_DO_NOT_ENGAGE` or `<data>/do-not-engage.txt`. The entity never
+  likes, reposts, follows or replies to anyone on it, in any mode, even someone
+  who engaged first. It is re-read every cycle, so adding a DID takes effect on
+  the next cycle with no restart, and it is re-checked when an already-frozen
+  proposal is about to execute, so a person added after the proposal was written
+  is still not contacted. A line that is not a DID is ignored at runtime (a typo
+  must not stop the entity) and counted; `autonomy preflight` fails on it,
+  because the person it was meant to exclude is not excluded.
+
+The cycle report counts `engagement_refused` with the latest reason (`opted_out`
+or `not_invited`) and `engagement_invalid_lines`. Limits: an invitation is a reply
+or quote of something the entity published; mentions are not captured yet, and
+the entity cannot see that someone has blocked it.
+
 ## Failing safely: circuit breaker and quarantine
 
 An unattended entity has nobody watching for a failing dependency, so it stops
