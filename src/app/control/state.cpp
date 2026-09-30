@@ -94,17 +94,8 @@ std::uint32_t require_version(cJSON *object) {
     return version;
 }
 
-/* Digest format: 16 lowercase hex characters (64-bit atp_ledger_digest). */
 bool is_digest_shape(std::string_view digest) {
-    if (digest.size() != 16u) {
-        return false;
-    }
-    for (const char c : digest) {
-        if ((c < '0' || c > '9') && (c < 'a' || c > 'f')) {
-            return false;
-        }
-    }
-    return true;
+    return is_control_digest_shape(digest);
 }
 
 void validate(const ControlState &state) {
@@ -253,6 +244,19 @@ void save_control_state(const ControlState &state, const std::filesystem::path &
         throw std::runtime_error("control state: could not commit " + path.string() +
                                  ": " + rename_ec.message());
     }
+}
+
+bool is_control_digest_shape(std::string_view digest) noexcept {
+    /* 16 lowercase hex characters (64-bit atp_ledger_digest). */
+    if (digest.size() != 16u) {
+        return false;
+    }
+    for (const char c : digest) {
+        if ((c < '0' || c > '9') && (c < 'a' || c > 'f')) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool is_digest_approved(const ControlState &state, std::string_view digest) {

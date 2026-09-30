@@ -195,6 +195,10 @@ std::string serialise_control_request(const ControlRequest &request) {
             invalid(std::string("op '") + std::string(control_op_name(request.op)) +
                     "' requires a digest argument");
         }
+        if (!is_control_digest_shape(request.arg)) {
+            invalid(std::string("op '") + std::string(control_op_name(request.op)) +
+                    "' needs a digest of 16 lowercase hex digits");
+        }
     } else if (!request.arg.empty()) {
         invalid(std::string("op '") + std::string(control_op_name(request.op)) +
                 "' does not take an argument");
@@ -254,6 +258,10 @@ ControlRequest parse_control_request(std::string_view json) {
         if (request.arg.empty()) {
             invalid(std::string("op '") + op_name + "' requires a digest argument");
         }
+        if (!is_control_digest_shape(request.arg)) {
+            invalid(std::string("op '") + op_name +
+                    "' needs a digest of 16 lowercase hex digits");
+        }
     } else if (!request.arg.empty()) {
         invalid(std::string("op '") + op_name + "' does not take an argument");
     }
@@ -304,6 +312,10 @@ RemoteApplyReport apply_control_request(ControlState &state, std::uint64_t &wate
     if (control_op_takes_argument(request.op)) {
         if (request.arg.empty()) {
             report.reason = "op requires a digest argument";
+            return report;
+        }
+        if (!is_control_digest_shape(request.arg)) {
+            report.reason = "digest argument must be 16 lowercase hex digits";
             return report;
         }
     } else if (!request.arg.empty()) {

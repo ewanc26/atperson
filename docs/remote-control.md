@@ -98,8 +98,13 @@ an earlier command was lost, and applying a later one would silently skip a
 pause the operator sequenced first. A repeat is a replay. Either way:
 refuse, and change nothing.
 
-**3. Shape.** Unknown op, missing digest on `approve`, or an argument on an
-op that takes none: refuse.
+**3. Shape.** Unknown op, missing digest on `approve`/`revoke`, a digest that is
+not exactly 16 lowercase hex digits, or an argument on an op that takes none:
+refuse. The digest shape is checked when the document is parsed, again when a
+request is applied, and when an operator serialises one, so a malformed digest
+can never reach the durable control state (whose own validation would refuse to
+save or load it) and an operator cannot publish a record that would be refused
+on read.
 
 A refusal is total. Control state is left byte-identical and the watermark
 does not move, so a corrected re-send at the same `seq` still works. This is
