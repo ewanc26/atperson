@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace atperson {
 
@@ -20,6 +21,88 @@ inline constexpr int kMaxCborDepth = 24;
 /* Doubles represent integers exactly only through 2^53 - 1. Beyond that an
  * integer would silently change value, so it is emitted as a string. */
 inline constexpr std::uint64_t kExactDoubleIntegers = (1ull << 53) - 1u;
+
+/* Deepest container nesting the pre-scan admits. Real records nest a handful
+ * of levels (facets, embeds); this only exists to bound hostile input. */
+inline constexpr std::size_t kMaxScanDepth = 64;
+
+/* Cheap, iterative structural check run BEFORE the real parser sees untrusted
+ * bytes. It does not decode anything: it only refuses inputs whose declared
+ * shape cannot possibly be backed by the bytes present, or that nest deeper
+ * than any record does. Without it a payload of a few bytes declaring an array
+ * of 2^32-1 children makes the parser allocate and grind for many seconds.
+ *
+ * Every array child and every string/byte byte occupies at least one byte and
+ * every map pair at least two, so a declared count larger than the remaining
+ * input is impossible and rejected. Indefinite lengths and reserved additional
+ * information are not valid DAG-CBOR and are rejected here too. Runs in O(n)
+ * with an explicit stack, so it cannot itself be recursed or amplified. */
+bool structurally_bounded(const unsigned char *data, std::size_t len) {
+    std::size_t pos = 0;
+    std::vector<std::uint64_t> remaining{1u}; /* items still owed per open container */
+    while (!remaining.empty()) {
+        if (remaining.back() == 0u) {
+            remaining.pop_back();
+            continue;
+        }
+        remaining.back()--;
+        if (pos >= len) {
+            return false;
+        }
+        const unsigned char initial = data[pos++];
+        const unsigned major = initial >> 5u;
+        const unsigned info = initial & 0x1Fu;
+        std::uint64_t argument = info;
+        if (info >= 28u) {
+            return false; /* reserved, or indefinite length */
+        }
+        if (info >= 24u) {
+            const std::size_t width = std::size_t{1} << (info - 24u);
+            if (len - pos < width) {
+                return false;
+            }
+            argument = 0u;
+            for (std::size_t i = 0; i < width; ++i) {
+                argument = (argument << 8u) | data[pos++];
+            }
+        }
+        const std::uint64_t left = len - pos;
+        switch (major) {
+        case 2: /* byte string */
+        case 3: /* text string */
+            if (argument > left) {
+                return false;
+            }
+            pos += static_cast<std::size_t>(argument);
+            break;
+        case 4: /* array */
+            if (argument > left) {
+                return false;
+            }
+            if (argument > 0u) {
+                remaining.push_back(argument);
+            }
+            break;
+        case 5: /* map */
+            if (argument > left / 2u) {
+                return false;
+            }
+            if (argument > 0u) {
+                remaining.push_back(argument * 2u);
+            }
+            break;
+        case 6: /* tag: wraps exactly one item */
+            remaining.push_back(1u);
+            break;
+        default: /* 0, 1 integers; 7 simple/float: fully consumed above */
+            break;
+        }
+        if (remaining.size() > kMaxScanDepth) {
+            return false;
+        }
+    }
+    return pos == len;
+}
 
 const char *map_key_string(const wf_cbor_item *key) {
     if (key == nullptr || key->type != WF_CBOR_STRING) {
@@ -120,6 +203,9 @@ cJSON *to_json(const wf_cbor_item *item, int depth) {
 
 cJSON *decode_cbor_record(const unsigned char *data, std::size_t len) {
     if (data == nullptr || len == 0u) {
+        return nullptr;
+    }
+    if (!structurally_bounded(data, len)) {
         return nullptr;
     }
     wf_cbor_item *item = wf_cbor_parse(data, len);

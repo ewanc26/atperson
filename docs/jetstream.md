@@ -111,6 +111,14 @@ half-read. Within a record that does decode, a field the JSON shape cannot
 represent — a CID link in a `reply` strongRef, a byte string — is skipped
 instead of failing the record, so a reply still yields its root and parent URIs.
 
+The payload comes from a remote archive, so it is checked before the parser
+sees it. A cheap iterative pre-scan rejects input whose declared shape cannot be
+backed by the bytes present (an array or map claiming more children, or a
+string more bytes, than remain), input nested deeper than any record is, and
+indefinite or reserved encodings, none of which are valid DAG-CBOR. Without it a
+payload of a few bytes declaring an array of 2^32-1 children kept the parser
+busy for many seconds. Such rows are dropped like any other undecodable payload.
+
 Commit rows the archive returned but that produced no event are counted as
 `dropped` in the command summary and on the run result. A large planned window
 reporting zero events and zero drops means the archive held nothing worth

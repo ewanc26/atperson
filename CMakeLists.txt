@@ -1093,6 +1093,18 @@ if(ATPERSON_BUILD_TESTS)
       atperson-jetstream-client-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
     add_test(NAME atperson-jetstream-client COMMAND atperson-jetstream-client-test)
 
+    # DAG-CBOR record decoder hardening: untrusted archive bytes must always
+    # yield an object or nullptr, with bounded depth and no silent integer
+    # rounding. Offline.
+    add_executable(
+      atperson-cbor-record-test
+      tests/atproto/cbor_record.cpp
+      src/app/atproto/cbor_record.cpp)
+    target_compile_features(atperson-cbor-record-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-cbor-record-test PRIVATE wolfram-cpp cjson)
+    target_include_directories(atperson-cbor-record-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-cbor-record COMMAND atperson-cbor-record-test)
+
     add_executable(
       atperson-jetstream-replay-test
       tests/atproto/jetstream_replay.cpp
