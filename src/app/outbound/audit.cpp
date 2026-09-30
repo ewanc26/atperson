@@ -1,5 +1,7 @@
 #include "audit.hpp"
 
+#include "state/jsonl.hpp"
+
 #include <cJSON.h>
 
 #include <fstream>
@@ -75,6 +77,7 @@ void append_outbound_audit(const std::filesystem::path &path, const OutboundAudi
         std::error_code ec;
         std::filesystem::create_directories(parent, ec);
     }
+    repair_torn_tail(path);
     std::ofstream file(path, std::ios::binary | std::ios::app);
     if (!file) {
         throw std::runtime_error("cannot append outbound audit log " + path.string());
