@@ -592,6 +592,16 @@ if(ATPERSON_BUILD_TESTS)
   target_include_directories(atperson-remote-control-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
   add_test(NAME atperson-remote-control COMMAND atperson-remote-control-test)
 
+  # Remote channel hardening: hostile request documents never throw anything but
+  # ControlRemoteError, refused requests leave state untouched, and nothing
+  # accepted can leave the durable control state unsaveable. Offline.
+  add_executable(atperson-remote-control-hardening-test tests/control/remote_hardening.cpp
+                                        src/app/control/state.cpp
+                                        src/app/control/remote.cpp)
+  target_link_libraries(atperson-remote-control-hardening-test PRIVATE atperson-cpp)
+  target_include_directories(atperson-remote-control-hardening-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+  add_test(NAME atperson-remote-control-hardening COMMAND atperson-remote-control-hardening-test)
+
   # Deterministic end-to-end lifecycle harness (issue #28): multi-run
   # scenarios over the real ledger/snapshot/state files with a scripted
   # feed fixture — restarts, crash recovery, withdrawal flows, planning

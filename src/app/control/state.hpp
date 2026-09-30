@@ -85,6 +85,11 @@ void save_control_state(const ControlState &state, const std::filesystem::path &
  * procedure. */
 void ensure_outbound_allowed(const ControlState &state, std::string_view digest);
 
+/* True when `digest` has the shape of a control digest: exactly 16 lowercase
+ * hexadecimal characters (a 64-bit atp_ledger_digest). Anything else can never
+ * match an action and is refused wherever a digest enters control state. */
+[[nodiscard]] bool is_control_digest_shape(std::string_view digest) noexcept;
+
 /* True when `digest` is in approved_digests. */
 [[nodiscard]] bool is_digest_approved(const ControlState &state,
                                       std::string_view digest);
