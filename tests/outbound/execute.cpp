@@ -540,6 +540,40 @@ void test_resolve_failure_is_failed_and_unbudgeted() {
     std::printf("ok resolve failure is failed and unbudgeted\n");
 }
 
+// A crash mid-append leaves a partial line. The next entry must start on a
+// fresh line, not be glued onto the fragment.
+void test_audit_append_after_torn_tail_starts_a_clean_line() {
+    const auto dir = scratch_dir("audit-torn");
+    const auto path = dir / "outbound-audit.jsonl";
+
+    OutboundAuditEntry entry;
+    entry.at = "2026-09-17T00:00:00Z";
+    entry.kind = "post";
+    entry.rkey = "3kabc";
+    entry.digest = "0123456789abcdef";
+    entry.outcome = OutboundAuditOutcome::Executed;
+    entry.reason = "allow";
+    atperson::append_outbound_audit(path, entry);
+    {
+        std::ofstream torn(path, std::ios::binary | std::ios::app);
+        torn << "{\"at\":\"2026-09-17T00:00:0";
+    }
+    entry.rkey = "3kdef";
+    atperson::append_outbound_audit(path, entry);
+
+    std::ifstream file(path);
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(file, line)) {
+        lines.push_back(line);
+    }
+    assert(lines.size() == 2u);
+    for (const std::string &kept : lines) {
+        assert(kept.front() == '{' && kept.back() == '}'); // every line is a whole entry
+    }
+    assert(lines[1].find("3kdef") != std::string::npos);
+}
+
 void test_audit_log_is_append_only() {
     const auto dir = scratch_dir("audit");
     const auto path = dir / "outbound-audit.jsonl";
@@ -650,6 +684,7 @@ void test_journal_records_every_attempt() {
 int main() {
     test_action_document_round_trip();
     test_action_document_rejects_bad_input();
+    test_audit_append_after_torn_tail_starts_a_clean_line();
     test_record_json_shape();
     test_paused_refuses_before_writer();
     test_policy_deny_refuses_before_writer();

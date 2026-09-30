@@ -1,5 +1,7 @@
 #include "store.hpp"
 
+#include "state/jsonl.hpp"
+
 #include <cJSON.h>
 
 #include <algorithm>
@@ -62,61 +64,6 @@ void sync_parent_directory(const std::filesystem::path &path) {
         ::close(fd);
     }
 #endif
-}
-
-/* A crash mid-append can leave a partial final line with no newline. Appending
- * after it would glue the new line onto those bytes and produce a complete but
- * malformed line, which makes every later load throw: the journal would be
- * unreadable for good. Drop the partial bytes first (every earlier line was
- * written complete), exactly as load_journal reports them. Cheap in the common
- * case: one byte is read to see that the file already ends in a newline. */
-void repair_torn_tail(const std::filesystem::path &path) {
-    std::error_code ec;
-    const std::uintmax_t size = std::filesystem::file_size(path, ec);
-    if (ec || size == 0u) {
-        return; /* missing or empty: nothing to repair */
-    }
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        throw std::runtime_error("cannot inspect action journal " + path.string());
-    }
-    input.seekg(static_cast<std::streamoff>(size - 1u));
-    char last = '\0';
-    input.get(last);
-    if (last == '\n') {
-        return;
-    }
-    /* Find the end of the last complete line, scanning backwards in chunks. */
-    std::uintmax_t keep = 0u;
-    std::uintmax_t position = size;
-    std::vector<char> chunk(4096u);
-    while (position > 0u) {
-        const std::uintmax_t length = std::min<std::uintmax_t>(chunk.size(), position);
-        position -= length;
-        input.clear();
-        input.seekg(static_cast<std::streamoff>(position));
-        input.read(chunk.data(), static_cast<std::streamsize>(length));
-        if (!input) {
-            throw std::runtime_error("cannot read action journal " + path.string());
-        }
-        bool found = false;
-        for (std::uintmax_t i = length; i > 0u; --i) {
-            if (chunk[static_cast<std::size_t>(i - 1u)] == '\n') {
-                keep = position + i;
-                found = true;
-                break;
-            }
-        }
-        if (found) {
-            break;
-        }
-    }
-    input.close();
-    std::filesystem::resize_file(path, keep, ec);
-    if (ec) {
-        throw std::runtime_error("cannot repair torn action journal " + path.string() + ": " +
-                                 ec.message());
-    }
 }
 
 /* Append one serialised line, flush, fsync the file, then fsync the parent
