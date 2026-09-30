@@ -20,6 +20,7 @@
 #include "outbound/evaluate.hpp"
 
 #include <cassert>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -622,7 +623,29 @@ void test_intent_conversation_lifecycle() {
 
 } // namespace
 
+void test_decision_valence_guard_comes_from_the_environment() {
+    unsetenv("ATPERSON_DECISION_MIN_VALENCE");
+    const atperson::SchedulerConfig off = atperson::scheduler_config_from_environment();
+    assert(!off.decision.guards.valence_guard);
+
+    setenv("ATPERSON_DECISION_MIN_VALENCE", "-0.5", 1);
+    const atperson::SchedulerConfig on = atperson::scheduler_config_from_environment();
+    assert(on.decision.guards.valence_guard);
+    assert(on.decision.guards.min_valence == -0.5f);
+
+    setenv("ATPERSON_DECISION_MIN_VALENCE", "0.5", 1);
+    bool threw = false;
+    try {
+        (void)atperson::scheduler_config_from_environment();
+    } catch (const std::runtime_error &) {
+        threw = true;
+    }
+    assert(threw);
+    unsetenv("ATPERSON_DECISION_MIN_VALENCE");
+}
+
 int main() {
+    test_decision_valence_guard_comes_from_the_environment();
     test_disabled_scheduler_is_inert();
     test_decision_writes_proposal_but_never_executes_unapproved();
     test_approved_proposal_executes_and_is_consumed();

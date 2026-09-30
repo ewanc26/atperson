@@ -38,6 +38,11 @@ cJSON *build_candidate(const atp_action_candidate &candidate) {
                             static_cast<double>(candidate.supporting_observations));
     cJSON_AddNumberToObject(item, "context_matches",
                             static_cast<double>(candidate.context_matches));
+    if (candidate.valence_events > 0u) {
+        attach_finite(item, "valence", candidate.valence);
+        cJSON_AddNumberToObject(item, "valence_events",
+                                static_cast<double>(candidate.valence_events));
+    }
     return item;
 }
 
@@ -79,6 +84,10 @@ void build_stop(cJSON *parent, const atp_action_stop_evidence &stop) {
                             static_cast<double>(stop.consecutive_occurrences));
     cJSON_AddNumberToObject(object, "max_consecutive_occurrences",
                             static_cast<double>(stop.max_consecutive_occurrences));
+    if (stop.valence_guard) {
+        attach_finite(object, "candidate_valence", stop.candidate_valence);
+        attach_finite(object, "min_valence", stop.min_valence);
+    }
     if (stop.cycle_start_index == SIZE_MAX) {
         cJSON_AddNullToObject(object, "cycle_start_index");
     } else {
@@ -100,6 +109,9 @@ void build_config(cJSON *parent, const atp_action_decision_config &config) {
     attach_finite(guards, "max_score_drop", config.guards.max_score_drop);
     cJSON_AddNumberToObject(guards, "max_consecutive_occurrences",
                             static_cast<double>(config.guards.max_consecutive_occurrences));
+    if (config.guards.valence_guard) {
+        attach_finite(guards, "min_valence", config.guards.min_valence);
+    }
 }
 
 } // namespace
@@ -134,6 +146,8 @@ const char *stop_reason_name(atp_action_plan_stop_reason reason) noexcept {
         return "repetition";
     case ATP_ACTION_PLAN_STOP_CYCLE:
         return "cycle";
+    case ATP_ACTION_PLAN_STOP_NEGATIVE_VALENCE:
+        return "negative-valence";
     }
     return "unknown";
 }
@@ -150,6 +164,8 @@ const char *abstain_reason_name(atp_action_abstain_reason reason) noexcept {
         return "low-score";
     case ATP_ACTION_ABSTAIN_LOW_SUPPORT:
         return "low-support";
+    case ATP_ACTION_ABSTAIN_NEGATIVE_VALENCE:
+        return "negative-valence";
     }
     return "unknown";
 }

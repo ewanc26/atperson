@@ -42,7 +42,7 @@ Snapshots are not the only place valence lives. Explicit valence events are also
 
 This is the durable boundary: the observation ledger is authoritative for third-party observations, while the journal carries the entity's own recorded experience and applied value updates.
 
-Valence is currently inspectable state; it does not by itself grant permission for an outbound action. Network permission still belongs to the runtime policy/control path.
+Valence is inspectable state and, only when an operator opts in, a bounded veto in the guarded decision layer: each action candidate reports its token's valence, and `ATPERSON_DECISION_MIN_VALENCE` lets the guard reject a token with recorded negative experience (see [`action-termination.md`](action-termination.md)). It is never part of the ranking score and can never make an action more permitted; it does not by itself grant permission for an outbound action. Network permission still belongs to the runtime policy/control path.
 
 ## Mapping outcomes to valence
 

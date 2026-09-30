@@ -43,7 +43,11 @@ static bool atp_guard_config_valid(const atp_action_guard_config *guards) {
            guards->min_support_score >= 0.0f && guards->min_support_score <= 1.0f &&
            isfinite(guards->max_score_drop) && guards->max_score_drop >= 0.0f &&
            guards->max_score_drop <= 1.0f && guards->max_consecutive_occurrences >= 1u &&
-           guards->max_consecutive_occurrences <= ATPERSON_ACTION_MAX_CONSECUTIVE_OCCURRENCES;
+           guards->max_consecutive_occurrences <= ATPERSON_ACTION_MAX_CONSECUTIVE_OCCURRENCES &&
+           /* The threshold is validated even when the guard is off, so a
+            * malformed config never becomes valid by flipping one flag. */
+           isfinite(guards->min_valence) && guards->min_valence >= -1.0f &&
+           guards->min_valence <= 0.0f;
 }
 
 static void atp_evidence_init(atp_action_stop_evidence *evidence,
@@ -53,6 +57,8 @@ static void atp_evidence_init(atp_action_stop_evidence *evidence,
     evidence->min_support_score = config->guards.min_support_score;
     evidence->max_score_drop = config->guards.max_score_drop;
     evidence->max_consecutive_occurrences = config->guards.max_consecutive_occurrences;
+    evidence->valence_guard = config->guards.valence_guard;
+    evidence->min_valence = config->guards.min_valence;
     evidence->max_tokens = config->planner.max_tokens;
     evidence->cycle_start_index = SIZE_MAX;
 }
@@ -66,6 +72,7 @@ static void atp_evidence_candidate(atp_action_stop_evidence *evidence,
     evidence->accepted_steps = accepted_steps;
     evidence->candidate_score = candidate->score;
     evidence->support_score = candidate->support_score;
+    evidence->candidate_valence = candidate->valence;
     evidence->previous_score = previous_score;
     strncpy(evidence->token, candidate->token, sizeof(evidence->token) - 1u);
 }
@@ -92,6 +99,15 @@ static void atp_guard_raw_plan(const atp_action_plan *raw,
         if (candidate->support_score < config->guards.min_support_score) {
             guarded->plan.stop_reason = ATP_ACTION_PLAN_STOP_LOW_SUPPORT;
             atp_evidence_candidate(&guarded->evidence, ATP_ACTION_PLAN_STOP_LOW_SUPPORT, i,
+                                   guarded->plan.step_count, candidate, previous_score);
+            return;
+        }
+        /* Opt-in veto on recorded negative experience. Only a token with
+         * explicit valence events can be vetoed (valence_events > 0). */
+        if (config->guards.valence_guard && candidate->valence_events > 0u &&
+            candidate->valence < config->guards.min_valence) {
+            guarded->plan.stop_reason = ATP_ACTION_PLAN_STOP_NEGATIVE_VALENCE;
+            atp_evidence_candidate(&guarded->evidence, ATP_ACTION_PLAN_STOP_NEGATIVE_VALENCE, i,
                                    guarded->plan.step_count, candidate, previous_score);
             return;
         }
@@ -160,6 +176,8 @@ static atp_action_abstain_reason atp_abstain_from_stop(atp_action_plan_stop_reas
         return ATP_ACTION_ABSTAIN_LOW_SCORE;
     case ATP_ACTION_PLAN_STOP_LOW_SUPPORT:
         return ATP_ACTION_ABSTAIN_LOW_SUPPORT;
+    case ATP_ACTION_PLAN_STOP_NEGATIVE_VALENCE:
+        return ATP_ACTION_ABSTAIN_NEGATIVE_VALENCE;
     default:
         return ATP_ACTION_ABSTAIN_NO_CANDIDATES;
     }
@@ -171,6 +189,11 @@ atp_action_guard_config atp_action_guard_default_config(void) {
         .min_support_score = 0.25f,
         .max_score_drop = 0.40f,
         .max_consecutive_occurrences = 1u,
+        /* Off by default: decisions are unchanged unless an operator opts in.
+         * The suggested opt-in threshold is a clear negative, not a hair
+         * below zero. */
+        .valence_guard = false,
+        .min_valence = -0.25f,
     };
 }
 

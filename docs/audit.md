@@ -9,7 +9,7 @@ ATPERSON_TYPESAFE_API_KEY="…" \
   ./build/atperson audit "alpha delta" [max-tokens] [beam-width]
 ```
 
-`max-tokens` and `beam-width` use the same defaults and hard bounds as `plans` and `decide`. `ATPERSON_TYPESAFE_ENDPOINT` defaults to `https://api.typesafe.ai/v1/systemone`; the configured model is `jev-latest`.
+`max-tokens` and `beam-width` use the same defaults and hard bounds as `plans` and `decide`. The trace also reflects `ATPERSON_DECISION_MIN_VALENCE` when set (see [`action-termination.md`](action-termination.md)), so the audited decision is the one `decide` would make. `ATPERSON_TYPESAFE_ENDPOINT` defaults to `https://api.typesafe.ai/v1/systemone`; the configured model is `jev-latest`.
 
 ## What is sent
 

@@ -1,5 +1,7 @@
 #include "audit/command.hpp"
 
+#include "action/decision_env.hpp"
+
 #include "audit/evidence.hpp"
 #include "audit/questions.hpp"
 #include "audit/transport.hpp"
@@ -47,6 +49,7 @@ atp_action_decision_config decision_config_from_arguments(
         config.planner.beam_width = parse_bounded(arguments[2], 1u,
                                                   ATPERSON_PLAN_MAX_BEAM_WIDTH, "beam-width");
     }
+    atperson::apply_decision_env(config);
     return config;
 }
 

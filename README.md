@@ -64,7 +64,7 @@ The project is already beyond the initial scaffold. The important pieces current
 | Episodic memory | Implemented | Source-linked memories, weighted token summaries, recall accounting and deterministic eviction |
 | Familiarity | Implemented | Exposure-derived per-token familiarity |
 | Valence | Implemented | Explicit experience-derived values in `[-1, 1]`; exposure alone never changes valence |
-| Action model | First pass implemented | Deterministic, inspectable continuation candidates derived from learned state |
+| Action model | First pass implemented | Deterministic, inspectable continuation candidates derived from learned state; candidates report explicit valence, and an opt-in guard (`ATPERSON_DECISION_MIN_VALENCE`) can veto tokens with recorded negative experience |
 | Deterministic replay | Implemented | Learned state can be rebuilt from the ledger alone |
 | Withdrawal / unlearning | Implemented | Sources can be durably withdrawn and excluded on rebuild |
 | Schema compatibility | Implemented | Replay refuses incompatible learning schemas instead of silently reinterpreting them |
