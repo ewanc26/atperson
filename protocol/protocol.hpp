@@ -157,6 +157,7 @@ RecordFact reduce_record_observation(AtUri uri, std::string_view cid,
                                      bool explicit_delete, bool from_app_view,
                                      bool observed);
 bool is_did(std::string_view value) noexcept;
+bool is_record_key(std::string_view value) noexcept;
 bool is_handle(std::string_view value) noexcept;
 SyncEvent classify_sync_event(std::string_view type) noexcept;
 /* Maps Wolfram's transport/crypto outcome without performing verification in

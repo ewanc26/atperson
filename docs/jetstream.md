@@ -97,6 +97,21 @@ window. Successful completion checkpoints the sealed replay tip
  daemon startup archive phase is enabled via `ATPERSON_DAEMON_ARCHIVE_AFTER`,
  `ATPERSON_DAEMON_ARCHIVE_BEFORE` or `ATPERSON_DAEMON_ARCHIVE_SPAN`.
 
+## Untrusted identifiers
+
+The firehose is public and unauthenticated, so the commit envelope is not
+trusted to be well formed. The extractor only accepts a commit whose `did` is a
+syntactically valid DID and whose `rkey` is a valid record key (both validated
+by `protocol::is_did` / `protocol::is_record_key`, which follow the AT Protocol
+identifier syntax: no delimiters, control or non-ASCII characters, bounded
+length, and never `.` or `..` as a record key). Anything else is skipped like
+any other malformed envelope. This keeps garbage out of the two places the values
+are used: the author stored on the observation (and so the author/source
+interaction state) and the `at://` source URI built from them, which is the
+ledger's dedup identity. A mutation sweep over a valid commit asserts the
+extractor never crashes and that anything it accepts names a real DID and post
+URI.
+
 ## Archive record payloads are DAG-CBOR
 
 Live Jetstream frames carry record payloads as JSON objects, but archive

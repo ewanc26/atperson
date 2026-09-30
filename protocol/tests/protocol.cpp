@@ -1,6 +1,7 @@
 #include "../protocol.hpp"
 
 #include <cassert>
+#include <string>
 #include <filesystem>
 
 using namespace atperson::protocol;
@@ -23,6 +24,33 @@ int main() {
     assert(is_did("did:plc:abc"));
     assert(is_did("did:web:example.com"));
     assert(!is_did("did:"));
+    /* Only the AT Protocol DID character set; delimiters, control and
+     * non-ASCII characters and a trailing colon are not identifiers. */
+    assert(is_did("did:plc:ab.c_d-e%41"));
+    assert(!is_did("did:plc:abc:"));
+    assert(!is_did("did:plc:ab\ncd"));
+    assert(!is_did(std::string("did:plc:ab\0cd", 13)));
+    assert(!is_did("did:plc:ab\"cd"));
+    assert(!is_did("did:plc:ab\xc3\xa9"));
+    assert(!is_did("did:plc:a b"));
+    assert(!is_did("did:plc:" + std::string(2100, 'a')));
+    assert(is_did("did:plc:" + std::string(2000, 'a')));
+    /* Record keys: 1..512 bytes of [A-Za-z0-9._:~-], never "." or "..". */
+    assert(is_record_key("3l3qo2vuowo2b"));
+    assert(is_record_key("self"));
+    assert(is_record_key("a.b_c-d:e~f"));
+    assert(!is_record_key(""));
+    assert(!is_record_key("."));
+    assert(!is_record_key(".."));
+    assert(is_record_key("..."));
+    assert(!is_record_key("a/b"));
+    assert(!is_record_key("a#b"));
+    assert(!is_record_key("a?b"));
+    assert(!is_record_key("a b"));
+    assert(!is_record_key("a\nb"));
+    assert(!is_record_key("a\xc3\xa9"));
+    assert(is_record_key(std::string(512, 'a')));
+    assert(!is_record_key(std::string(513, 'a')));
     assert(!is_did("did:PLC:abc"));
     assert(!is_did("alice.example"));
     assert(is_handle("alice.example"));

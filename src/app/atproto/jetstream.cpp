@@ -26,6 +26,7 @@
 
 #include "engine.hpp"
 #include "policy.hpp"
+#include "protocol.hpp"
 
 #include <cJSON.h>
 #include <cstring>
@@ -114,7 +115,11 @@ bool extract_jetstream_commit(
                     std::string_view(collection->valuestring) == kPostCollection &&
                     cJSON_IsString(rkey) && rkey->valuestring != nullptr &&
                     cJSON_IsObject(record) && cJSON_IsString(did) &&
-                    did->valuestring != nullptr && did->valuestring[0] != '\0';
+                    did->valuestring != nullptr &&
+                    /* The firehose is untrusted: only well-formed identifiers
+                     * may become an author or be spliced into a source URI. */
+                    protocol::is_did(did->valuestring) &&
+                    protocol::is_record_key(rkey->valuestring);
 
     if (!ok) {
         cJSON_Delete(root);
