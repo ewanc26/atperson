@@ -27,6 +27,11 @@ The project has a strict C23/C++23 boundary:
   XRPC/protocol operations and eventual repository writes. Do not copy or
   reimplement Wolfram protocol APIs inside ATperson.
 
+Wolfram is fetched via CMake FetchContent and is a hard dependency of the
+ATperson build. If the fetch fails, the build fails — there is no silent
+fallback. Do not disable Wolfram unless the entire protocol layer is being
+excluded.
+
 If a learning, memory or planning primitive cannot be built and tested with
 `ATPERSON_BUILD_NETWORK=OFF`, the boundary is probably wrong.
 
