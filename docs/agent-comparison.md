@@ -65,10 +65,11 @@ needs that ATperson lacked. Each is checked against the code, not assumed.
 
 ## Open items
 
-- **Bot self-label.** Bluesky's guidance is that bot accounts identify
-  themselves with the `bot` self-label on their profile. ATperson does not set or
-  verify it. This is a public profile write, so it should be an explicit,
-  operator-run step.
+- **Bot self-label (#197).** Bluesky's guidance is that bot accounts identify
+  themselves with the `bot` self-label on their profile. `atperson autonomy bot-label`
+  now provides an explicit operator-run `status`, `set` or `clear` operation,
+  preserving the rest of the profile record and never invoking it from the
+  autonomous scheduler.
 - **Learned-content poisoning.** The ingestion policy, withdrawal, per-author
   neutral exposure state and the output guard limit the damage, but there is no
   detector for a coordinated attempt to shift what the entity learns.
