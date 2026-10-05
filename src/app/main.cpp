@@ -6,6 +6,7 @@
 #include "inspection.hpp"
 #include "audit/command.hpp"
 #include "cli/arm.hpp"
+#include "cli/bot_label.hpp"
 #include "cli/config.hpp"
 #include "cli/control.hpp"
 #include "cli/control_remote.hpp"
@@ -220,6 +221,11 @@ int main(int argc, char **argv) {
                 }
                 return 2;
             }
+            if (sub == "bot-label") {
+                const std::string label_sub = argc >= 4 ? argv[3] : "status";
+                return atperson::cli::run_bot_label(std::cout, std::cerr, label_sub.c_str());
+            }
+            if (sub == "arm" || sub == "disarm" || sub == "preflight" || sub == "breaker") {
             if (sub == "arm" || sub == "disarm" || sub == "preflight" || sub == "breaker") {
                 std::vector<std::string_view> arm_arguments;
                 for (int i = 3; i < argc; ++i) {
