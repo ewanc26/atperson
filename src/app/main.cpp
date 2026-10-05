@@ -226,7 +226,6 @@ int main(int argc, char **argv) {
                 return atperson::cli::run_bot_label(std::cout, std::cerr, label_sub.c_str());
             }
             if (sub == "arm" || sub == "disarm" || sub == "preflight" || sub == "breaker") {
-            if (sub == "arm" || sub == "disarm" || sub == "preflight" || sub == "breaker") {
                 std::vector<std::string_view> arm_arguments;
                 for (int i = 3; i < argc; ++i) {
                     arm_arguments.emplace_back(argv[i]);
