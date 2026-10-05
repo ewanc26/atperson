@@ -204,6 +204,7 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/drives.cpp
     src/app/cli/arm.cpp
     src/app/cli/profile.cpp
+    src/app/cli/bot_label.cpp
     src/app/cli/envelope.cpp
     src/app/cli/jetstream.cpp
     src/app/cli/outbound.cpp
@@ -1180,6 +1181,17 @@ if(ATPERSON_BUILD_TESTS)
 
     # Operator review of frozen scheduler proposals: read-only, with the policy
     # and control-gate verdicts, approving and consuming nothing.
+    # Explicit operator setup for the Bluesky bot self-label. Offline unit coverage
+    # lives below; the real CLI path requires runtime credentials and only runs when invoked.
+    add_executable(
+      atperson-bot-label-test
+      tests/cli/bot_label.cpp
+      src/app/cli/bot_label.cpp)
+    target_compile_features(atperson-bot-label-test PRIVATE cxx_std_23)
+    target_link_libraries(atperson-bot-label-test PRIVATE atperson-cpp wolfram-cpp cjson)
+    target_include_directories(atperson-bot-label-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
+    add_test(NAME atperson-bot-label COMMAND atperson-bot-label-test)
+
     add_test(
       NAME atperson-cli-proposals
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli/proposals.sh
