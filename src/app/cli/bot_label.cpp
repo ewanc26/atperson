@@ -64,15 +64,52 @@ bool set_bot_self_label(cJSON *profile, bool enabled) {
         return false;
     }
 
+    cJSON *labels = cJSON_GetObjectItemCaseSensitive(profile, "labels");
     if (!enabled) {
-        if (!cJSON_HasObjectItem(profile, "labels")) {
+        if (!cJSON_IsObject(labels)) {
             return true;
         }
-        cJSON_DeleteItemFromObjectCaseSensitive(profile, "labels");
+        const cJSON *type = cJSON_GetObjectItemCaseSensitive(labels, "$type");
+        if (!cJSON_IsString(type) || type->valuestring == nullptr ||
+            std::string(type->valuestring) != kSelfLabelsType) {
+            return true;
+        }
+        cJSON *values = cJSON_GetObjectItemCaseSensitive(labels, "values");
+        if (!cJSON_IsArray(values)) {
+            return true;
+        }
+
+        for (int i = cJSON_GetArraySize(values) - 1; i >= 0; --i) {
+            cJSON *value = cJSON_GetArrayItem(values, i);
+            if (is_bot_value(value)) {
+                cJSON_DeleteItemFromArray(values, i);
+            }
+        }
+        if (cJSON_GetArraySize(values) == 0) {
+            cJSON_DeleteItemFromObjectCaseSensitive(profile, "labels");
+        }
         return true;
     }
 
-    cJSON *labels = cJSON_CreateObject();
+    if (cJSON_IsObject(labels)) {
+        const cJSON *type = cJSON_GetObjectItemCaseSensitive(labels, "$type");
+        cJSON *values = cJSON_GetObjectItemCaseSensitive(labels, "values");
+        if (cJSON_IsString(type) && type->valuestring != nullptr &&
+            std::string(type->valuestring) == kSelfLabelsType && cJSON_IsArray(values)) {
+            if (profile_has_bot_label(profile)) {
+                return true;
+            }
+            cJSON *bot = cJSON_CreateObject();
+            if (bot == nullptr || !cJSON_AddStringToObject(bot, "val", kBotValue)) {
+                cJSON_Delete(bot);
+                return false;
+            }
+            cJSON_AddItemToArray(values, bot);
+            return true;
+        }
+    }
+
+    labels = cJSON_CreateObject();
     cJSON *values = cJSON_CreateArray();
     cJSON *bot = cJSON_CreateObject();
     if (labels == nullptr || values == nullptr || bot == nullptr) {
@@ -92,7 +129,11 @@ bool set_bot_self_label(cJSON *profile, bool enabled) {
     cJSON_AddItemToArray(values, bot);
     cJSON_AddItemToObject(labels, "values", values);
 
-    cJSON_ReplaceItemInObjectCaseSensitive(profile, "labels", labels);
+    if (cJSON_HasObjectItem(profile, "labels")) {
+        cJSON_ReplaceItemInObjectCaseSensitive(profile, "labels", labels);
+    } else {
+        cJSON_AddItemToObject(profile, "labels", labels);
+    }
     return true;
 }
 
