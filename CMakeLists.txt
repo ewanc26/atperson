@@ -1186,7 +1186,9 @@ if(ATPERSON_BUILD_TESTS)
     add_executable(
       atperson-bot-label-test
       tests/cli/bot_label.cpp
-      src/app/cli/bot_label.cpp)
+      src/app/cli/bot_label.cpp
+      src/app/cli/config.cpp
+      src/app/atproto/session.cpp)
     target_compile_features(atperson-bot-label-test PRIVATE cxx_std_23)
     target_link_libraries(atperson-bot-label-test PRIVATE atperson-cpp wolfram-cpp cjson)
     target_include_directories(atperson-bot-label-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
