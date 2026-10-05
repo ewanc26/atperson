@@ -59,17 +59,17 @@ needs that ATperson lacked. Each is checked against the code, not assumed.
   only with users who have engaged with the bot. The entity now needs an
   invitation before liking, reposting or following, and honours an operator
   do-not-engage list in every mode.
+- **Bot self-label (#197).** The operator can inspect, set or clear the
+  `bot` self-label with `atperson autonomy bot-label`. It reads the existing
+  `app.bsky.actor.profile/self` record and preserves the rest of the profile;
+  the autonomous scheduler never changes this identity metadata.
+
 - **A verifiable setup (#192).** `autonomy arm` writes the policy, envelope and
   control state together, and `autonomy preflight` proves the chain is complete,
   including a trap where a scope on an envelope silently made likes unauthorisable.
 
 ## Open items
 
-- **Bot self-label (#197).** Bluesky's guidance is that bot accounts identify
-  themselves with the `bot` self-label on their profile. `atperson autonomy bot-label`
-  now provides an explicit operator-run `status`, `set` or `clear` operation,
-  preserving the rest of the profile record and never invoking it from the
-  autonomous scheduler.
 - **Learned-content poisoning.** The ingestion policy, withdrawal, per-author
   neutral exposure state and the output guard limit the damage, but there is no
   detector for a coordinated attempt to shift what the entity learns.
