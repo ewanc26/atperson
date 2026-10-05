@@ -54,7 +54,7 @@ void print_usage(std::ostream &out) {
         << "  atperson protocol [status|resolve <handle>|explain <subject>|oauth-plan <scope>|oauth-metadata <scope>]\n\n"
         << "  atperson autonomy status\n"
         << "  atperson autonomy health   (supervisor liveness; exit 0/1/2)\n"
-        << "  atperson autonomy arm --kinds <kind:count/window,...> [--apply] [...]   "
+        << "  atperson autonomy bot-label [status|set|clear]   (explicit bot self-label setup)\n        << "  atperson autonomy arm --kinds <kind:count/window,...> [--apply] [...]   "
            "(set up unattended operation; dry run without --apply)\n"
         << "  atperson autonomy preflight   (end-to-end readiness; exit 0 ready, 1 not)\n"
         << "  atperson autonomy disarm   (writes off, authorisation revoked)\n"
