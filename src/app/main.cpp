@@ -6,7 +6,7 @@
 #include "inspection.hpp"
 #include "audit/command.hpp"
 #include "cli/arm.hpp"
-#include "cli/bot_label.hpp"
+#include "cli/label.hpp"
 #include "cli/config.hpp"
 #include "cli/control.hpp"
 #include "cli/control_remote.hpp"
@@ -221,9 +221,13 @@ int main(int argc, char **argv) {
                 }
                 return 2;
             }
-            if (sub == "bot-label") {
-                const std::string label_sub = argc >= 4 ? argv[3] : "status";
-                return atperson::cli::run_bot_label(std::cout, std::cerr, label_sub.c_str());
+            if (sub == "label") {
+                std::vector<std::string_view> label_arguments;
+                for (int i = 3; i < argc; ++i) {
+                    label_arguments.emplace_back(argv[i]);
+                }
+                return atperson::cli::run_bot_label_command(
+                    std::cout, sub, label_arguments, static_cast<std::int64_t>(std::time(nullptr)));
             }
             if (sub == "arm" || sub == "disarm" || sub == "preflight" || sub == "breaker") {
                 std::vector<std::string_view> arm_arguments;

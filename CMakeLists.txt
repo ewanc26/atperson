@@ -204,7 +204,8 @@ if(ATPERSON_BUILD_NETWORK)
     src/app/cli/drives.cpp
     src/app/cli/arm.cpp
     src/app/cli/profile.cpp
-    src/app/cli/bot_label.cpp
+    src/app/cli/label.cpp
+    src/app/cli/label_command.cpp
     src/app/cli/envelope.cpp
     src/app/cli/jetstream.cpp
     src/app/cli/outbound.cpp
@@ -230,10 +231,12 @@ if(ATPERSON_BUILD_NETWORK)
   src/app/atproto/jetstream_replay_client.cpp
   src/app/atproto/cbor_record.cpp
     src/app/atproto/session.cpp
+  src/app/atproto/wolfram_profile_store.cpp
     src/app/atproto/writer.cpp
     src/app/atproto/record_source.cpp
     src/app/action/tokens.cpp
     src/app/autonomy/arming.cpp
+    src/app/autonomy/bot_label.cpp
     src/app/autonomy/heartbeat.cpp
     src/app/autonomy/run_state.cpp
     src/app/attestation/signer.cpp
@@ -624,6 +627,7 @@ if(ATPERSON_BUILD_TESTS)
     atperson-arming-test
     tests/autonomy/arming.cpp
     src/app/autonomy/arming.cpp
+    src/app/autonomy/bot_label.cpp
     src/app/scheduler/breaker.cpp
     src/app/scheduler/engagement.cpp
     src/app/scheduler/text_guard.cpp
@@ -868,6 +872,7 @@ if(ATPERSON_BUILD_TESTS)
     atperson-scheduler-test
     tests/scheduler/scheduler.cpp
     src/app/autonomy/arming.cpp
+    src/app/autonomy/bot_label.cpp
     src/app/action/inspection.cpp
     src/app/action/tokens.cpp
     src/app/control/envelope.cpp
@@ -1181,16 +1186,14 @@ if(ATPERSON_BUILD_TESTS)
 
     # Operator review of frozen scheduler proposals: read-only, with the policy
     # and control-gate verdicts, approving and consuming nothing.
-    # Explicit operator setup for the Bluesky bot self-label. Offline unit coverage
-    # lives below; the real CLI path requires runtime credentials and only runs when invoked.
-    add_executable(
-      atperson-bot-label-test
-      tests/cli/bot_label.cpp
-      src/app/cli/bot_label.cpp
-      src/app/cli/config.cpp
-      src/app/atproto/session.cpp)
+    # The "bot" self-label: profile edits keep every other field and refuse a
+    # labels field they do not understand; the command plans unless told to write.
+    # Offline, against a fake profile store.
+    add_executable(atperson-bot-label-test tests/autonomy/bot_label.cpp
+                                          src/app/autonomy/bot_label.cpp
+                                          src/app/cli/label.cpp)
     target_compile_features(atperson-bot-label-test PRIVATE cxx_std_23)
-    target_link_libraries(atperson-bot-label-test PRIVATE atperson-cpp wolfram-cpp cjson)
+    target_link_libraries(atperson-bot-label-test PRIVATE atperson-cpp cjson)
     target_include_directories(atperson-bot-label-test PRIVATE ${ATPERSON_APP_PRIVATE_INCLUDE_DIRS})
     add_test(NAME atperson-bot-label COMMAND atperson-bot-label-test)
 
