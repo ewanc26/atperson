@@ -3,6 +3,7 @@
  * directory, injected clock. */
 
 #include "autonomy/arming.hpp"
+#include "autonomy/bot_label.hpp"
 #include "scheduler/breaker.hpp"
 
 #include <cassert>
@@ -287,6 +288,34 @@ void test_preflight_reports_engagement_and_flags_a_broken_opt_out_list() {
     assert(find(report, "engagement")->detail.find("NOT excluded") != std::string::npos);
 }
 
+void test_preflight_reports_the_bot_label_as_advice() {
+    Scratch scratch("botlabel");
+    apply_arm(plan_arm(request_for({{OutboundActionKind::Post, 3, 86400}}), default_outbound_policy(),
+                       ControlState{}, kNowText),
+              scratch.paths);
+    scratch.paths.bot_label_marker = scratch.root / "bot-label.txt";
+
+    /* Never confirmed: advice, not a blocker. */
+    PreflightReport report = run_preflight(full_environment(), scratch.paths, kNow);
+    assert(report.ready);
+    const PreflightCheck *check = find(report, "bot-label");
+    assert(check != nullptr && check->advisory && !check->ok);
+    assert(check->detail.find("not confirmed") != std::string::npos);
+    assert(check->detail.find("label on --yes") != std::string::npos);
+
+    write_label_marker(scratch.paths.bot_label_marker, {false, kNow});
+    report = run_preflight(full_environment(), scratch.paths, kNow);
+    assert(report.ready && find(report, "bot-label")->detail.find("WITHOUT") != std::string::npos);
+
+    write_label_marker(scratch.paths.bot_label_marker, {true, kNow});
+    report = run_preflight(full_environment(), scratch.paths, kNow);
+    assert(report.ready && find(report, "bot-label")->ok);
+    assert(find(report, "bot-label")->detail.find("self-label") != std::string::npos);
+
+    scratch.paths.bot_label_marker.clear(); /* not configured: absent */
+    assert(find(run_preflight(full_environment(), scratch.paths, kNow), "bot-label") == nullptr);
+}
+
 void test_preflight_reports_an_open_breaker_without_blocking() {
     Scratch scratch("breaker");
     apply_arm(plan_arm(request_for({{OutboundActionKind::Post, 3, 86400}}), default_outbound_policy(),
@@ -416,6 +445,7 @@ int main() {
     test_arm_then_preflight_is_ready_and_states_the_bounds();
     test_every_missing_link_blocks_and_is_named();
     test_preflight_reports_the_output_guard();
+    test_preflight_reports_the_bot_label_as_advice();
     test_preflight_reports_engagement_and_flags_a_broken_opt_out_list();
     test_preflight_reports_an_open_breaker_without_blocking();
     test_authorization_reflects_expiry_and_approval_mode();

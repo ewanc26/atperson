@@ -93,6 +93,8 @@ struct ArmPaths {
     std::filesystem::path breaker_file;
     /* Optional: the do-not-engage list, so the preflight can report it. */
     std::filesystem::path do_not_engage_file;
+    /* Optional: the local note of the bot self-label check. */
+    std::filesystem::path bot_label_marker;
 };
 
 /* The changes arming would make, computed without touching disk. */
