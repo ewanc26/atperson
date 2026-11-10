@@ -183,7 +183,7 @@ if(ATPERSON_BUILD_NETWORK)
     # wolfram-cpp now resolves its own public-header root via WOLFRAM_CPP_ROOT
     # (set to the checkout root in cpp/CMakeLists.txt), so no source-dir patch
     # is needed; the previous CMAKE_SOURCE_DIR rewrite was upstreamed away.
-    GIT_TAG 50fefa4)  # fix(jetstream): kind-7 replay rows + WF_ERR_AUTH (archive backfill blockers)
+    GIT_TAG v0.44.2)  # includes the jetstream fixes the 50fefa4 pin chased (main abfc1fa)
   FetchContent_MakeAvailable(wolfram)
 
   add_executable(
