@@ -116,7 +116,8 @@ ArmPaths paths_from_config() {
                     data_dir() / "scheduler-breaker.json",
                     env_or("ATPERSON_DO_NOT_ENGAGE").empty()
                         ? data_dir() / "do-not-engage.txt"
-                        : std::filesystem::path(env_or("ATPERSON_DO_NOT_ENGAGE"))};
+                        : std::filesystem::path(env_or("ATPERSON_DO_NOT_ENGAGE")),
+                    data_dir() / "bot-label.txt"};
 }
 
 PreflightEnvironment environment_from_process() {

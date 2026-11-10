@@ -1,5 +1,7 @@
 #include "arming.hpp"
 
+#include "bot_label.hpp"
+
 #include "../scheduler/breaker.hpp"
 #include "../scheduler/engagement.hpp"
 #include "../state/time.hpp"
@@ -323,6 +325,29 @@ PreflightReport run_preflight(const PreflightEnvironment &environment, const Arm
             }
         } catch (const std::exception &error) {
             add("engagement", false, std::string("do-not-engage list unreadable: ") + error.what());
+        }
+    }
+
+    /* Self-identification. Bluesky asks automated accounts to carry the `bot`
+     * self-label, and its rules prohibit deceptive account practices. The
+     * preflight is offline, so it reports what the operator last confirmed with
+     * `autonomy label status`; it is advisory because it is the operator's call
+     * and the note can be stale. */
+    if (!paths.bot_label_marker.empty()) {
+        const std::optional<LabelMarker> marker = read_label_marker(paths.bot_label_marker);
+        if (marker && marker->present) {
+            add("bot-label", true,
+                "the profile carries the 'bot' self-label (confirmed " +
+                    rfc3339_from_unix(marker->checked_at) +
+                    "); re-check with `atperson autonomy label status`",
+                /*advisory=*/true);
+        } else {
+            add("bot-label", false,
+                std::string(marker ? "the profile was last seen WITHOUT the 'bot' self-label"
+                                   : "not confirmed") +
+                    ": automated accounts are asked to identify themselves. Run `atperson "
+                    "autonomy label status`, then `atperson autonomy label on --yes` to add it",
+                /*advisory=*/true);
         }
     }
 

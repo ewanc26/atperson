@@ -99,3 +99,11 @@ grep -q "NOT excluded" "$DIR/eng-bad.out" || { echo "expected the opt-out warnin
 printf 'did:plc:one\n' >"$DIR/do-not-engage.txt"
 env $READY_ENV "$BIN" autonomy preflight >/dev/null || { echo "a valid opt-out list should be ready"; exit 1; }
 if "$BIN" autonomy arm --kinds like:5/1h --engagement everyone >/dev/null 2>&1; then echo "bad --engagement accepted"; exit 1; fi
+
+# The bot self-label is reported as advice; a local note flips it to confirmed.
+env $READY_ENV "$BIN" autonomy preflight >"$DIR/label.out" || true
+grep -q "bot-label" "$DIR/label.out" || { echo "preflight should mention the bot label"; cat "$DIR/label.out"; exit 1; }
+grep -q "not confirmed" "$DIR/label.out" || { echo "expected the label to be unconfirmed"; cat "$DIR/label.out"; exit 1; }
+printf 'present 1789639200\n' >"$DIR/bot-label.txt"
+env $READY_ENV "$BIN" autonomy preflight | grep -q "carries the 'bot' self-label" || { echo "expected the label to be confirmed"; exit 1; }
+if "$BIN" autonomy label bogus >/dev/null 2>&1; then echo "bad label subcommand accepted"; exit 1; fi
