@@ -59,10 +59,16 @@ needs that ATperson lacked. Each is checked against the code, not assumed.
   only with users who have engaged with the bot. The entity now needs an
   invitation before liking, reposting or following, and honours an operator
   do-not-engage list in every mode.
-- **Bot self-label (#197).** The operator can inspect, set or clear the
-  `bot` self-label with `atperson autonomy bot-label`. It reads the existing
-  `app.bsky.actor.profile/self` record and preserves the rest of the profile;
-  the autonomous scheduler never changes this identity metadata.
+- **Bot self-label (#197).** The operator can inspect, add or remove the
+  `bot` self-label with `atperson autonomy label [status|on|off] [--yes]`.
+  `on`/`off` only plan until `--yes` is given. A write preserves every other
+  field of the existing `app.bsky.actor.profile/self` record, compare-and-swaps
+  on the record's CID so a concurrent edit is refused rather than reverted,
+  and refuses a `labels` field of an unrecognised shape instead of
+  overwriting it; an account with no profile record is never given one from
+  scratch; the autonomous scheduler never changes this identity metadata.
+  `autonomy preflight` reports the label as advice from the marker the
+  command writes after a confirmed check.
 
 - **A verifiable setup (#192).** `autonomy arm` writes the policy, envelope and
   control state together, and `autonomy preflight` proves the chain is complete,
