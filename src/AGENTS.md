@@ -47,3 +47,15 @@ Every new private module needs a short leading contract comment explaining what 
 Build manifests must switch to scoped paths in the same migration. Do not leave two compiled copies of the same implementation. Both network-off and network-on configurations must remain buildable, and the normal GCC/Clang/macOS/sanitizer/network CI matrix remains authoritative.
 
 The C23/C++23 boundary from the root `AGENTS.md` is unchanged by directory structure: moving code into a scope never transfers authority between layers.
+
+<!-- allowed-agents -->
+## Allowed agents
+
+Only **Claude** (Anthropic) and **Mistral** (Mistral AI) may be used as coding agents in this repository. This rule supersedes any earlier agent-attribution guidance in this file.
+
+- Agent-assisted commits must credit only one of those agents:
+  - `Co-Authored-By: Claude <noreply@anthropic.com>`
+  - `Co-Authored-By: Mistral Vibe <vibe@mistral.ai>`
+- Allowed agent footers are `🤖 Generated with [Claude Code](https://claude.com/claude-code)` and `🤖 Generated with [Mistral Vibe](https://mistral.ai)`.
+- Do not add `Co-Authored-By:` trailers, `Generated with` footers, author names, or committer identities for any other agent or AI tool.
+- Do not credit another agent in commit metadata.
