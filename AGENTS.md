@@ -1,6 +1,6 @@
 # AGENTS.md
 
-## `ATperson`
+Guidance for AI coding agents working in **atperson**.
 
 `ATperson` is an experimental persistent learning entity for the AT Protocol. It
 must grow from observed experience rather than from a developer-authored
@@ -41,7 +41,8 @@ The entity starts without a biography or developer-chosen personality.
 
 Do not add hard-coded learned:
 
-- opinions or ideology;
+-
+ opinions or ideology;
 - political or religious preferences;
 - biography or identity claims;
 - favourite or disliked things;
@@ -82,7 +83,8 @@ validated.
 Snapshot-format changes require an explicit format-version/migration decision
 and round-trip/corruption tests. Changes to learning semantics must also review
 `ATPERSON_SCHEMA_VERSION` and replay compatibility. Read-only inspection or
-ranking changes do not automatically require a learning-schema bump; changes
+ranking changes do not automatically requir
+e a learning-schema bump; changes
 that alter what an observation learns do.
 
 ## Runtime ingestion state
@@ -125,7 +127,8 @@ Preserve the current principles:
 
 - hard limits on search depth/length, beam width, items and work;
 - every candidate/plan step retains the evidence used to score it;
-- deterministic tie-breaking for fixed learned state and inputs;
+- deterministic tie-breaking for fixed learned state and 
+inputs;
 - planning/inspection is read-only unless an API explicitly documents a
   learning mutation;
 - core planning performs no network I/O;
@@ -163,7 +166,8 @@ setup.** The owner's requirement is that, after setup, the entity acts
 completely on its own with no per-action human approval. That is implemented as
 `atperson autonomy arm` (a standing authorization envelope, the outbound policy
 and the control state, written together), verified by `atperson autonomy
-preflight`. Keep it that way:
+preflight`. Keep it th
+at way:
 
 - a fresh install and anything not armed stays fail-closed; arming is an
   explicit operator act, never a side effect of learning, memory or planning;
@@ -198,7 +202,8 @@ All autonomy metadata must remain in the configured central data directory
 state, and recovery markers are local runtime metadata and must never be sent
 to the PDS, added to the learned graph, or scattered beside the repository.
 The lifecycle is resumable and fail-closed: recover → learn → propose →
-approval → execute → verify → stopped/failed. Every restart must load or
+approval → execute → verify 
+→ stopped/failed. Every restart must load or
 reconstruct its checkpoint before doing work; a missing or corrupt checkpoint
 must not authorize an external action.
 
@@ -238,7 +243,8 @@ explicitly documents thread safety.
   an explicit serialisation point. Prefer message passing
   (queues, staged batches) over shared mutable state.
 - Learning stays deterministic: parallel work must not change what an
-  observation learns, the order of ledger commits, or replay results.
+  observation learns, 
+the order of ledger commits, or replay results.
   If parallelising changes learned state, the design is wrong.
 - Fail-closed applies to concurrency: on any error, leave core state
   untouched and report; never half-apply a batch because one worker
@@ -291,7 +297,8 @@ CI currently exercises Linux GCC, Linux Clang, macOS Clang, ASan/UBSan and the
 full Linux Wolfram-backed network build. Treat failures in any relevant leg as
 real failures; do not weaken CI to make a change pass.
 
-Add focused regression tests for behaviour changes. Persistence work should
+Add focus
+ed regression tests for behaviour changes. Persistence work should
 cover restart/round-trip behaviour; learned-state changes should cover replay;
 withdrawal-sensitive state should cover rebuild after withdrawal; ranking and
 planning work should cover ties, bounds and repeated deterministic calls.
@@ -332,4 +339,16 @@ Only **Claude** (Anthropic) and **Mistral** (Mistral AI) may be used as coding a
   - `Co-Authored-By: Mistral Vibe <vibe@mistral.ai>`
 - Allowed agent footers are `🤖 Generated with [Claude Code](https://claude.com/claude-code)` and `🤖 Generated with [Mistral Vibe](https://mistral.ai)`.
 - Do not add `Co-Authored-By:` trailers, `Generated with` footers, author names, or committer identities for any other agent or AI tool.
+- Do not credit another agent in commit metadata.
+
+## Allowed agents
+
+Only **Claude** (Anthropic) and **Mistral** (Mistral AI) may be used as coding agents in this repository. This rule supersedes any earlier agent-attribution guidance in this file.
+
+- Agent-assisted commits must credit only one of those agents:
+  - `Co-Authored-By: Claude <noreply@anthropic.com>`
+  - `Co-Authored-By: Mistral Vibe <vibe@mistral.ai>`
+- Allowed agent footers are `🤖 Generated with [Claude Code](https://claude.com/claude-code)` and `🤖 Generated with [Mistral Vibe](https://mistral.ai)`.
+- Do not add `Co-Authored-By:` trailers, `Generated with` footers, author names, or committer identities for any ot
+her agent or AI tool.
 - Do not credit another agent in commit metadata.

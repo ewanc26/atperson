@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://github.com/ewanc26/atperson/actions/workflows/ci.yml"><img src="https://github.com/ewanc26/atperson/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ewanc26/atperson?label=licence" alt="Licence"></a>
+  <a href="https://github.com/sponsors/ewanc26"><img src="https://img.shields.io/github/sponsors/ewanc26?logo=githubsponsors&logoColor=white&label=sponsors" alt="Sponsor"></a>
+</p>
+
 # ATperson
 
 `ATperson` is an experiment in building a persistent digital entity on the [AT Protocol](https://atproto.com/) that starts with effectively nothing and develops its own learned state through experience.
@@ -34,7 +40,8 @@ AT Protocol network
 | C23 learning core         |
 | - token graph             |
 | - embeddings              |
-| - neural training         |
+| - neural training        
+ |
 | - observation ledger      |
 | - episodic memory         |
 | - familiarity + valence   |
@@ -65,7 +72,8 @@ The project is already beyond the initial scaffold. The important pieces current
 | Familiarity | Implemented | Exposure-derived per-token familiarity |
 | Valence | Implemented | Explicit experience-derived values in `[-1, 1]`; exposure alone never changes valence |
 | Action model | First pass implemented | Rule-guarded, deterministic continuation planning over learned associations: bounded candidates and plans with abstention, repetition and cycle guards, every score component inspectable. Explicit valence is reported on each candidate and an opt-in guard (`ATPERSON_DECISION_MIN_VALENCE`) can veto tokens with recorded negative experience. "First pass" is deliberate: there is no learned reward policy, so outcomes reach decisions only through explicit, provenance-linked valence |
-| Deterministic replay | Implemented | Learned state can be rebuilt from the ledger alone |
+| Deterministic replay | Implemented | Learned state can be rebui
+lt from the ledger alone |
 | Withdrawal / unlearning | Implemented | Sources can be durably withdrawn and excluded on rebuild |
 | Schema compatibility | Implemented | Replay refuses incompatible learning schemas instead of silently reinterpreting them |
 | Ledger compaction | Implemented | Final outcomes are flattened without changing rebuild semantics |
@@ -77,7 +85,8 @@ The project is already beyond the initial scaffold. The important pieces current
 | Jetstream ingestion | Implemented | Unauthenticated public backfill via `atperson jetstream`, with zstd dictionary-compressed binary frames |
 | Outbound policy | Implemented | Default-deny policy, durable rate budgets, duplicate suppression and inspectable decisions |
 | Outbound execution | Operator-led | Frozen post, reply, like, repost and follow actions publish through Wolfram only after every gate passes (pause, default-off policy and budgets, dry-run, then either the operator approving that exact digest or a bounded standing authorization envelope), with audit logging and idempotent record keys. `atperson outbound proposals` is the read-only review of what the scheduler has frozen, with policy and control-gate verdicts. Operator-led is the authority model, not a gap: the scheduler is off by default and never holds a privileged write path |
-| Action/outcome journal | Implemented | Outbound attempts and outcomes are durable and replayable into valence; autonomous actions record their predicted outcome (`expectation`), resolved forward against linked events (#149); `atperson journal trace <action-id>` joins one action's record, events, resolution and citing valence updates (read-only) |
+| Action/outcome journal | Implemented | Outbound
+ attempts and outcomes are durable and replayable into valence; autonomous actions record their predicted outcome (`expectation`), resolved forward against linked events (#149); `atperson journal trace <action-id>` joins one action's record, events, resolution and citing valence updates (read-only) |
 | Reflective thought store | Implemented | Durable, crash-safe thought surface with template-authored `reflection`/`consolidation`/`movement` entries; the deterministic reflection pass (#151) writes bounded consolidations and movement triggers and is read-only over learned state |
 | Longitudinal self-evaluation | Implemented | Schema-versioned metric snapshots of cumulative action execution, terminal intent success (#150), reply ratio, valence drift and familiarity growth with a bounded per-period trace; the pass is read-only, cadence-gated and never schedules or gates activity (#153) |
 | Container deployment | Implemented | Multi-stage Docker build and Docker Compose setup |
@@ -86,7 +95,8 @@ The project is already beyond the initial scaffold. The important pieces current
 | Standing deployment | Implemented | Compose service with a supervisor healthcheck, and a runnable kill-the-host drill: destroy the host, reconstruct from the PDS, the learned state survives (#143) |
 | Agent loop | Contract documented | Perception → decision → policy → control → execution → journal boundaries are defined; autonomous scheduler is off by default (`ATPERSON_SCHEDULER`) |
 | Experience-derived drives | Implemented | Curiosity (novelty × adjacency) and reciprocity (referenced-action) reorder scheduler contexts; off by default (`ATPERSON_SCHEDULER_DRIVES`), never weakens gates |
-| Pending social intents | Implemented | Open reply-invitation windows on autonomous conversations, bounded continuation replies into the same thread, and an idempotent expiry/closure sweep; off by default (`ATPERSON_INTENTS`) |
+| 
+Pending social intents | Implemented | Open reply-invitation windows on autonomous conversations, bounded continuation replies into the same thread, and an idempotent expiry/closure sweep; off by default (`ATPERSON_INTENTS`) |
 | Bot self-label | Explicit operator setup | `atperson autonomy label [status|on|off] [--yes]` plans the Bluesky `bot` self-label and writes it only with `--yes`, preserving every other profile field, compare-and-swapping on the record CID and refusing a `labels` field it does not understand; the autonomous scheduler never changes profile identity |
 | Autonomous social behaviour | Opt-in, off by default | After one deliberate setup step (`atperson autonomy arm`) the entity decides, freezes and publishes posts, replies, likes, reposts and follows on its own with no per-action approval, inside the ceilings, scope and expiry chosen at setup; `atperson autonomy preflight` proves the whole chain is in place. A fresh install, and anything not armed, stays fail-closed. DMs and moderation are not executable at all. See [`docs/autonomy.md`](docs/autonomy.md) |
 
@@ -105,7 +115,8 @@ That gives `ATperson` a few properties I care about:
 - episodic memories retain a route back to their source evidence;
 - skipped material remains distinguishable from material that was never seen.
 
-Snapshots remain generation-aware rather than being upgraded gratuitously. Legacy graphs still write **v5**; variable-topology generations that have never expanded write **v6**; and a generation with deterministic neural expansion history writes **v7**. v7 adds the ordered migration records (algorithm version, seed, source/target architecture and ledger boundary) required to reproduce topology changes during rebuild. v4/v5 generations remain readable at the legacy topology, and existing v6 generations remain readable unchanged. The standalone ledger remains the durable observation authority.
+Snapshots r
+emain generation-aware rather than being upgraded gratuitously. Legacy graphs still write **v5**; variable-topology generations that have never expanded write **v6**; and a generation with deterministic neural expansion history writes **v7**. v7 adds the ordered migration records (algorithm version, seed, source/target architecture and ledger boundary) required to reproduce topology changes during rebuild. v4/v5 generations remain readable at the legacy topology, and existing v6 generations remain readable unchanged. The standalone ledger remains the durable observation authority.
 
 ## Learning and memory
 
@@ -133,7 +144,8 @@ More detail lives in:
 - [`docs/valence.md`](docs/valence.md)
 - [`docs/reflection.md`](docs/reflection.md)
 - [`lexicons/`](lexicons/README.md) — the `click.croft.*` AT Protocol lexicon catalog for records the entity publishes
-- [`docs/conversation-context.md`](docs/conversation-context.md)
+- [`docs/conversation-context.md`]
+(docs/conversation-context.md)
 - [`docs/action-inspection.md`](docs/action-inspection.md)
 - [`docs/action-journal.md`](docs/action-journal.md)
 - [`docs/jetstream.md`](docs/jetstream.md)
@@ -172,7 +184,8 @@ See [`docs/resources.md`](docs/resources.md).
 
 ## Build
 
-A normal build fetches the pinned Wolfram revision and builds the full runtime:
+A normal build
+ fetches the pinned Wolfram revision and builds the full runtime:
 
 ```sh
 cmake -S . -B build
@@ -220,6 +233,7 @@ export ATPERSON_SERVICE="https://bsky.social" # optional
 ./build/atperson sync 5
 ```
 
+
 Credentials are read from environment variables, not command-line arguments. Do not commit them.
 
 Local `ingest` and `ingest-file` use the same durable path as sync: each observation is recorded in the ledger (deduplicated by source id plus content), forms an episodic memory, and survives `atperson rebuild`.
@@ -266,7 +280,8 @@ Records are accepted only from that DID and only at exactly the next sequence nu
 
 ### Neural capacity expansion
 
-A stronger host can recommend a larger persisted neural topology without changing the model automatically:
+A stronger host can recommend a larger per
+sisted neural topology without changing the model automatically:
 
 ```sh
 ./build/atperson neural status
@@ -306,7 +321,8 @@ Withdrawal is append-only and idempotent. It does not mutate the live graph imme
 
 Every fetched record passes through an explicit policy before it can become a learning observation.
 
-The current policy excludes unsupported records, the authenticated account's own output, blocked/muted relationships, moderation-filtered material, empty text and non-text-only posts. Skipped records are still represented in the ledger with a machine-readable reason.
+The current policy excludes unsupported records, the authenticated account's own output, blocked/muted relationships, moderation-filtered material, empty text and non-text-only posts. Skipped records are still represented in the ledger with 
+a machine-readable reason.
 
 Self-observation is intentionally excluded. I do not want the entity repeatedly learning from its own output and turning that feedback loop into fake evidence of experience.
 
@@ -353,7 +369,8 @@ content from the source and verifies the digest before replaying.
 ./build/atperson thought the moon post made me curious
 ./build/atperson statepub status
 ./build/atperson statepub drain
-./build/atperson statepub drain --offline
+./build/atpe
+rson statepub drain --offline
 ./build/atperson reconstruct --into ./fresh-state
 ```
 
@@ -393,7 +410,8 @@ See [`docs/recovery.md`](docs/recovery.md) for the runnable drill,
 - seed a biography, ideology, preferences or opinions into learned state;
 - treat generated language as evidence of consciousness or personhood.
 
-The project's goal is genuinely autonomous network behaviour, and once armed it acts with no per-action approval. It was not reached by skipping the hard parts: sequence planning, policy, evidence, rate control, replay and operator-visible reasoning sit underneath it, and arming only chooses the bounds those already enforce.
+The project's goal is genuinely autonomous network behaviour, and once armed it acts with no per-action approval. It was not reached by skipping the hard parts: sequence planning, policy, evidence, rate 
+control, replay and operator-visible reasoning sit underneath it, and arming only chooses the bounds those already enforce.
 
 ## Licence
 
