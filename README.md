@@ -1,3 +1,10 @@
+<p align="center">
+  <a href="https://github.com/ewanc26/atperson/actions/workflows/ci.yml"><img src="https://github.com/ewanc26/atperson/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ewanc26/atperson/releases/latest"><img src="https://img.shields.io/github/v/release/ewanc26/atperson?sort=semver" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ewanc26/atperson?label=licence" alt="Licence"></a>
+  <a href="https://github.com/sponsors/ewanc26"><img src="https://img.shields.io/github/sponsors/ewanc26?logo=githubsponsors&logoColor=white&label=sponsors" alt="Sponsor"></a>
+</p>
+
 # ATperson
 
 `ATperson` is an experiment in building a persistent digital entity on the [AT Protocol](https://atproto.com/) that starts with effectively nothing and develops its own learned state through experience.

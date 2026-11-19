@@ -1,5 +1,7 @@
 # AGENTS.md
 
+Guidance for AI coding agents working in **atperson**.
+
 ## `ATperson`
 
 `ATperson` is an experimental persistent learning entity for the AT Protocol. It
