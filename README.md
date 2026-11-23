@@ -406,6 +406,8 @@ The project's goal is genuinely autonomous network behaviour, and once armed it 
 
 AGPL-3.0. See [`LICENSE`](LICENSE).
 
+Copyright (C) 2026 Ewan Croft (ewanc26).
+
 ## Star History
 
 <a href="https://www.star-history.com/?repos=ewanc26%2Fatperson&type=date&legend=bottom-right">
